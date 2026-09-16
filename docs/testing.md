@@ -51,3 +51,25 @@ concurrent writers, bounded operation backlog, cancellation, and post-commit syn
 failure without publication rejection. Protocol subprocesses used standard sandbox
 escalation. These are deterministic/local protocol tests, not live GUI evidence;
 no terminal panes or desktop notifications were operated for integration.
+
+## Merged trial: live supervisor verification (2026-09-16)
+
+Two visible Codex workers created separate worktrees under `/home/zak/personal`,
+implemented watches and the event queue, and merged locally into `main` in sequence.
+The combined build passed all 43 tests. The original uncommitted `AGENTS.md` change
+was preserved byte-for-byte; no remote or push was used.
+
+After merge `ed7ec4a`, the supervisor ran an ad hoc stdio MCP check against the built
+server and real WezTerm, with a private temporary event directory and one temporary
+shell pane. It verified automatic inactivity delivery, a return-to-prompt event
+after `sleep 3` and a split `printf` result marker, filtered event waits, acknowledgment,
+and pending-event replay with the same ID after closing and reconnecting the MCP
+client. The pane survived that disconnect. A recreated watch then reported pane
+disappearance after deliberate test-pane closure. The final pane count matched
+the initial count; both implementation-worker panes remained open.
+
+`npm run test:live` also passed against the merged build, covering the existing
+shell, layout, broadcast, observation, interruption, and cleanup behavior. These
+checks required authorized host execution after the sandboxed MCP subprocess
+connection closed during initialization. No desktop balloon was sent or visually
+verified; desktop notification delivery remains covered by injected-provider tests.
