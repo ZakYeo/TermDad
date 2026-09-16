@@ -59,6 +59,19 @@ codex mcp add term-dad --env TERM_DAD_SCREENSHOT_COMMAND=/home/zak/personal/term
 
 `terminal.screenshot` and `agent.screenshot` return MCP PNG images. The bundled provider captures the whole WezTerm window and activates the requested pane/tab first. It matches the target GUI window by title, restores it if minimized, and fails when the title is ambiguous. See [screenshot strategy](docs/architecture.md#screenshots).
 
+## Background watches
+
+Use `watch.create` with a managed `agentId`, or an existing `paneId` plus an explicit
+`adapter`, to monitor prompt transitions, input requests, inactivity and disappearance.
+Watches never approve prompts or infer task success. Desktop notifications are
+opt-in; see [watch tools and Windows/WSL setup](docs/tools.md#background-watches).
+
+Watch events enter a bounded durable metadata queue. Use `event.wait_for_event`
+or `event.list` to retrieve them and `event.acknowledge` after handling them.
+Pending events replay after restart; watch registrations must be recreated.
+Set `TERM_DAD_STATE_DIR` to choose a private local storage directory; see
+[queue limits and recovery](docs/tools.md#durable-metadata-events).
+
 ## Development and tests
 
 ```sh

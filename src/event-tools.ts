@@ -8,5 +8,5 @@ export function registerEventTools(server:McpServer,queue:EventQueue){
  server.registerTool('event.acknowledge',{description:'Idempotently acknowledge durable events. Unknown or expired IDs are reported.',inputSchema:{ids:z.array(z.uuid()).min(1).max(100)}},async({ids})=>result(()=>queue.acknowledge(ids)));
  server.registerTool('event.wait_for_event',{description:'Wait for any pending event matching all supplied filters; never infers worker success. Does not acknowledge.',inputSchema:{...eventFilterSchema.shape,timeoutMs:z.number().int().min(1).max(120000).default(30000)}},async({timeoutMs,...filter},extra)=>result(()=>queue.wait(filter,timeoutMs,extra.signal)));
  const onclose=server.server.onclose;
- server.server.onclose=()=>{onclose?.();void queue.close();};
+ server.server.onclose=async()=>{await queue.close();await onclose?.();};
 }

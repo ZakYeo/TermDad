@@ -11,6 +11,7 @@
     "README.md",
     "docs",
     "scripts/screenshot-*",
+    "scripts/notify-*",
     "scripts/launch-local"
   ],
   "scripts": {
