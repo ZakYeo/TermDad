@@ -4,7 +4,7 @@ import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
 const client=new Client({name:'term-dad-live-test',version:'1'});
 const transport=new StdioClientTransport({command:process.execPath,args:['dist/index.js'],stderr:'inherit'});
 const call=async(name:string,args:Record<string,unknown>={})=>{const result=await client.callTool({name,arguments:args});assert.ok(!result.isError,JSON.stringify(result));return JSON.parse((result.content as any)[0].text);};
-let agentId:string|undefined,split:number|undefined;
+let agentId:string|undefined,secondId:string|undefined,split:number|undefined,newWindowPane:number|undefined;
 try{
  await client.connect(transport);
  const before=await call('terminal.list');assert.ok(before.length>0,'A live WezTerm GUI is required');
@@ -16,9 +16,19 @@ try{
  split=await call('terminal.split',{paneId:a.paneId,direction:'right',percent:30,command:['bash','--noprofile','--norc','-i']});
  await call('terminal.resize',{paneId:split,direction:'Left',amount:2});await call('terminal.focus',{target:'pane',id:split});await call('terminal.move',{paneId:split});
  await call('terminal.close',{target:'pane',id:split});split=undefined;
+ const second=await call('agent.spawn',{name:'term-dad-broadcast-shell',cli:'shell',paneId:a.paneId,command:['bash','--noprofile','--norc','-i']});secondId=second.agentId;
+ await call('agent.wait_until_idle',{agentId:secondId,timeoutMs:15000});
+ await call('agent.broadcast',{agentIds:[agentId,secondId],text:"printf '\\nTERM_DAD_%s\\n' BROADCAST"});
+ for(const worker of [agentId,secondId])await call('agent.wait_for_text',{agentId:worker,text:'TERM_DAD_BROADCAST',timeoutMs:15000});
+ assert.equal((await call('agent.collect_results')).length,2);assert.equal((await call('orchestrator.status')).length,2);
+ assert.ok((await call('terminal.snapshot')).panes.length>=3);
+ await call('agent.stop',{agentId:secondId});secondId=undefined;
+ newWindowPane=await call('terminal.spawn',{paneId:a.paneId,newWindow:true,command:['bash','--noprofile','--norc','-i']});
+ const window=(await call('terminal.list')).find((p:any)=>p.pane_id===newWindowPane);
+ await call('terminal.focus',{target:'window',id:window.window_id});await call('terminal.close',{target:'window',id:window.window_id});newWindowPane=undefined;
  await call('agent.send',{agentId,text:'sleep 30'});await call('agent.interrupt',{agentId});
  await call('agent.wait_until_idle',{agentId,timeoutMs:15000});
  await call('agent.stop',{agentId});agentId=undefined;
  assert.equal((await call('terminal.list')).length,before.length);
- console.log('PASS: live MCP spawn, shell readiness, initial/follow-up input, output, split, resize, focus, move, interrupt and cleanup');
-}finally{if(split!==undefined)await call('terminal.close',{target:'pane',id:split}).catch(console.error);if(agentId)await call('agent.stop',{agentId}).catch(console.error);await client.close();}
+ console.log('PASS: live MCP spawn, shell readiness, initial/follow-up input, output, split, resize, focus, move, broadcast, snapshots, new window, interrupt and cleanup');
+}finally{if(secondId)await call('agent.stop',{agentId:secondId}).catch(console.error);if(newWindowPane!==undefined)await call('terminal.close',{target:'pane',id:newWindowPane}).catch(console.error);if(split!==undefined)await call('terminal.close',{target:'pane',id:split}).catch(console.error);if(agentId)await call('agent.stop',{agentId}).catch(console.error);await client.close();}

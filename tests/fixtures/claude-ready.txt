@@ -4,15 +4,14 @@
   ▝▝ ▝▝    ~/personal/term-dad
 
 
-❯ This is a terminal transport smoke test. Do not use tools or modify files. Reply with just the concatenation of TERM_DAD_ and         
-  FIRST_OK.                                                                                                                             
+❯ This is a terminal transport smoke test. Do not use tools or modify files. Reply with just the concatenation of TERM_DAD_ and FIRST_OK.
 
 ● TERM_DAD_FIRST_OK
 
 ● Ran 3 stop hooks
   ⎿  Stop hook error: Failed with non-blocking status code: /bin/sh: 1: bun: not found
 
-✻ Sautéed for 1s · done 11:43 AM
+✻ Worked for 1s · done 11:51 AM
 
 
 
@@ -27,9 +26,23 @@
 
 
 
-                                                                                                                                        
-                                                                                              Stop hook error occurred · ctrl+o to see  
-────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-❯                                                                                                                                       
-────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                           Stop hook error occurred · ctrl+o to see
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   ⏵⏵ auto mode on (shift+tab to cycle) · ← 1 agent

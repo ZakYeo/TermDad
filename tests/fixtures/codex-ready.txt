@@ -1,0 +1,22 @@
+
+╭──────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.154.0)                       │
+│                                                  │
+│ model:     gpt-6-astra medium   /model to change │
+│ directory: ~/personal/term-dad                   │
+╰──────────────────────────────────────────────────╯
+
+  Tip: Run /review to get a code review of your current changes.
+
+
+› This is a terminal transport smoke test. Do not use tools or modify files. Reply with just the concatenation of TERM_DAD_ and FIRST_OK.
+
+
+• You have 1 usage limit reset available. Run /usage to use one.
+
+• TERM_DAD_FIRST_OK
+
+
+› Ask Codex to do anything
+
+  gpt-6-astra medium · ~/personal/term-dad · renaming... ⠧

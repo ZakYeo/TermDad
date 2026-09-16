@@ -9,12 +9,12 @@ Requires Node.js 22+, a running WezTerm GUI, and locally installed/authenticated
 ```sh
 npm ci
 npm run build
-codex mcp add term-dad -- node /home/zak/personal/term-dad/dist/index.js
+codex mcp add term-dad -- /home/zak/personal/term-dad/scripts/launch-local
 ```
 
 Restart the Codex session after adding the server. Ask it: “Use term-dad to list my terminal panes, start a shell worker in a new tab, run `pwd`, and show its output.” The command syntax follows the [official Codex MCP documentation](https://developers.openai.com/codex/mcp/).
 
-For another checkout, replace the absolute path. No global npm install is required. Any stdio MCP client can use `node` with the absolute `dist/index.js` argument. Avoid `npm start` as the MCP launch command: npm can print banners to stdout. Server diagnostics go to stderr.
+The local launcher resolves Claude and Codex from your PATH, including npm-installed Codex under nvm. For another checkout, replace the absolute path. No global npm install is required. Any stdio MCP client can use `node` with the absolute `dist/index.js` argument. Avoid `npm start` as the MCP launch command: npm can print banners to stdout. Server diagnostics go to stderr.
 
 WezTerm is detected as `wezterm` or the standard Windows installation at `/mnt/c/Program Files/WezTerm/wezterm.exe` when running in WSL. Set `TERM_DAD_WEZTERM` to override. Run the server with access to your desktop/WSL interoperability; a sandbox that blocks Windows process execution cannot reach the GUI.
 
@@ -32,6 +32,21 @@ agent.stop({"agentId":"research"})
 
 Use an actual pane ID from `terminal.list`. `paneId` on spawn selects the parent domain/window; the worker opens in a new tab. Use `terminal.split` for a split. A `command` argv array overrides the executable, for example `["/home/zak/.local/bin/claude"]`. Paths and commands refer to the target WezTerm domain, which may differ from the server host.
 
+New WSL panes on this machine do not load nvm. The local launcher handles this automatically. If launching `node dist/index.js` directly, configure worker argv explicitly (or supply `command` to `agent.spawn`):
+
+```sh
+codex mcp add term-dad \
+  --env 'TERM_DAD_CLAUDE_COMMAND=["/home/zak/.local/bin/claude"]' \
+  --env 'TERM_DAD_CODEX_COMMAND=["/home/zak/.nvm/versions/node/v22.14.0/bin/node","/home/zak/.nvm/versions/node/v22.14.0/lib/node_modules/@openai/codex/bin/codex.js"]' \
+  --env TERM_DAD_SCREENSHOT_COMMAND=/home/zak/personal/term-dad/scripts/screenshot-wsl \
+  -- node /home/zak/personal/term-dad/dist/index.js
+```
+
+The local launcher assumes workers run on this host; for remote domains, supply target-domain commands instead.
+
+`TERM_DAD_CLAUDE_COMMAND`, `TERM_DAD_CODEX_COMMAND`, and `TERM_DAD_SHELL_COMMAND` accept JSON argv arrays. Explicit per-spawn commands take precedence. Adjust paths if Node or your CLI installation changes.
+
+
 If startup stops at a trust, login, or permission screen, `agent.spawn` with a prompt times out with the agent ID and pane ID; the pane stays open. Observe it and use `terminal.send_key` to interact deliberately, then `agent.send`. The server never automatically approves these screens. Spawn without a prompt to manage onboarding yourself.
 
 ## Screenshots
@@ -39,10 +54,10 @@ If startup stops at a trust, login, or permission screen, `agent.spawn` with a p
 Text is the primary observation channel. An optional Windows/WSL provider is included:
 
 ```sh
-codex mcp add term-dad --env TERM_DAD_SCREENSHOT_COMMAND=/home/zak/personal/term-dad/scripts/screenshot-wsl -- node /home/zak/personal/term-dad/dist/index.js
+codex mcp add term-dad --env TERM_DAD_SCREENSHOT_COMMAND=/home/zak/personal/term-dad/scripts/screenshot-wsl -- /home/zak/personal/term-dad/scripts/launch-local
 ```
 
-`terminal.screenshot` and `agent.screenshot` return MCP PNG images. The bundled provider captures the whole WezTerm window and activates the requested pane/tab first. It requires exactly one GUI window and fails on ambiguous layouts. See [screenshot strategy](docs/architecture.md#screenshots).
+`terminal.screenshot` and `agent.screenshot` return MCP PNG images. The bundled provider captures the whole WezTerm window and activates the requested pane/tab first. It matches the target GUI window by title, restores it if minimized, and fails when the title is ambiguous. See [screenshot strategy](docs/architecture.md#screenshots).
 
 ## Development and tests
 
@@ -51,6 +66,7 @@ npm run check          # TypeScript build + unit and stdio protocol tests
 npm run test:live      # Actual WezTerm + MCP shell/layout/interrupt round trip
 npm run test:agent -- claude  # Actual authenticated Claude, two short prompts
 npm run test:agent -- codex   # Actual authenticated Codex, two short prompts
+npm run test:screenshot      # Actual Windows/WSL screenshot returned through MCP
 ```
 
 Live tests open visible tabs and clean up their own panes. Agent tests use your CLI account and can incur usage. They do not ask workers to edit files. Unit tests use an injected CLI runner; the live tests use the real stdio MCP server and real WezTerm. Run tests outside a sandbox that blocks subprocess pipes or WSL interoperability. See [test evidence](docs/testing.md).
