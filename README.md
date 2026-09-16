@@ -101,6 +101,21 @@ after an initial readiness timeout, the first successful `agent.send` supplies
 them. Use managed agent tools for Codex workers: raw terminal tools do not apply
 this initialization. Claude and shell workers receive their task text unchanged.
 
+## Selecting and switching GUIs
+
+Without an inherited socket, Term Dad selects a running GUI automatically: the
+only live GUI, the foreground WezTerm GUI, or the most recently started GUI if
+another application is foreground. The selected process stays pinned even when
+focus changes or the GUI exits. Pane IDs alone do not identify a GUI.
+
+Use `terminal.list_instances({})` to see running Windows/WSL GUIs and the selected
+identity, then `terminal.select_instance({"key":"<exact returned key>"})` to switch
+this MCP server without restarting it. Remove watches and let active tool calls
+finish first; recreate watches for the new target. Switching sends no input and
+keeps worker panes and mappings intact. Workers from other GUIs remain detached.
+Selections last for this server session; an inherited socket still takes precedence
+when a new server starts.
+
 ## Persistent workers and adoption
 
 Managed workers are saved under `TERM_DAD_STATE_DIR` (default:
@@ -112,7 +127,8 @@ fresh after restart.
 
 On Windows/WSL, the bundled host-side helper verifies the GUI process and its
 start time. With one running GUI, it discovers the standard socket automatically.
-With multiple GUIs, configure `WEZTERM_UNIX_SOCKET` on the MCP server to the chosen
+With multiple GUIs, selection follows the foreground/newest policy above.
+To prefer a specific GUI, configure `WEZTERM_UNIX_SOCKET` on the MCP server to the chosen
 Windows path, typically `C:\Users\<user>\.local\share\wezterm\gui-sock-<PID>`.
 Find the GUI PID with PowerShell `Get-Process wezterm-gui`; socket files are under
 that user's `.local\share\wezterm` directory. The server forwards the endpoint

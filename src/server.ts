@@ -14,11 +14,24 @@ import { TaskBoard } from './tasks.js';
 import { FileTaskStorage,type TaskStorage } from './task-storage.js';
 import { registerTaskTools } from './task-tools.js';
 import { withWorkerTasks } from './task-workers.js';
+import { guardTerminalSelection } from './terminal-selection.js';
 export function createServer(backend:TerminalBackend=new WezTermBackend(),screenshots:ScreenshotProvider=new CommandScreenshotProvider(),watchOptions:WatchOptions|EventQueue={},eventQueue?:EventQueue,workerStorage:WorkerStorage=new FileWorkerStorage(),taskStorage:TaskStorage=new FileTaskStorage()){
  const server=new McpServer({name:'term-dad',version:'0.1.0'}),agents=new Agents(backend,workerStorage),tasks=new TaskBoard(taskStorage);
+ guardTerminalSelection(server);
  const register=(name:string,description:string,shape:z.ZodRawShape,fn:(a:any)=>Promise<unknown>)=>server.registerTool(name,{description,inputSchema:shape},async a=>{try{const result=await fn(a);return {content:[{type:'text' as const,text:JSON.stringify(result??{ok:true})}]};}catch(e){const message=e instanceof Error?e.message:String(e);console.error(`[term-dad] ${name}: ${message}`);return {isError:true,content:[{type:'text' as const,text:message}]};}});
  const pane={paneId:id},agent={agentId:z.string().min(1)},text={text:z.string().max(100000)},wait={timeoutMs:z.number().int().min(1).max(120000).default(30000)};
  register('terminal.list','List live WezTerm windows, tabs and panes.',{},()=>backend.list());
+ register('terminal.list_instances','List verified running WezTerm GUIs and the selected identity (Windows/WSL).',{},async()=>{
+  if(!backend.listInstances)throw new Error('GUI selection is unavailable for this backend');
+  const instances=await backend.listInstances();
+  try{return {instances,selected:await backend.instance?.()??null};}
+  catch(e){return {instances,selected:null,selectionError:e instanceof Error?e.message:'Selected GUI unavailable'};}
+ });
+ register('terminal.select_instance','Switch this server to an exact GUI identity returned by terminal.list_instances; sends no input. Remove watches first.',{key:z.string().min(1).max(1024)},async a=>{
+  if(!backend.selectInstance)throw new Error('GUI selection is unavailable for this backend');
+  watches.assertSwitchable();
+  return {selected:await backend.selectInstance(a.key)};
+ });
  register('terminal.spawn','Create a visible tab or window; command is an argv array.',spawnSchema.shape,a=>backend.spawn(a));
  register('terminal.split','Split right (side by side) or bottom (stacked).',{...spawnSchema.shape,...pane,direction:z.enum(['right','bottom']).default('right'),percent:z.number().int().min(1).max(99).optional()},a=>backend.split(a));
  register('terminal.read','Read last N lines of visible text and scrollback.',{...pane,lines:z.number().int().min(1).max(5000).default(100)},a=>backend.read(a.paneId,a.lines));

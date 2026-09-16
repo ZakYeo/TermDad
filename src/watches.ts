@@ -43,6 +43,7 @@ export class WatchManager {
   w.nextPoll=this.now()+w.pollMs;this.schedule();return this.view(w);
  }
  list(){return [...this.records.values()].map(w=>this.view(w));}
+ assertSwitchable(){if(this.records.size||this.creations.size||this.running)throw new Error('TERMINAL_BUSY: remove watches and let polling finish before switching GUI');}
  private view(w:Watch){return {watchId:w.watchId,paneId:w.paneId,agentId:w.agentId,adapter:w.adapter,pollMs:w.pollMs,inactivityMs:w.inactivityMs,cooldownMs:w.cooldownMs,notify:w.notify,status:w.status,disappeared:w.disappeared,pendingEvents:w.pending.size,lastEvent:w.lastEvent,backendError:w.backendError,deliveryError:w.deliveryError};}
  remove(watchId:string){const removed=this.records.delete(watchId);if(!this.records.size&&this.timer){clearTimeout(this.timer);this.timer=undefined;}return {removed};}
  async dispose(){this.disposed=true;if(this.timer)clearTimeout(this.timer);this.timer=undefined;this.records.clear();await Promise.allSettled([...this.creations,...(this.running?[this.running]:[])]);}

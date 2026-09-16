@@ -247,3 +247,19 @@ containing spaces and dollar signs, and preservation of explicit command overrid
   WEZTERM_UNIX_SOCKET to select one WezTerm GUI endpoint.” No test panes were opened.
   The updated live turn-wait and verified-completion paths are **not live verified**.
   Rerun with a selected live endpoint; authenticated agent checks were not run.
+
+## GUI discovery and switching — 2026-09-16
+
+- `npm run check` passed all 147 tests in the working checkout, including resolver
+  pinning/failure/concurrency coverage and MCP switch exclusion during submit and
+  watches. This run included pre-existing uncommitted attention tests. Sandboxed
+  subprocess tests failed; the suite passed with normal subprocess access.
+- The exact intended commit was also built and tested in an isolated temporary
+  checkout without the earlier uncommitted work: all 135 tests passed.
+- Live `terminal.list` in the existing MCP session recovered access to the current
+  GUI (PID 46848, two panes) after the helper update.
+- A fresh stdio MCP client with no inherited socket discovered two running GUIs,
+  selected PID 46848 by default, switched to each exact returned identity, listed
+  two and nine panes respectively, and restored its original selection. No terminal
+  input was sent and no panes were opened or closed. New selection tools require
+  existing clients to restart/reconnect to the rebuilt server.

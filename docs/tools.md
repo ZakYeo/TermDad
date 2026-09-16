@@ -4,6 +4,8 @@ Tool names use dots. All arguments are JSON objects. Omitted arguments below use
 
 | Tool | Arguments and behavior |
 |---|---|
+| terminal.list_instances | `{}` → up to 64 live Windows/WSL GUI identities (`key`, `endpoint`, `pid`, `title`), plus `selected`; unavailable selection is reported as `selectionError` |
+| terminal.select_instance | `key` → select an exact live identity returned above, for this server session; no terminal input |
 | terminal.list | `{}` → raw pane metadata including window/tab IDs, cwd, dimensions |
 | terminal.spawn | `paneId?, windowId?, newWindow?, domain?, cwd?, command?: string[]` → new pane ID in a tab/window |
 | terminal.split | `paneId, direction?: right\|bottom, percent?: 1..99, cwd?, command?` → new split pane ID |
@@ -58,8 +60,9 @@ names survive restart; terminal output, observation IDs and watches do not.
 An old `since` observation ID produces a full replacement with `deltaReset:true`.
 
 Automatic recovery requires a matching terminal endpoint and process identity.
-Windows/WSL uses the bundled `scripts/instance-windows.ps1` helper; set the MCP
-server's `WEZTERM_UNIX_SOCKET` when multiple GUIs are running. The endpoint must
+Windows/WSL uses the bundled `scripts/instance-windows.ps1` helper and automatic
+GUI selection described below. Set or inherit `WEZTERM_UNIX_SOCKET` to prefer a
+specific containing GUI. The endpoint must
 be a local GUI socket named `gui-sock-PID`. Other platforms currently have no
 automatic identity provider: spawn/adopt work for that server session, and the
 next session requires explicit reattachment. Unreachable Windows endpoints must
@@ -376,3 +379,24 @@ observation state, reset on restart/reattachment; no prompt text is stored durab
 Permission classification takes precedence. Recognizable sign-in prompts require
 input; generic authentication failures still classify as errors. No prompt is
 automatically approved or answered.
+
+## Selecting a WezTerm GUI
+
+On Windows/WSL, the inherited `WEZTERM_UNIX_SOCKET` wins. Without it, the server
+selects the sole live GUI, otherwise the foreground WezTerm GUI, otherwise the
+most recently started GUI (PID breaks start-time ties). It pins the endpoint and
+process start identity; focus changes never redirect operations. An exited or
+replaced GUI produces an error until explicit selection or server restart.
+
+`terminal.list_instances` lists candidates even when the pinned GUI is gone.
+Pass an exact returned `key` to `terminal.select_instance` to switch. A stale or
+invalid key leaves the previous selection intact. This affects only this server;
+it does not change environment variables or other clients. Other platforms and
+backends without discovery support return an unsupported error.
+
+Switching returns `TERMINAL_BUSY` if another tool call is active or watches remain.
+Finish/cancel waits, remove watches, allow pending polling to finish, then retry.
+Calls arriving during selection also return busy. Recreate watches after switching.
+Worker mappings remain durable and workers in other GUIs become detached; switching
+back recovers matching live workers. No panes are closed and no tasks are replayed.
+Always list panes again after switching: pane IDs can overlap across GUIs.

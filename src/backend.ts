@@ -2,7 +2,7 @@ import { spawn as spawnProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { StringDecoder } from 'node:string_decoder';
 import { z } from 'zod';
-import { windowsInstance } from './terminal-instance.js';
+import { windowsInstance,type GuiInstance } from './terminal-instance.js';
 import type { TerminalInstance } from './worker-storage.js';
 
 export const id = z.number().int().nonnegative().safe();
@@ -32,6 +32,8 @@ export function execute(file:string,args:string[],input?:string,timeout=15000,en
 }
 export interface TerminalBackend {
  instance?():Promise<TerminalInstance|null>;
+ listInstances?():Promise<GuiInstance[]>;
+ selectInstance?(key:string):Promise<TerminalInstance>;
  list():Promise<Pane[]>; spawn(o:SpawnOptions):Promise<number>; split(o:SpawnOptions & {paneId:number;direction?:'right'|'bottom';percent?:number}):Promise<number>;
  read(paneId:number,lines?:number):Promise<string>; sendText(paneId:number,text:string,raw?:boolean):Promise<void>;
  close(paneId:number):Promise<void>; focus(paneId:number):Promise<void>; resize(paneId:number,direction:string,amount:number):Promise<void>; move(paneId:number,newWindow?:boolean,windowId?:number):Promise<void>;
@@ -45,9 +47,13 @@ export function terminalEnvironment(endpoint?:string):NodeJS.ProcessEnv {
 export class WezTermBackend implements TerminalBackend {
  readonly run:Runner;
  readonly instance:()=>Promise<TerminalInstance|null>;
+ readonly listInstances?:()=>Promise<GuiInstance[]>;
+ readonly selectInstance?:(key:string)=>Promise<TerminalInstance>;
  constructor(run?:Runner,identity?:()=>Promise<TerminalInstance|null>){
   const binary=defaultBinary();
-  this.instance=identity??(run?async()=>null:windowsInstance(binary,execute));
+  const resolver=!identity&&!run?windowsInstance(binary,execute):undefined;
+  this.instance=identity??resolver??(async()=>null);
+  if(resolver){this.listInstances=()=>resolver.list();this.selectInstance=key=>resolver.select(key);}
   this.run=run??(async(args,input)=>{
    const identity=await this.instance(),endpoint=identity?.endpoint??process.env.WEZTERM_UNIX_SOCKET;
    return execute(binary,['cli','--no-auto-start',...args],input,15000,terminalEnvironment(endpoint));

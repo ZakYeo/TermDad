@@ -184,10 +184,10 @@ claimed. Concurrent operations reject as busy, and all admitted operations drain
 on shutdown. Wait loops stop when their next observation sees shutdown.
 
 `TerminalBackend.instance` is optional. The Windows/WSL resolver uses a configured
-local GUI socket (or discovers the standard socket for a single GUI) and verifies
+local GUI socket (or discovers the sole, foreground, or newest live GUI) and verifies
 the executable, PID and start time via a read-only PowerShell helper. CLI and
 screenshot subprocesses explicitly inherit the selected endpoint. A resolver
-pins its first GUI identity and rejects a replacement until MCP restart. Other
+pins its first GUI identity and rejects a replacement until explicit selection or MCP restart. Other
 backends return null unless an identity provider is injected. Null identity permits
 only explicit process-local attachment; it never establishes automatic recovery.
 
@@ -254,3 +254,15 @@ legacy awaitingInput remains compatible. Unknown output retains uncertainty;
 sending input does not resolve a request. Turn waits return explicit reasons and
 retain permission precedence, the stale-prompt guard, and verified disappearance.
 Binding changes, supersession and uncertain delivery cannot yield turn completion.
+
+## GUI selection boundary
+
+The Windows identity resolver exposes bounded discovery and explicit selection by
+verified process/start key. Failed selection preserves the previous target.
+`TerminalBackend` keeps discovery/selection optional for injected and native backends.
+A server-wide tool gate excludes selection from concurrent multi-step operations,
+including submit, screenshots, worker waits, and attention refreshes. Normal tool
+calls remain concurrent. Selection additionally requires no registered watches,
+watch creations, or polling pass, so unmanaged pane watches cannot follow a reused
+pane ID in another GUI. Durable workers continue using their existing identity
+checks and are never rebound or deleted merely because the target changes.
