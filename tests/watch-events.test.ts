@@ -1,3 +1,4 @@
+import { MemoryWorkerStorage } from '../src/worker-storage.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp,readFile,rm } from 'node:fs/promises';
@@ -14,7 +15,7 @@ function deferred(){let resolve!:()=>void;const promise=new Promise<void>(r=>{re
 async function connect(queue:EventQueue,options:WatchOptions={}){
  let now=0,text='Working (1s • esc to interrupt)';const calls:string[]=[];
  const backend=new WezTermBackend(async args=>{calls.push(args[0]);if(args[0]==='list')return JSON.stringify([{pane_id:7,tab_id:1,window_id:1,title:'private-title',cwd:'/',size:{rows:24,cols:80}}]);if(args[0]==='spawn')return '7';return text;});
- const app=createServer(backend,undefined,{automatic:false,now:()=>now,...options},queue);
+ const app=createServer(backend,undefined,{automatic:false,now:()=>now,...options},queue,new MemoryWorkerStorage());
  const [a,b]=InMemoryTransport.createLinkedPair();const client=new Client({name:'integration-test',version:'1'});
  await app.server.connect(a);await client.connect(b);
  const call=async(name:string,args:Record<string,unknown>={})=>{const r=await client.callTool({name,arguments:args});assert.notEqual(r.isError,true,JSON.stringify(r));return JSON.parse((r.content as {text:string}[])[0].text);};

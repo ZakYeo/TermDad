@@ -8,7 +8,7 @@ const client=new Client({name:'term-dad-agent-e2e',version:'1'});
 const call=async(name:string,args:Record<string,unknown>={})=>{const r=await client.callTool({name,arguments:args},undefined,{timeout:150000});if(r.isError)throw new Error(JSON.stringify(r));return JSON.parse((r.content as any)[0].text);};
 let agentId:string|undefined;
 try{
- await client.connect(new StdioClientTransport({command:`${process.cwd()}/scripts/launch-local`,env:{PATH:process.env.PATH!},stderr:'inherit'}));
+ await client.connect(new StdioClientTransport({command:`${process.cwd()}/scripts/launch-local`,env:{...process.env} as Record<string,string>,stderr:'inherit'}));
  const panes=await call('terminal.list');
  const a=await call('agent.spawn',{name:`term-dad-${cli}-e2e`,cli,paneId:panes[0].pane_id,cwd:process.cwd(),prompt:'This is a terminal transport smoke test. Do not use tools or modify files. Reply with just the concatenation of TERM_DAD_ and FIRST_OK.',timeoutMs:30000});agentId=a.agentId;
  const first=await call('agent.wait_for_text',{agentId,text:'TERM_DAD_FIRST_OK',timeoutMs:120000});

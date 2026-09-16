@@ -36,11 +36,23 @@ Observations return IDs, status, activity, timestamps, output hash, cwd, process
 
 `ScreenshotProvider` returns a PNG MCP image. `CommandScreenshotProvider` invokes a configured trusted executable with one pane ID argument; stdout must contain base64 PNG. It enforces a signature and 5 MiB bound. No polling captures screenshots.
 
-The bundled PowerShell provider matches the current mux window title against WezTerm GUI process window titles and captures the matching HWND with PrintWindow. A leading braille activity spinner is ignored. Ambiguous or changing titles produce an error instead of capturing an unrelated window. Captures include the whole terminal window, including other visible panes, activate the requested pane first, and restore a minimized window. The WSL wrapper uses a process-local execution policy override to run this repository's script; it does not change the machine policy. GPU capture may vary by driver, so inspect results on a new machine. Linux/macOS providers can implement the same executable contract.
+The bundled PowerShell provider restricts candidates to the configured GUI socket PID when present, matches the current mux window title against that process window title, and captures the matching HWND with PrintWindow. A leading braille activity spinner is ignored. Ambiguous or changing titles produce an error instead of capturing an unrelated window. Captures include the whole terminal window, including other visible panes, activate the requested pane first, and restore a minimized window. The WSL wrapper uses a process-local execution policy override to run this repository's script; it does not change the machine policy. GPU capture may vary by driver, so inspect results on a new machine. Linux/macOS providers can implement the same executable contract.
 
 ## Lifecycle and failures
 
-MCP stdio stdout contains only protocol messages. Tool failures return `isError` and diagnostics; logs go to stderr without intentionally logging terminal content. CLI calls have a 15-second subprocess timeout and 8 MiB output limit. Worker waits allow up to 120 seconds plus the duration of the final observation. A failed initial prompt wait retains the worker for diagnosis. Closing the MCP connection does not kill workers. Multiple server instances have independent registries but see the same terminal panes.
+Managed Codex workers receive an explicit `$term-dad-worker` invocation and the
+bundled skill body with their first submitted task. The same skill source ships
+in `skills/` for local installation; embedding it avoids server-host paths in
+remote domains. No prompt means initialization is deferred until `agent.send`
+(also used by broadcasts). Successful submission marks initialization complete;
+follow-ups remain literal. Concurrent inputs to one worker are rejected to avoid
+interleaved pastes and duplicate initialization. Failed submission records uncertain delivery, since a transport failure after
+paste/Enter may have delivered some input. Inspect and explicitly reattach before
+retrying, declaring whether the skill was initialized. This is delivery of role
+instructions, not proof the model followed them. Raw terminal operations do not
+initialize skills, and Claude/shell inputs are unchanged.
+
+MCP stdio stdout contains only protocol messages. Tool failures return `isError` and diagnostics; logs go to stderr without intentionally logging terminal content. CLI calls have a 15-second subprocess timeout and 8 MiB output limit. Worker waits allow up to 120 seconds plus the duration of the final observation. A failed initial prompt wait retains the worker for diagnosis. Closing the MCP connection does not kill workers. Multiple server instances sharing a state directory share durable worker metadata and input exclusion, while observation caches remain process-local.
 
 ## Durable event journal
 
@@ -137,3 +149,47 @@ closes worker panes on watch removal or MCP disconnect.
 `CommandNotificationProvider` is opt-in through a JSON argv environment setting;
 its bounded subprocess receives metadata JSON via stdin and never writes child
 output to MCP stdout. See the tool reference for the Windows/WSL helper setup.
+
+## Persistent worker registry
+
+`worker-storage.ts` defines validated metadata and injectable `WorkerStorage`
+transactions/exclusion. `FileWorkerStorage` and `FileEventStorage` share the
+atomic `FileJournal` implementation in `journal.ts`, with separate files and
+locks. `MemoryWorkerStorage` is explicitly available for tests/embedders; standalone
+`Agents` defaults to isolated memory, while `createServer` defaults to file storage
+and accepts storage as its fifth argument. Existing event-queue injection remains
+compatible. Starting the server does not create a journal.
+
+Durable records contain worker identity, adapter, endpoint/process identity, binding
+revision, skill delivery flag, and input timestamp/hash/uncertainty. They contain no
+terminal content, prompts, launch argv, cwd, or screenshots. Each managed operation
+refreshes metadata before acting; observation caches are keyed by ID and binding
+revision. The synchronous `Agents.get` exposes only that instance's existing cache.
+Async resolution and managed operations are the source of truth.
+
+Per-worker locks cover observation and input/lifecycle operations. Short journal
+transactions enforce shared names, pane uniqueness, and capacity. Spawn reserves
+a bounded record before launching without holding the journal lock across the
+backend call. A failed mapping commit retains a diagnostic reservation and live
+pane. Delivery intent is persisted before paste/Enter or Ctrl+C; only recorded
+success clears uncertainty. No cross-crash exactly-once terminal delivery is
+claimed. Concurrent operations reject as busy, and all admitted operations drain
+on shutdown. Wait loops stop when their next observation sees shutdown.
+
+`TerminalBackend.instance` is optional. The Windows/WSL resolver uses a configured
+local GUI socket (or discovers the standard socket for a single GUI) and verifies
+the executable, PID and start time via a read-only PowerShell helper. CLI and
+screenshot subprocesses explicitly inherit the selected endpoint. A resolver
+pins its first GUI identity and rejects a replacement until MCP restart. Other
+backends return null unless an identity provider is injected. Null identity permits
+only explicit process-local attachment; it never establishes automatic recovery.
+
+Recovery verifies instance and pane existence. A different or unavailable instance
+leaves records detached; missing panes are removed only after a matching-instance
+check succeeds. Reattachment preserves logical identity but changes binding revision,
+invalidating observation caches and requiring watch recreation. Managed screenshots
+and watches use the same attachment checks. Watches remain process-local and
+existing durable event records remain independent of worker removal.
+
+See the tool reference for explicit adoption, uncertainty acknowledgment, stale-lock
+recovery, and the single-GUI-per-server boundary.

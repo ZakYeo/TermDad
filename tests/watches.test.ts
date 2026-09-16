@@ -28,7 +28,7 @@ test('sink failures retry independently of successful notifications, bounded coo
  f.fail(false);f.remove();await f.tick();assert.equal(f.watches.list()[0].disappeared,true);await f.tick(1000);assert.equal(f.watches.list()[0].pendingEvents,0);assert.ok(!f.calls.includes('kill-pane'));await f.watches.dispose();
 });
 test('managed pane targets automatically preserve stale-prompt guard and registry cleanup',async()=>{
- const f=fixture();await f.agents.spawn({name:'worker',cli:'codex'});await f.watches.create({paneId:7,pollMs:500,cooldownMs:0});await f.agents.send('worker','test');f.agents.get('worker').lastInputAt=Date.now()-2000;await f.tick();assert.equal(f.watches.list()[0].status,'WORKING');await f.tick(2000);assert.equal(f.events.length,0);
+ const f=fixture();await f.agents.spawn({name:'worker',cli:'codex'});await f.watches.create({paneId:7,pollMs:500,cooldownMs:0});await f.agents.send('worker','test');await f.agents.storage.transaction(true,s=>{s.workers[0].lastInputAt=Date.now()-2000;return {state:s,result:undefined};});await f.tick();assert.equal(f.watches.list()[0].status,'WORKING');await f.tick(2000);assert.equal(f.events.length,0);
  f.setText('new result\n› ');await f.tick();assert.equal(f.events[0].kind,'ready');f.remove();await f.tick();assert.equal(f.agents.records.size,0);await f.watches.dispose();
 });
 test('validation, capacity, removal and disposal are bounded and never close panes',async()=>{

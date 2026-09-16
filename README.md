@@ -49,6 +49,69 @@ The local launcher assumes workers run on this host; for remote domains, supply 
 
 If startup stops at a trust, login, or permission screen, `agent.spawn` with a prompt times out with the agent ID and pane ID; the pane stays open. Observe it and use `terminal.send_key` to interact deliberately, then `agent.send`. The server never automatically approves these screens. Spawn without a prompt to manage onboarding yourself.
 
+## Supervisor and worker skills
+
+The bundled `skills/term-dad` and `skills/term-dad-worker` directories are
+installable Codex skills. To make them available across local repositories,
+symlink each directory into `${CODEX_HOME:-$HOME/.codex}/skills` (or copy them
+there). For this checkout:
+
+```sh
+mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
+ln -s /home/zak/personal/term-dad/skills/term-dad "${CODEX_HOME:-$HOME/.codex}/skills/term-dad"
+ln -s /home/zak/personal/term-dad/skills/term-dad-worker "${CODEX_HOME:-$HOME/.codex}/skills/term-dad-worker"
+```
+
+Invoke `$term-dad`, or ask “Activate TermDad” / “You are the TermDad”. The
+supervisor delegates outcomes and constraints while workers own implementation.
+Restart Codex if the newly installed skills do not appear.
+
+Managed workers launched with `agent.spawn({cli:"codex", ...})` automatically
+receive `$term-dad-worker` and its bundled instructions with their first task.
+This also works without installing the skill in the worker's terminal domain.
+Follow-ups do not repeat the instructions. When spawning without a prompt, or
+after an initial readiness timeout, the first successful `agent.send` supplies
+them. Use managed agent tools for Codex workers: raw terminal tools do not apply
+this initialization. Claude and shell workers receive their task text unchanged.
+
+## Persistent workers and adoption
+
+Managed workers are saved under `TERM_DAD_STATE_DIR` (default:
+`${XDG_STATE_HOME:-$HOME/.local/state}/term-dad`). MCP servers sharing this directory
+see the same worker IDs and coordinate managed input. Restarting the MCP client
+recovers surviving workers in the same verified GUI instance; it does not relaunch
+applications or resume exited CLI conversations. Observations and watches start
+fresh after restart.
+
+On Windows/WSL, the bundled host-side helper verifies the GUI process and its
+start time. With one running GUI, it discovers the standard socket automatically.
+With multiple GUIs, configure `WEZTERM_UNIX_SOCKET` on the MCP server to the chosen
+Windows path, typically `C:\Users\<user>\.local\share\wezterm\gui-sock-<PID>`.
+Find the GUI PID with PowerShell `Get-Process wezterm-gui`; socket files are under
+that user's `.local\share\wezterm` directory. The server forwards the endpoint
+explicitly to Windows CLI and screenshot subprocesses. Each server targets one
+GUI; saved workers belonging to another instance remain detached. If the GUI
+restarts, update the socket configuration and restart the MCP server.
+
+```text
+agent.list({})
+agent.adopt({"name":"existing-worker","paneId":7,"cli":"codex"})
+agent.reattach({"agentId":"existing-worker","paneId":7})
+agent.forget({"agentId":"existing-worker"})
+```
+
+Choose a real pane ID from `terminal.list`; tabs may contain multiple panes.
+Adoption and reattachment send no input. An adopted Codex worker receives its
+role instructions with the next task unless `workerSkillInitialized:true` was
+specified. `agent.forget` removes only the mapping; `agent.stop` closes the pane.
+Where identity verification is unsupported, explicit attachment lasts for the
+current server session and must be repeated after restart.
+
+An uncertain submission is never replayed automatically. Inspect the pane and
+use `agent.reattach` with `acknowledgeUncertainDelivery:true` and an explicit
+`workerSkillInitialized` value before retrying. See [worker recovery and storage
+failures](docs/tools.md#persistent-workers) for crash-lock recovery.
+
 ## Screenshots
 
 Text is the primary observation channel. An optional Windows/WSL provider is included:
@@ -76,6 +139,7 @@ Set `TERM_DAD_STATE_DIR` to choose a private local storage directory; see
 
 ```sh
 npm run check          # TypeScript build + unit and stdio protocol tests
+npm run test:recovery  # MCP restart, stable worker mapping, adoption and cleanup
 npm run test:live      # Actual WezTerm + MCP shell/layout/interrupt round trip
 npm run test:agent -- claude  # Actual authenticated Claude, two short prompts
 npm run test:agent -- codex   # Actual authenticated Codex, two short prompts
@@ -88,8 +152,8 @@ Live tests open visible tabs and clean up their own panes. Agent tests use your 
 
 This is a personal proof of concept. Tool access grants terminal command execution as your user, including entering text into existing applications and killing processes. Connect only trusted local MCP clients. Terminal output is untrusted data and may contain prompt injection or secrets. Review worker permissions normally; do not treat worker output as instructions to approve actions.
 
-Agent mappings are in memory per server process and disappear on restart; worker panes stay alive. Maximum 64 managed agents, 16 observations per agent, 24,000 characters per observation. No task completion guarantee: detected readiness is a heuristic, and unchanged text never proves success. UI revisions and echoed prompts can confuse classifiers. WezTerm's CLI does not expose reliable foreground process metadata on every platform; missing values are `null`.
+Worker mappings persist in a private shared journal; worker panes stay alive across MCP disconnects. Automatic reattachment requires a verified terminal instance. Maximum 64 managed agents, 16 observations per agent, 24,000 characters per observation. No task completion guarantee: detected readiness is a heuristic, and unchanged text never proves success. UI revisions and echoed prompts can confuse classifiers. WezTerm's CLI does not expose reliable foreground process metadata on every platform; missing values are `null`.
 
-Key injection uses standard VT bytes, not global shortcuts. Apps using application cursor mode or extended keyboard protocols may need a custom key mapping. Focus activates the mux pane; OS foreground behavior varies. Movement currently supports moving to a new tab/window. Screenshots on Linux/macOS require your own provider executable. No remote transport, credentials, worker persistence, or push destination is configured.
+Key injection uses standard VT bytes, not global shortcuts. Apps using application cursor mode or extended keyboard protocols may need a custom key mapping. Focus activates the mux pane; OS foreground behavior varies. Movement currently supports moving to a new tab/window. Screenshots on Linux/macOS require your own provider executable. No remote transport, credentials, application relaunch, or push destination is configured.
 
 Read the [tool reference](docs/tools.md), [architecture and observation decision](docs/architecture.md), and [roadmap](docs/roadmap.md).

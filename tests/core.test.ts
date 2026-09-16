@@ -21,3 +21,50 @@ test('captured Claude UI fixture recognizes prompt despite non-blocking local ho
 test('captured Codex UI fixture recognizes the current interactive prompt',async()=>{const {readFile}=await import('node:fs/promises');const text=await readFile(new URL('./fixtures/codex-ready.txt',import.meta.url),'utf8');assert.equal(adapters.codex.classify(text),'READY_FOR_PROMPT');});
 test('concurrent spawns reserve names before backend completion',async()=>{const f=fake(),a=new Agents(f.backend);const first=a.spawn({name:'same',cli:'shell'});await assert.rejects(a.spawn({name:'same',cli:'shell'}),/already exists/);await first;});
 test('unchanged pre-input prompt does not become ready merely because time passes',async()=>{const f=fake(),a=new Agents(f.backend);await a.spawn({name:'worker',cli:'shell'});await a.send('worker','hello');a.get('worker').lastInputAt=Date.now()-2000;assert.equal((await a.observe('worker')).status,'WORKING');});
+
+test('Codex gets the bundled worker skill with its initial task only, even with custom argv',async()=>{
+ const f=fake(),a=new Agents(f.backend);f.setText('OpenAI Codex\n› Explain this codebase');
+ await a.spawn({name:'worker',cli:'codex',command:['custom-codex'],prompt:'Implement the feature.'});
+ await a.send('worker','Report your results.');
+ const inputs=f.calls.filter(c=>c.args[0]==='send-text'&&!c.args.includes('--no-paste')).map(c=>c.input);
+ assert.match(inputs[0],/^\$term-dad-worker\n/);
+ assert.match(inputs[0],/Own investigation, design, implementation, and verification/);
+ assert.ok(inputs[0].endsWith('Assignment:\nImplement the feature.'));
+ assert.equal(inputs[1],'Report your results.');
+});
+
+test('Codex initialization is deferred without a task, and survives an onboarding timeout',async()=>{
+ for(const withPrompt of [false,true]){
+  const f=fake(),a=new Agents(f.backend);f.setText('Do you trust this folder?\n❯ Yes');
+  const spawn=a.spawn({name:'worker',cli:'codex',...(withPrompt?{prompt:'task',timeoutMs:1}:{})});
+  if(withPrompt)await assert.rejects(spawn,/prompt NOT sent/);else await spawn;
+  assert.equal(f.calls.filter(c=>c.args[0]==='send-text').length,0);
+  f.setText('OpenAI Codex\n› Explain this codebase');
+  await a.send('worker','Start now.');
+  const input=f.calls.find(c=>c.args[0]==='send-text').input;
+  assert.match(input,/^\$term-dad-worker\n/);assert.ok(input.endsWith('Start now.'));
+ }
+});
+
+test('failed Codex input keeps initialization pending; concurrent input cannot duplicate it',async()=>{
+ const f=fake(),a=new Agents(f.backend);await a.spawn({name:'worker',cli:'codex'});
+ const send=f.backend.sendText.bind(f.backend);let fail=true;
+ f.backend.sendText=async(...args)=>{if(fail){fail=false;throw new Error('transport failure');}return send(...args);};
+ await assert.rejects(a.send('worker','task'),/WORKER_DELIVERY_UNCERTAIN/);
+ await assert.rejects(a.send('worker','retry without recovery'),/WORKER_DELIVERY_UNCERTAIN/);
+ await a.reattach({agentId:'worker',paneId:7,acknowledgeUncertainDelivery:true,workerSkillInitialized:false});
+ assert.notEqual(a.get('worker').workerSkillSent,true);
+ const first=a.send('worker','retry');
+ await assert.rejects(a.send(a.get('worker').agentId,'concurrent'),/Input already in progress/);
+ await first;await a.send('worker','follow-up');
+ const inputs=f.calls.filter(c=>c.args[0]==='send-text'&&!c.args.includes('--no-paste')).map(c=>c.input);
+ assert.match(inputs[0],/^\$term-dad-worker\n/);assert.equal(inputs[1],'follow-up');
+});
+
+test('Claude and shell task text stays literal',async()=>{
+ for(const cli of ['claude','shell'] as const){
+  const f=fake(),a=new Agents(f.backend);await a.spawn({name:'worker',cli});
+  await a.send('worker','literal task');
+  assert.equal(f.calls.find(c=>c.args[0]==='send-text').input,'literal task');
+ }
+});

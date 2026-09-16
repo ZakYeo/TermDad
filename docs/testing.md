@@ -73,3 +73,62 @@ shell, layout, broadcast, observation, interruption, and cleanup behavior. These
 checks required authorized host execution after the sandboxed MCP subprocess
 connection closed during initialization. No desktop balloon was sent or visually
 verified; desktop notification delivery remains covered by injected-provider tests.
+
+## Worker skill initialization (2026-09-16)
+
+`npm run check` passed the TypeScript build and all 47 tests. New injected-backend
+tests cover Codex's initial skill instructions, literal follow-ups, custom launch
+argv, deferred initialization, onboarding timeout recovery, failed submission,
+concurrent input rejection, and unchanged Claude/shell input. Both bundled skills
+passed the skill-creator validator; an npm packaging dry run included both skill
+files and the compiled prompt helper.
+
+`npm run test:agent -- codex` passed against real WezTerm and authenticated Codex
+after authorized host execution; the sandboxed attempt closed the MCP connection
+during initialization. The live test exercised the initial task carrying the
+worker instructions, an answer and follow-up in the same session, observation,
+interruption, and pane cleanup. This confirms transport compatibility, not the
+quality of the model's delegation decisions or automatic supervisor activation.
+The incidental captured UI fixture refresh was discarded.
+
+## Persistent workers and reattachment (2026-09-16)
+
+`npm run check` passed the TypeScript build and all 73 tests after authorized host
+execution. Sandboxed stdio tests could not maintain their subprocess connection.
+New deterministic tests cover durable IDs and initialization, stale-prompt guards,
+fresh observation history, detached instances and reused IDs, explicit adoption,
+uncertain delivery, shared input/lifecycle exclusion, reservations, registry bounds,
+corruption and lock recovery, durability warnings, watch rebinding, and disconnect.
+Separate MCP processes verified restart recovery, shared mappings, duplicate-pane
+rejection, concurrent input rejection, literal follow-ups, detached-state reporting,
+and propagation of forgotten mappings.
+
+`npm run test:recovery` passed against the real Windows/WSL WezTerm GUI, pinned to
+its local GUI socket. It used a private temporary state directory and test-owned
+bash panes. The same worker ID and pane ID survived MCP disconnect/reconnect;
+old observation IDs reset, follow-up commands produced expected markers, a raw
+terminal pane was adopted and controlled, forgetting preserved that pane, and
+stop/cleanup removed the test-owned panes and mappings. This exercised shell
+transport, not authenticated Codex/Claude conversation resumption.
+
+The existing `npm run test:live` shell/layout suite also passed with isolated state
+and the configured GUI socket after fixing environment forwarding in its MCP
+launcher. It covered broadcast, snapshots, pane movement, new windows, interruption
+and cleanup. The packaging dry run included the compiled persistence modules,
+Windows identity helper and supervisor skill; the updated skill passed validation.
+
+Fresh independent reviewers checked correctness/maintainability, tests, and
+security/reliability. Their reproductions found and drove fixes for unbounded
+cache growth during cross-server churn, missed watch disappearance after external
+removal, and lost spawn-response reservations. Follow-up fault checking also
+verified that worker-lock cleanup failures preserve committed results or the
+original uncertainty error and expose a storage warning. Reviewers reran their
+probes and reported no unresolved findings. Independently authored tests passed
+for cache churn, failed post-submit commits, same-binding stale guards, and an
+actual child-process SIGKILL during paste followed by safe fixture-lock recovery.
+
+`npm run test:screenshot` was attempted with the pinned endpoint, including after
+restricting HWND candidates to that GUI's PID. It failed safely because the
+provider could not uniquely match the selected window title to an HWND. No
+successful screenshot capture is claimed for this change; the existing provider's
+window-title matching limitation remains.

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { adapters, type Status } from './adapters.js';
 import { Agents, hashOutput } from './agents.js';
+import type { WorkerRecord } from './worker-storage.js';
 import { id, type TerminalBackend } from './backend.js';
 import type { NotificationProvider } from './notifications.js';
 
@@ -11,7 +12,7 @@ export const watchShape={paneId:id.optional(),agentId:z.string().min(1).max(100)
 const schema=z.object(watchShape).refine(o=>(o.paneId!==undefined)!==(o.agentId!==undefined),'Choose exactly one paneId or agentId');
 type Config=z.infer<typeof schema>;
 type Pending={event:WatchEventInput;sinkDone:boolean;notificationDone:boolean};
-type Watch=Config & {watchId:string;paneId:number;agentId?:string;hash?:string;status?:Status;changedAt:number;quiet:boolean;disappeared:boolean;nextPoll:number;lastDelivery?:number;pending:Map<string,Pending>;backendError?:string;deliveryError?:string;lastEvent?:WatchEventInput;};
+type Watch=Config & {agentBinding?:WorkerRecord;watchId:string;paneId:number;agentId?:string;hash?:string;status?:Status;changedAt:number;quiet:boolean;disappeared:boolean;nextPoll:number;lastDelivery?:number;pending:Map<string,Pending>;backendError?:string;deliveryError?:string;lastEvent?:WatchEventInput;};
 const summaries:Record<string,string>={input_required:'Pane requires user input.',ready:'Pane returned to a recognized prompt; task success is not established.',inactive:'Pane text is unchanged; task success is not established.',pane_disappeared:'Pane is no longer present.'};
 export interface WatchOptions {sink?:WatchEventSink;notifications?:NotificationProvider;now?:()=>number;automatic?:boolean;}
 export class WatchManager {
@@ -28,9 +29,10 @@ export class WatchManager {
   const config=schema.parse(input);
   if(this.records.size>=64)throw new Error('Maximum of 64 watches reached');
   if(config.notify&&!this.options.notifications)throw new Error('Desktop notifications are not configured');
-  const agent=config.agentId?this.agents.get(config.agentId):[...this.agents.records.values()].find(a=>a.paneId===config.paneId);
+  const agent=config.agentId?await this.agents.resolve(config.agentId):await this.agents.findByPane(config.paneId!);
+  if(agent?.paneId===null)throw new Error('Worker spawn reservation needs explicit recovery');
   if(!agent&&!config.adapter)throw new Error('An unmanaged pane requires an explicit adapter');
-  const w:Watch={...config,agentId:agent?.agentId,paneId:agent?.paneId??config.paneId!,watchId:randomUUID(),changedAt:this.now(),quiet:false,disappeared:false,nextPoll:Infinity,pending:new Map()};
+  const w:Watch={...config,agentBinding:agent,agentId:agent?.agentId,paneId:agent?.paneId??config.paneId!,watchId:randomUUID(),changedAt:this.now(),quiet:false,disappeared:false,nextPoll:Infinity,pending:new Map()};
   this.records.set(w.watchId,w);
   try{await this.sample(w,true);if(w.disappeared)throw new Error('Pane not found');}catch{this.records.delete(w.watchId);throw new Error('Cannot observe target pane. Check that it exists and backend connectivity is available.');}
   if(this.disposed||!this.records.has(w.watchId))throw new Error('Watch removed during creation');
@@ -52,9 +54,25 @@ export class WatchManager {
  }}
  private enqueue(w:Watch,kind:string){if(!this.active(w)||w.pending.has(kind))return;w.pending.set(kind,{event:{kind,paneId:w.paneId,watchId:w.watchId,...(w.agentId?{agentId:w.agentId}:{}),occurredAt:new Date(this.now()).toISOString(),summary:summaries[kind]},sinkDone:!this.options.sink,notificationDone:!w.notify});w.lastEvent={...w.pending.get(kind)!.event};}
  private async sample(w:Watch,baseline:boolean){
+  if(w.agentId){
+   const target=await this.agents.resolveOptional(w.agentId);
+   if(!target){
+    // Another server may have reconciled disappearance before this watch polls.
+    // Verify the original instance; never follow a replacement binding by pane ID.
+    if(w.agentBinding&&!await this.agents.bindingPaneExists(w.agentBinding)){
+     w.disappeared=true;if(!baseline)this.enqueue(w,'pane_disappeared');return;
+    }
+    throw new Error('Worker is no longer managed; recreate its watch');
+   }
+   await this.agents.requireAttachment(w.agentId);
+   if(target.paneId!==w.paneId||target.revision!==w.agentBinding?.revision)throw new Error('Worker was reattached; recreate its watch');
+  }
   const panes=await this.backend.list();
   if(!this.active(w))return;
-  if(!panes.some(p=>p.pane_id===w.paneId)){w.disappeared=true;if(w.agentId)this.agents.records.delete(w.agentId);if(!baseline)this.enqueue(w,'pane_disappeared');return;}
+  if(!panes.some(p=>p.pane_id===w.paneId)){
+   if(w.agentId)await this.agents.reconcileClosed(w.paneId);
+   w.disappeared=true;if(!baseline)this.enqueue(w,'pane_disappeared');return;
+  }
   let hash:string,status:Status;
   if(w.agentId){const o=await this.agents.observe(w.agentId);hash=o.outputHash;status=o.status;}
   else {const text=(await this.backend.read(w.paneId,150)).slice(-24000);hash=hashOutput(text);status=adapters[w.adapter!].classify(text);}

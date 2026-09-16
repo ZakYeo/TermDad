@@ -18,8 +18,12 @@ Tool names use dots. All arguments are JSON objects. Omitted arguments below use
 | terminal.submit | `paneId, text` → paste then Enter |
 | terminal.screenshot | `paneId` → MCP PNG image via provider |
 | terminal.snapshot | `{}` → panes, 30-line tails and managed agents |
-| agent.spawn | `name, cli: claude\|codex\|shell, prompt?, timeoutMs?` plus terminal.spawn options → mapped worker; prompt waits for readiness |
-| agent.send | `agentId, text` → submit follow-up to existing worker |
+| agent.spawn | `name, cli: claude\|codex\|shell, prompt?, timeoutMs?` plus terminal.spawn options → mapped worker; prompt waits for readiness; first Codex task includes the worker skill |
+| agent.list | `{}` → saved metadata, attachment state, recovery reason and storage warning; no terminal text |
+| agent.adopt | `name, paneId, cli, workerSkillInitialized?` → register an existing pane; no input sent |
+| agent.reattach | `agentId, paneId, acknowledgeUncertainDelivery?, workerSkillInitialized?` → explicitly bind a saved worker; no input sent |
+| agent.forget | `agentId` → remove mapping without closing pane |
+| agent.send | `agentId, text` → submit task; includes the worker skill on the first Codex task if deferred at spawn |
 | agent.observe | `agentId, since?: observationId` → compact state and output delta |
 | agent.status | Same as observe |
 | agent.interrupt | `agentId` → Ctrl+C |
@@ -29,18 +33,86 @@ Tool names use dots. All arguments are JSON objects. Omitted arguments below use
 | agent.wait_until_idle | `agentId, timeoutMs?` → recognized ready/idle state; no silence heuristic |
 | agent.broadcast | `agentIds: string[], text` → per-worker send success/error |
 | agent.collect_results | `{}` → current observations, no inferred task success |
-| orchestrator.status | `{}` → all managed agent observations |
+| orchestrator.status | `{}` → observations for attached workers and metadata for detached workers |
 
 Keys: ENTER, ESC, TAB, UP, DOWN, LEFT, RIGHT, CTRL_C, CTRL_D, CTRL_A, CTRL_E, CTRL_U, BACKSPACE, DELETE, HOME, END. Text is capped at 100,000 characters; key sequences at 100 keys. Wait timeout defaults to 30,000ms, maximum 120,000ms. Screenshots require `TERM_DAD_SCREENSHOT_COMMAND`. `newWindow` and `windowId` are mutually exclusive.
 
 `terminal.close` can close your master session too: select IDs deliberately. Broadcast operates only on explicit agent IDs. Observations can report errors individually in workspace snapshots when panes vanish during polling.
+
+## Persistent workers
+
+The MCP server uses `workers.json` under the same private `TERM_DAD_STATE_DIR` as
+the event journal. The journals and locks are separate. A shared directory has a
+maximum of 64 saved workers, including incomplete spawn reservations. Names are
+unique; panes cannot have competing mappings in the same identified instance.
+Use different state directories for unrelated environments with unverified identity.
+Names are metadata: do not put secrets in them.
+
+`agent.list` returns `{agentId,name,paneId,cli,attachment,recoveryReason,
+deliveryPending,workerSkillInitialized,storageWarning}` for each saved worker.
+`attachment` is `attached` or `detached`; a reservation has `paneId:null`.
+Listing checks the selected backend and reconciles confirmed missing panes.
+Transport failure or identity mismatch preserves saved records. Worker IDs and
+names survive restart; terminal output, observation IDs and watches do not.
+An old `since` observation ID produces a full replacement with `deltaReset:true`.
+
+Automatic recovery requires a matching terminal endpoint and process identity.
+Windows/WSL uses the bundled `scripts/instance-windows.ps1` helper; set the MCP
+server's `WEZTERM_UNIX_SOCKET` when multiple GUIs are running. The endpoint must
+be a local GUI socket named `gui-sock-PID`. Other platforms currently have no
+automatic identity provider: spawn/adopt work for that server session, and the
+next session requires explicit reattachment. Unreachable Windows endpoints must
+be corrected before reattachment. No title/cwd/text matching or CLI relaunch occurs.
+
+`agent.adopt` requires a live pane and an explicit `claude`, `codex` or `shell`
+adapter. It creates a new ID. `workerSkillInitialized` defaults to false; for
+Codex this schedules role instructions with the next `agent.send`, never during
+adoption. `agent.reattach` preserves the saved ID, name and adapter, and rejects
+occupied targets. It invalidates observation history; recreate existing watches
+following reattachment. On a changed binding, old input hashes are cleared.
+Skill state is preserved unless `workerSkillInitialized` is supplied.
+
+Managed input/lifecycle operations use exclusive per-worker locks. A concurrent
+operation returns `WORKER_BUSY`; retry after the active operation finishes. Raw
+terminal tools remain explicit low-level operations and do not acquire these
+input locks. `WORKER_DELIVERY_UNCERTAIN` means a paste, Enter or interrupt may
+have reached the pane even though completion could not be recorded. Further
+managed input is blocked. Inspect with observation or raw terminal reads, then:
+
+```text
+agent.reattach({"agentId":"worker","paneId":7,"acknowledgeUncertainDelivery":true,"workerSkillInitialized":true})
+```
+
+Choose the skill flag based on what actually reached Codex; false initializes on
+the next task. The acknowledgment itself never repeats input. Successful input
+followed by a failed storage commit has the same uncertain outcome.
+
+A rejected or lost spawn response returns `WORKER_SPAWN_UNCERTAIN` and preserves
+the reservation, because the pane may already exist. Inspect before forgetting
+the reservation or adopting a surviving pane.
+
+If spawn succeeds but recording the pane fails, the error supplies its pane ID
+and reservation ID. Inspect the pane, forget the incomplete reservation, then
+adopt it. A crash between spawn and recording can leave only the reservation;
+use `terminal.list` to identify the surviving pane explicitly. Do not blindly
+repeat spawn. Forgetting never closes a pane; successful stop removes its mapping.
+
+Corrupt, oversized or unsafe journals raise `WORKER_STATE_CORRUPT` or
+`WORKER_STORAGE_UNSAFE`; preserve the file and recover explicitly. Atomic rename
+is the commit point; a later directory-sync failure appears in `storageWarning`
+without treating the committed action as failed. A crash can leave `workers.lock`,
+`worker-<UUID>.lock`, or `workers.<UUID>.tmp`. Stop **all** servers sharing the
+directory, preserve `workers.json`, remove stale locks/orphan temporaries, and
+restart. Locks are never stolen on a timer. Resolve any uncertain-delivery marker
+through explicit reattachment afterward. Storage targets private local POSIX
+filesystems, including WSL; disconnect never kills worker panes.
 
 ## Durable metadata events
 
 `event.list`, `event.acknowledge`, and `event.wait_for_event` expose the durable
 local event journal. Background watches publish to this queue by default; there
 is deliberately no MCP publish/injection tool. Internal producers use
-`await events.publish(input)`. The server exposes 32 tools, including the three
+`await events.publish(input)`. The server exposes 36 tools, including the three
 watch tools and three event tools.
 
 | Tool | Arguments | Result |

@@ -1,6 +1,8 @@
 import { spawn as spawnProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { z } from 'zod';
+import { windowsInstance } from './terminal-instance.js';
+import type { TerminalInstance } from './worker-storage.js';
 
 export const id = z.number().int().nonnegative().safe();
 const string = z.string().min(1).max(8192).refine(s => !s.includes('\0'), 'NUL is not allowed');
@@ -10,9 +12,9 @@ const paneSchema = z.object({pane_id:id, tab_id:id, window_id:id, title:z.string
 export type Pane = z.infer<typeof paneSchema>;
 export function parsePanes(text:string):Pane[] { try { return z.array(paneSchema).parse(JSON.parse(text)); } catch { throw new Error('Invalid WezTerm list JSON: expected panes with IDs, title, cwd and size'); } }
 export type Runner = (args:string[], input?:string)=>Promise<string>;
-export function execute(file:string,args:string[],input?:string,timeout=15000):Promise<string> {
+export function execute(file:string,args:string[],input?:string,timeout=15000,env?:NodeJS.ProcessEnv):Promise<string> {
   return new Promise((resolve,reject)=>{
-    const p=spawnProcess(file,args,{stdio:['pipe','pipe','pipe'],windowsHide:true});
+    const p=spawnProcess(file,args,{stdio:['pipe','pipe','pipe'],windowsHide:true,env});
     let stdout='',stderr='',done=false;
     const finish=(error?:Error)=>{if(done)return;done=true;clearTimeout(timer);error?reject(error):resolve(stdout);};
     const timer=setTimeout(()=>{p.kill();finish(new Error(`${file}: command timed out after ${timeout}ms`));},timeout);
@@ -24,13 +26,28 @@ export function execute(file:string,args:string[],input?:string,timeout=15000):P
   });
 }
 export interface TerminalBackend {
+ instance?():Promise<TerminalInstance|null>;
  list():Promise<Pane[]>; spawn(o:SpawnOptions):Promise<number>; split(o:SpawnOptions & {paneId:number;direction?:'right'|'bottom';percent?:number}):Promise<number>;
  read(paneId:number,lines?:number):Promise<string>; sendText(paneId:number,text:string,raw?:boolean):Promise<void>;
  close(paneId:number):Promise<void>; focus(paneId:number):Promise<void>; resize(paneId:number,direction:string,amount:number):Promise<void>; move(paneId:number,newWindow?:boolean,windowId?:number):Promise<void>;
 }
 export function defaultBinary(){const win='/mnt/c/Program Files/WezTerm/wezterm.exe';return process.env.TERM_DAD_WEZTERM || (existsSync(win)?win:'wezterm');}
+// WSL does not forward arbitrary Linux environment variables to Windows.
+export function terminalEnvironment(endpoint?:string):NodeJS.ProcessEnv {
+ const forwarded=(process.env.WSLENV??'').split(':').filter(v=>v&&v.split('/')[0]!=='WEZTERM_UNIX_SOCKET');
+ return {...process.env,...(endpoint?{WEZTERM_UNIX_SOCKET:endpoint,WSLENV:[...forwarded,'WEZTERM_UNIX_SOCKET'].join(':')}:{})};
+}
 export class WezTermBackend implements TerminalBackend {
- constructor(readonly run:Runner=(args,input)=>execute(defaultBinary(),['cli','--no-auto-start',...args],input)){}
+ readonly run:Runner;
+ readonly instance:()=>Promise<TerminalInstance|null>;
+ constructor(run?:Runner,identity?:()=>Promise<TerminalInstance|null>){
+  const binary=defaultBinary();
+  this.instance=identity??(run?async()=>null:windowsInstance(binary,execute));
+  this.run=run??(async(args,input)=>{
+   const identity=await this.instance(),endpoint=identity?.endpoint??process.env.WEZTERM_UNIX_SOCKET;
+   return execute(binary,['cli','--no-auto-start',...args],input,15000,terminalEnvironment(endpoint));
+  });
+ }
  async list(){return parsePanes(await this.run(['list','--format','json']));}
  private options(o:SpawnOptions){spawnSchema.parse(o);const a:string[]=[];if(o.paneId!==undefined)a.push('--pane-id',String(o.paneId));if(o.cwd)a.push('--cwd',o.cwd);return a;}
  private paneId(text:string){const n=Number(text.trim());if(!/^\d+$/.test(text.trim()))throw new Error('WezTerm returned an invalid pane ID');return id.parse(n);}

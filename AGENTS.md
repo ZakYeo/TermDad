@@ -9,7 +9,8 @@ in an existing WezTerm GUI. It uses Node.js 22+ and strict TypeScript with ESM
 - `src/index.ts`: executable entry point and stdio transport.
 - `src/server.ts`: MCP tool registration, schemas, and error responses.
 - `src/backend.ts`: `TerminalBackend`, WezTerm CLI transport, and key injection.
-- `src/agents.ts`: in-memory worker registry, observations, deltas, and waits.
+- `src/agents.ts`: durable worker lifecycle, observation caches, deltas, and waits.
+- `src/worker-storage.ts`, `src/journal.ts`: shared worker metadata and atomic local journals.
 - `src/adapters.ts`: Claude, Codex, and shell text classifiers.
 - `src/screenshots.ts`: optional screenshot provider contract and validation.
 - `tests/`: Node test runner tests, stdio protocol tests, and captured UI fixtures.
@@ -28,6 +29,12 @@ Generated `dist/`, `node_modules/`, and coverage output are ignored; do not comm
 them. There is no separate lint or formatting command; follow surrounding style
 and avoid unrelated formatting changes.
 
+Claude Code and Codex are registered to launch this checkout through the directory
+symlink `/home/zak/.local/share/term-dad` → `/home/zak/personal/term-dad`, using
+`scripts/launch-local`. After changing server code, run `npm run build` in this
+repository so fresh client sessions load the updated server. Restart existing
+clients to pick up the new build; the symlink does not rebuild or hot-reload it.
+
 Use injected backend runners for deterministic tests. Add regression coverage for
 changes to argv construction, input handling, classifiers, observation history,
 and worker lifecycle as appropriate. Do not claim live verification from mocks.
@@ -35,6 +42,7 @@ and worker lifecycle as appropriate. Do not claim live verification from mocks.
 Live checks require a running WezTerm GUI and desktop/WSL interoperability:
 
 - `npm run test:live`: terminal and shell orchestration round trip.
+- `npm run test:recovery`: MCP restart, worker reattachment and adoption round trip.
 - `npm run test:agent -- claude` or `-- codex`: authenticated CLI round trips;
   these use the configured account and can incur usage.
 - `npm run test:screenshot`: Windows/WSL screenshot integration.
@@ -60,6 +68,7 @@ checks actually performed.
 - Keep subprocesses, waits, output, registries, and observation history bounded.
   Preserve recoverable workers on initial-prompt timeout and registry entries
   on transport failure; remove mappings when their panes disappear.
-- Worker mappings are process-local. Disconnecting the MCP client must not kill
-  worker panes. Screenshots remain optional and on demand; text is the primary
+- Worker metadata is shared durably by state directory. Verify terminal identity
+  before automatic recovery; preserve detached mappings on transport failure.
+  Disconnecting the MCP client must not kill worker panes. Screenshots remain optional and on demand; text is the primary
   observation channel.

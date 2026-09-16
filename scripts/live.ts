@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
 const client=new Client({name:'term-dad-live-test',version:'1'});
-const transport=new StdioClientTransport({command:process.execPath,args:['dist/index.js'],stderr:'inherit'});
+const transport=new StdioClientTransport({command:process.execPath,args:['dist/index.js'],env:{...process.env} as Record<string,string>,stderr:'inherit'});
 const call=async(name:string,args:Record<string,unknown>={})=>{const result=await client.callTool({name,arguments:args});assert.ok(!result.isError,JSON.stringify(result));return JSON.parse((result.content as any)[0].text);};
 let agentId:string|undefined,secondId:string|undefined,split:number|undefined,newWindowPane:number|undefined;
 try{

@@ -1,8 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { constants } from 'node:fs';
-import { lstat, mkdir, open, rename, unlink } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { FileJournal } from './journal.js';
 import { z } from 'zod';
 
 const token=z.string().min(1).max(100).regex(/^[a-zA-Z0-9_.:/-]+$/);
@@ -15,7 +12,6 @@ const stateSchema=z.object({version:z.literal(1),nextSequence:z.number().int().p
 export type EventState=z.infer<typeof stateSchema>;
 export interface EventStorage { warning?:string; transaction<T>(write:boolean,fn:(state:EventState)=>{state?:EventState;result:T}):Promise<T> }
 const empty=():EventState=>({version:1,nextSequence:1,events:[]});
-const code=(e:unknown)=>e instanceof Error && 'code' in e ? e.code : undefined;
 function validateState(value:unknown):EventState {
  const parsed=stateSchema.safeParse(value);
  if(!parsed.success)throw new Error('EVENT_STATE_CORRUPT: invalid journal; preserve the file and recover it explicitly');
@@ -24,44 +20,8 @@ function validateState(value:unknown):EventState {
  return s;
 }
 
-/** One atomic transaction at a time, including across local server processes. */
-export class FileEventStorage implements EventStorage {
- readonly directory:string;
- warning:string|undefined;
- constructor(directory=process.env.TERM_DAD_STATE_DIR || join(process.env.XDG_STATE_HOME || join(homedir(),'.local','state'),'term-dad')){this.directory=directory;}
- protected async syncDirectory(){const dir=await open(this.directory,'r');try{await dir.sync();}finally{await dir.close();}}
- async transaction<T>(write:boolean,fn:(state:EventState)=>{state?:EventState;result:T}):Promise<T>{
-  const path=join(this.directory,'events.json'),lock=join(this.directory,'events.lock');
-  if(write)await mkdir(this.directory,{recursive:true,mode:0o700});
-  try{const dir=await lstat(this.directory);if(!dir.isDirectory()||(dir.mode&0o077)!==0||(process.getuid&&dir.uid!==process.getuid()))throw new Error('EVENT_STORAGE_UNSAFE: state directory must be owned by the current user with mode 0700');}
-  catch(e){if(code(e)==='ENOENT'&&!write)return fn(empty()).result;throw e;}
-  let lease;
-  for(let attempt=0;!lease;attempt++){
-   try{lease=await open(lock,'wx',0o600);}catch(e){
-    if(code(e)!=='EEXIST')throw new Error('EVENT_STORAGE_UNAVAILABLE: cannot acquire journal lock');
-    if(attempt>=10)throw new Error('EVENT_STORAGE_BUSY: transaction lock exists; retry. After a crash, verify no server uses this state directory before removing events.lock');
-    await new Promise(resolve=>setTimeout(resolve,20));
-   }
-  }
-  let temporary:string|undefined,committed=false;
-  try{
-   let state=empty();
-   try{const file=await open(path,constants.O_RDONLY|constants.O_NOFOLLOW);try{const stat=await file.stat();if(!stat.isFile()||stat.size>4_000_000||(stat.mode&0o077)!==0||(process.getuid&&stat.uid!==process.getuid()))throw new Error('invalid size');state=validateState(JSON.parse(await file.readFile('utf8')));}finally{await file.close();}}
-   catch(e){if(code(e)!=='ENOENT')throw new Error('EVENT_STATE_CORRUPT: journal unreadable or invalid; preserve it and recover explicitly');}
-   const outcome=fn(state);
-   if(outcome.state){
-    validateState(outcome.state);
-    const serialized=JSON.stringify(outcome.state);
-    if(Buffer.byteLength(serialized)>4_000_000)throw new Error('EVENT_STORAGE_SIZE_LIMIT: acknowledge events to free journal space; no pending event was discarded');
-    temporary=join(this.directory,`events.${randomUUID()}.tmp`);
-    const file=await open(temporary,'wx',0o600);
-    try{await file.writeFile(serialized);await file.sync();}finally{await file.close();}
-    await rename(temporary,path);temporary=undefined;committed=true;
-    try{await this.syncDirectory();}catch{this.warning='EVENT_DURABILITY_WARNING: journal committed but directory sync failed; power-loss durability is uncertain';}
-   }
-   return outcome.result;
-  }finally{if(temporary)await unlink(temporary).catch(()=>{});try{await lease.close();await unlink(lock);}catch{this.warning='EVENT_LOCK_CLEANUP_WARNING: verify exclusive access before removing events.lock';if(!committed)throw new Error(this.warning);}}
- }
+export class FileEventStorage extends FileJournal<EventState> implements EventStorage {
+ constructor(directory?:string){super('events','EVENT',empty,validateState,directory);}
 }
 
 export const eventFilterSchema=z.object({paneIds:z.array(z.number().int().nonnegative().safe()).min(1).max(64).optional(),agentIds:z.array(identifier).min(1).max(64).optional(),watchIds:z.array(identifier).min(1).max(64).optional(),kinds:z.array(token).min(1).max(64).optional(),afterSequence:z.number().int().nonnegative().safe().optional()}).strict();
