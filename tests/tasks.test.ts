@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { completeTask } from './task-support.js';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { TaskBoard } from '../src/tasks.js';
@@ -27,15 +28,16 @@ test('completion requires explicit criteria, blockers and completed dependencies
  assert.equal(task.ready,false);assert.deepEqual(task.unresolvedDependencyIds,[dependency.id]);
  await assert.rejects(board.update({taskId:task.id,expectedRevision:1,patch:{status:'done'}}),/TASK_COMPLETION_BLOCKED/);
  assert.equal((await board.get(task.id)).revision,1);
- await board.update({taskId:dependency.id,expectedRevision:1,patch:{status:'done'}});
+ const dependencyDone=await completeTask(board,dependency.id);
  await assert.rejects(board.update({taskId:task.id,expectedRevision:1,patch:{status:'done',blockers:[]}}),/TASK_COMPLETION_BLOCKED/);
- const done=await board.update({taskId:task.id,expectedRevision:1,patch:{status:'done',blockers:[],acceptanceCriteria:[{id:'checks',description:'Checks pass',satisfied:true,evidence:'npm run check passed'}]}});
+ await board.update({taskId:task.id,expectedRevision:1,patch:{blockers:[]}});
+ const done=await completeTask(board,task.id);
  assert.equal(done.status,'done');assert.equal(done.ready,false);assert.equal(done.blocked,false);
  // Reopening a prerequisite cannot silently invalidate a completed dependent.
- await assert.rejects(board.update({taskId:dependency.id,expectedRevision:2,patch:{status:'todo'}}),/TASK_COMPLETION_BLOCKED/);
+ await assert.rejects(board.update({taskId:dependency.id,expectedRevision:dependencyDone.revision,patch:{status:'todo'}}),/TASK_COMPLETION_BLOCKED/);
  assert.equal((await board.get(dependency.id)).status,'done');
- await board.update({taskId:task.id,expectedRevision:2,patch:{status:'todo'}});
- await board.update({taskId:dependency.id,expectedRevision:2,patch:{status:'todo'}});
+ await board.update({taskId:task.id,expectedRevision:done.revision,patch:{status:'todo'}});
+ await board.update({taskId:dependency.id,expectedRevision:dependencyDone.revision,patch:{status:'todo'}});
  assert.equal((await board.get(task.id)).blocked,true);
 });
 
@@ -73,8 +75,8 @@ test('archival retains dependency truth, requires revisions, and prevents edits 
  await assert.rejects(board.assign({taskId:a.id,expectedRevision:2,agentId:null}),/TASK_ARCHIVED/);
  await assert.rejects(board.archive({taskId:a.id,expectedRevision:1,archived:false}),/TASK_REVISION_CONFLICT/);
  await board.archive({taskId:a.id,expectedRevision:2,archived:false});
- await board.update({taskId:a.id,expectedRevision:3,patch:{status:'done'}});
- await board.archive({taskId:a.id,expectedRevision:4,archived:true});
+ const completed=await completeTask(board,a.id);
+ await board.archive({taskId:a.id,expectedRevision:completed.revision,archived:true});
  assert.equal((await board.get(b.id)).ready,true);
 });
 
@@ -111,17 +113,17 @@ test('inputs and journals reject oversized fields, unknown fields and duplicate 
  const task=await board.create(input());
  await assert.rejects(board.update({taskId:task.id,expectedRevision:1,patch:{}}));
  await assert.rejects(board.update({taskId:task.id,expectedRevision:1,patch:{boardId:'other'}}));
- const {blocked,ready,unresolvedDependencyIds,...record}=task;
- assert.throws(()=>validateTaskState({version:1,tasks:[record,record]}),/TASK_DUPLICATE_ID/);
- assert.throws(()=>validateTaskState({version:2,tasks:[]}),/TASK_STATE_INVALID/);
- const full={version:1 as const,tasks:Array.from({length:MAX_TASKS},()=>({...record,id:randomUUID(),archived:true}))};
+ const record=await board.storage.transaction(false,state=>({result:state.tasks[0]}));
+ assert.throws(()=>validateTaskState({version:2,tasks:[record,record]}),/TASK_DUPLICATE_ID/);
+ assert.throws(()=>validateTaskState({version:3,tasks:[]}),/TASK_STATE_INVALID/);
+ const full={version:2 as const,tasks:Array.from({length:MAX_TASKS},()=>({...record,id:randomUUID(),archived:true}))};
  await assert.rejects(new TaskBoard(new MemoryTaskStorage(full)).create(input()),/TASK_CAPACITY/);
  assert.throws(()=>validateTaskState({...full,tasks:full.tasks.map(t=>({...t,goal:'x'.repeat(8000)}))}),/TASK_STORAGE_SIZE_LIMIT/);
 });
 
 test('memory storage isolates initial state, reads, returned results and rollback',async()=>{
- const {board}=fixture(),task=await board.create(input()),{blocked,ready,unresolvedDependencyIds,...record}=task;
- const initial={version:1 as const,tasks:[record]},storage=new MemoryTaskStorage(initial),next=new TaskBoard(storage);
+ const {board}=fixture(),task=await board.create(input()),record=await board.storage.transaction(false,state=>({result:state.tasks[0]}));
+ const initial={version:2 as const,tasks:[record]},storage=new MemoryTaskStorage(initial),next=new TaskBoard(storage);
  initial.tasks[0].title='External mutation';assert.equal((await next.get(task.id)).title,'Implement feature');
  const result=await next.get(task.id);result.title='Result mutation';assert.equal((await next.get(task.id)).title,'Implement feature');
  await storage.transaction(false,state=>{state.tasks.length=0;return {result:null};});assert.equal((await next.list()).total,1);

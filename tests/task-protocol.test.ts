@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { completeViaTools } from './task-support.js';
 import assert from 'node:assert/strict';
 import { mkdtemp,rm,access } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -17,7 +18,7 @@ async function connect(directory:string,fixture=false,identity='fixture-instance
 test('production stdio task tools persist across restart and serialize conflicting multi-process edits without a GUI',async t=>{
  const directory=await mkdtemp(join(tmpdir(),'term-dad-task-protocol-'));t.after(()=>rm(directory,{recursive:true,force:true}));
  const first=await connect(directory);t.after(()=>first.client.close());
- assert.equal((await first.client.listTools()).tools.length,42);await assert.rejects(access(join(directory,'tasks.json')));
+ assert.equal((await first.client.listTools()).tools.length,47);await assert.rejects(access(join(directory,'tasks.json')));
  const task=await first.call('task.create',{boardId:'repo',title:'Durable',goal:'Preserve metadata',acceptanceCriteria:[{id:'check',description:'Checked'}]});
  await first.client.close();const second=await connect(directory),third=await connect(directory);t.after(()=>second.client.close());t.after(()=>third.client.close());
  assert.deepEqual(await second.call('task.get',{taskId:task.id}),{...task,assignment:null});
@@ -27,8 +28,8 @@ test('production stdio task tools persist across restart and serialize conflicti
  assert.equal((await second.raw('task.create',{boardId:'repo',title:'Invalid',goal:'Invalid',status:'done'})).isError,true);
  assert.equal((await third.call('task.list')).total,1);
  assert.equal((await second.raw('task.update',{taskId:task.id,expectedRevision:2,patch:{status:'done'}})).isError,true);
- await second.call('task.update',{taskId:task.id,expectedRevision:2,patch:{status:'done',acceptanceCriteria:[{id:'check',description:'Checked',satisfied:true,evidence:'Verified'}]}});
- await third.call('task.archive',{taskId:task.id,expectedRevision:3,archived:true});
+ const done=await completeViaTools(second.call,task.id);
+ await third.call('task.archive',{taskId:task.id,expectedRevision:done.revision,archived:true});
  assert.equal((await second.call('task.list')).total,0);
  assert.equal((await second.call('task.get',{taskId:task.id})).archived,true);
  await assert.rejects(access(join(directory,'workers.json')));
@@ -52,4 +53,19 @@ test('worker joins survive restart, detachment, forgetting and reassignment with
  await second.call('task.assign',{taskId:task.id,expectedRevision:1,agentId:replacement.agentId});
  assert.equal((await second.call('agent.list'))[0].tasks.items[0].id,task.id);
  await assert.rejects(access(join(directory,'input.log')));
+});
+
+test('stdio managed turns associate current attempts, preserve timeout semantics and reject stale dispatch',async t=>{
+ const directory=await mkdtemp(join(tmpdir(),'term-dad-turn-protocol-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+ const f=await connect(directory,true);t.after(()=>f.client.close());
+ const worker=await f.call('agent.adopt',{name:'turn-worker',paneId:7,cli:'codex',workerSkillInitialized:true});
+ let task=await f.call('task.create',{boardId:'repo',title:'Tracked',goal:'Report outcome',assignedAgentId:worker.agentId});
+ task=await f.call('task.start_attempt',{taskId:task.id,expectedRevision:task.revision});
+ const attempt={taskId:task.id,attemptId:task.currentAttemptId};
+ const sent=await f.call('agent.send',{agentId:worker.agentId,text:'Work',attempt});
+ const observation=await f.call('agent.observe',{agentId:worker.agentId});assert.equal(observation.turnId,sent.turnId);assert.deepEqual(observation.attempt,attempt);
+ assert.equal((await f.call('agent.wait_for_outcome',{agentId:worker.agentId,turnId:sent.turnId,timeoutMs:1})).reason,'timeout');
+ task=await f.call('task.start_attempt',{taskId:task.id,expectedRevision:task.revision});
+ assert.match(JSON.stringify(await f.raw('agent.send',{agentId:worker.agentId,text:'Stale work',attempt})),/TASK_ATTEMPT_STALE/);
+ const history=await f.call('task.history',{taskId:task.id,limit:1});assert.equal(history.total,2);assert.equal(history.nextOffset,1);
 });

@@ -230,3 +230,20 @@ the specific skill and tool calls needed. All created panes were cleaned up.
 `npm run check` passed the build and all 110 tests. The added launcher regression
 verifies runtime discovery from a stripped target PATH, literal handling of paths
 containing spaces and dollar signs, and preservation of explicit command overrides.
+
+## Completion reports and input-aware waits — 2026-09-16
+
+- `npm run check`: passed, 127 tests, including deterministic completion gates,
+  result provenance, stale attempts/reports, verification limits, legacy journal
+  migration, mixed-precision timestamps, permission/question/authentication waits,
+  uncertain submission, restart identity and stdio task/turn association. The full
+  suite ran outside the sandbox for subprocess and stdio support; build is current.
+- Both bundled role skills passed `quick_validate.py`.
+- A fresh regular review subagent found one timestamp-ordering bug. It was fixed
+  by comparing parsed instants, with valid, reversed and equal mixed-precision
+  timestamp regression cases. No deep-code-review skill was used for that review.
+- `npm run test:live` and `npm run test:recovery` were attempted outside the sandbox.
+  Both stopped at initial `terminal.list`: “WezTerm identity unavailable: Configure
+  WEZTERM_UNIX_SOCKET to select one WezTerm GUI endpoint.” No test panes were opened.
+  The updated live turn-wait and verified-completion paths are **not live verified**.
+  Rerun with a selected live endpoint; authenticated agent checks were not run.

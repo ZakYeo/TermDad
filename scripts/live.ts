@@ -5,8 +5,9 @@ try{
  const before=await call('terminal.list');assert.ok(before.length>0,'A live WezTerm GUI is required');
  const a=await session.spawnAgent({name:'term-dad-live-shell',cli:'shell',paneId:parentPane(before),cwd:process.cwd(),command:['bash','--noprofile','--norc','-i']});const agentId=a.agentId;
  await call('agent.wait_until_idle',{agentId,timeoutMs:30000});
- await call('agent.send',{agentId,text:"printf '\\nTERM_DAD_%s\\n' FIRST"});
+ const initialTurn=await call('agent.send',{agentId,text:"printf '\\nTERM_DAD_%s\\n' FIRST"});
  await call('agent.wait_for_text',{agentId,text:'TERM_DAD_FIRST',timeoutMs:15000});
+ const outcome=await call('agent.wait_for_outcome',{agentId,turnId:initialTurn.turnId,timeoutMs:15000});assert.equal(outcome.reason,'turn_finished');assert.equal(outcome.provenance,'heuristic');
  const first=await call('agent.observe',{agentId});assert.equal(first.paneId,a.paneId);
  await call('agent.send',{agentId,text:"printf '\\nTERM_DAD_%s\\n' FOLLOWUP"});
  const follow=await call('agent.wait_for_text',{agentId,text:'TERM_DAD_FOLLOWUP',timeoutMs:15000});assert.ok(follow.recentText.includes('TERM_DAD_FOLLOWUP'));

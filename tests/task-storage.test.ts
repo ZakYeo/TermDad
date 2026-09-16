@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { completeTask } from './task-support.js';
 import assert from 'node:assert/strict';
 import { mkdtemp,rm,readFile,writeFile,stat,access,chmod } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -11,7 +12,7 @@ async function fixture(t:any){const directory=await mkdtemp(join(tmpdir(),'term-
 test('file tasks survive new instances with assignments, dependencies, criteria, revisions and archive state',async t=>{
  const {directory,storage}=await fixture(t),board=new TaskBoard(storage);
  const prerequisite=await board.create(input);
- await board.update({taskId:prerequisite.id,expectedRevision:1,patch:{status:'done'}});
+ await completeTask(board,prerequisite.id);
  const task=await board.create({...input,dependencies:[prerequisite.id],acceptanceCriteria:[{id:'test',description:'Checked',satisfied:true,evidence:'Confirmed'}]});
  const archived=await board.archive({taskId:task.id,expectedRevision:1,archived:true});await board.close();
  const restarted=new TaskBoard(new FileTaskStorage(directory));
@@ -35,7 +36,7 @@ test('reads are lazy; corruption, invalid graphs, oversize files and unsafe perm
  const {directory,storage}=await fixture(t),absent=join(directory,'absent'),lazy=new TaskBoard(new FileTaskStorage(absent));
  assert.equal((await lazy.list()).total,0);await assert.rejects(access(absent));
  const board=new TaskBoard(storage),task=await board.create(input),path=join(directory,'tasks.json'),valid=await readFile(path,'utf8');
- for(const invalid of ['not-json',JSON.stringify({...JSON.parse(valid),version:2}),'x'.repeat(4_000_001)]){
+ for(const invalid of ['not-json',JSON.stringify({...JSON.parse(valid),version:3}),'x'.repeat(4_000_001)]){
   await writeFile(path,invalid);await assert.rejects(board.list(),/TASK_STATE_CORRUPT/);assert.equal(await readFile(path,'utf8'),invalid);
  }
  const broken=JSON.parse(valid);broken.tasks[0].dependencies=[task.id];await writeFile(path,JSON.stringify(broken));

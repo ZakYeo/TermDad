@@ -15,7 +15,7 @@ export interface TaskStorage {
 /** Isolated test/embedding storage; deliberately not a durable default. */
 export class MemoryTaskStorage implements TaskStorage {
  private state:TaskState;
- constructor(initial:TaskState=emptyTaskState()){this.state=validateTaskState(initial);}
+ constructor(initial:unknown=emptyTaskState()){this.state=validateTaskState(initial);}
  async transaction<T>(write:boolean,fn:(state:TaskState)=>{state?:TaskState;result:T}):Promise<T>{
   const outcome=fn(structuredClone(this.state));
   if(outcome.state){

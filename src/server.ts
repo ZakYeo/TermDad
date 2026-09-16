@@ -9,6 +9,7 @@ import { CommandScreenshotProvider,type ScreenshotProvider } from './screenshots
 import { WatchManager,type WatchOptions } from './watches.js';
 import { registerWatchTools } from './watch-tools.js';
 import { CommandNotificationProvider } from './notifications.js';
+import { attemptReferenceSchema } from './task-results.js';
 import { TaskBoard } from './tasks.js';
 import { FileTaskStorage,type TaskStorage } from './task-storage.js';
 import { registerTaskTools } from './task-tools.js';
@@ -36,10 +37,14 @@ export function createServer(backend:TerminalBackend=new WezTermBackend(),screen
  register('agent.adopt','Adopt an existing pane without sending input; Codex initializes on the next task unless declared initialized.',adoptionSchema.shape,a=>agents.adopt(a));
  register('agent.reattach','Explicitly bind a saved worker to a pane; inspect uncertain delivery before acknowledging it.',reattachSchema.shape,a=>agents.reattach(a));
  register('agent.forget','Remove a saved mapping without closing its pane.',agent,a=>agents.forget(a.agentId));
- register('agent.send','Submit a task to the existing worker; initializes the Codex worker skill if no task has been sent yet.',{...agent,...text},a=>agents.send(a.agentId,a.text));
+ register('agent.send','Submit a task to the existing worker; initializes the Codex worker skill if no task has been sent yet.',{...agent,...text,attempt:attemptReferenceSchema.optional()},async a=>{if(a.attempt){const worker=await agents.resolve(a.agentId);await tasks.validateAttempt(a.attempt.taskId,a.attempt.attemptId,worker.agentId);}return agents.send(a.agentId,a.text,a.attempt);});
  for(const name of ['observe','status'])register(`agent.${name}`,'Observe state, activity and bounded output delta.',{...agent,since:z.string().optional()},a=>agents.observe(a.agentId,a.since));
  register('agent.interrupt','Send Ctrl+C to worker.',agent,a=>agents.interrupt(a.agentId));
  register('agent.stop','Close worker pane and remove mapping.',agent,a=>agents.stop(a.agentId));
+ server.registerTool('agent.wait_for_outcome',{description:'Wait for required input, heuristic turn completion, optional quiet output, disappearance or timeout. Never verifies task success.',inputSchema:{...agent,turnId:z.uuid(),...wait,quietMs:z.number().int().min(1000).max(3600000).optional()}},async(a,extra)=>{
+  try{return {content:[{type:'text' as const,text:JSON.stringify(await agents.waitForOutcome(a.agentId,a.turnId,a.timeoutMs,a.quietMs,extra.signal))}]};}
+  catch(e){return {isError:true,content:[{type:'text' as const,text:e instanceof Error?e.message:'Worker wait failed'}]};}
+ });
  register('agent.wait_for_text','Wait for literal text in recent output.',{...agent,text:z.string().min(1),...wait},a=>agents.wait(a.agentId,o=>o.recentText.includes(a.text),a.timeoutMs));
  register('agent.wait_until_idle','Wait for a recognized prompt; silence alone never counts.',{...agent,...wait},a=>agents.wait(a.agentId,o=>['READY_FOR_PROMPT','IDLE'].includes(o.status),a.timeoutMs));
  register('agent.broadcast','Submit a message to explicit workers; returns per-agent outcomes.',{agentIds:z.array(z.string()).min(1).max(64),...text},async a=>Promise.all(a.agentIds.map(async (agentId:string)=>{try{return await agents.send(agentId,a.text);}catch(e){return {agentId,error:String(e)};}})));

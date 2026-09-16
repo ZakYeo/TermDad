@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { open, unlink,type FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
+import { attemptReferenceSchema } from './task-results.js';
 import { FileJournal } from './journal.js';
 
 export const instanceSchema=z.object({endpoint:z.string().min(1).max(8192),key:z.string().min(1).max(1024)}).strict();
@@ -9,6 +10,7 @@ export type TerminalInstance=z.infer<typeof instanceSchema>;
 export const workerSchema=z.object({
  agentId:z.uuid(),name:z.string().min(1).max(100),paneId:z.number().int().nonnegative().safe().nullable(),
  cli:z.enum(['claude','codex','shell']),instance:instanceSchema.nullable(),sessionId:z.uuid(),revision:z.uuid(),
+ turn:z.object({id:z.uuid(),bindingRevision:z.uuid(),attempt:attemptReferenceSchema.optional()}).strict().optional(),
  workerSkillSent:z.boolean(),deliveryPending:z.boolean(),lastInputAt:z.number().nonnegative().optional(),
  inputOutputHash:z.string().regex(/^[a-f0-9]{64}$/).optional(),
 }).strict();

@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { completeViaTools } from './task-support.js';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -16,7 +17,7 @@ test('standalone task tools validate MCP calls, report conflicts and preserve ex
  const call=(name:string,args:Record<string,unknown>)=>client.callTool({name,arguments:args});
  const data=(result:any)=>JSON.parse(result.content[0].text);
  try{
-  assert.deepEqual((await client.listTools()).tools.map(t=>t.name).sort(),['task.archive','task.assign','task.create','task.get','task.list','task.update']);
+  assert.deepEqual((await client.listTools()).tools.map(t=>t.name).sort(),['task.archive','task.assign','task.create','task.get','task.history','task.list','task.report_result','task.start_attempt','task.update','task.verify']);
   const task=data(await call('task.create',{boardId:'repo',title:'Implement',goal:'Acceptance requirements',acceptanceCriteria:[{id:'tests',description:'Tests pass'}]}));
   assert.equal(task.revision,1);assert.equal(task.priority,'normal');
   // Preserve strictness at the transport boundary, before the SDK invokes handlers.
@@ -39,9 +40,9 @@ test('standalone task tools validate MCP calls, report conflicts and preserve ex
   assert.equal(data(await call('task.get',{taskId:task.id})).status,'todo');
   assert.equal((await call('task.create',{boardId:'repo',title:'Bad',goal:'Bad',assignedAgentId:'pane-7'})).isError,true);
   assert.equal((await call('task.update',{taskId:task.id,expectedRevision:2,patch:{}})).isError,true);
-  const done=data(await call('task.update',{taskId:task.id,expectedRevision:2,patch:{status:'done',acceptanceCriteria:[{id:'tests',description:'Tests pass',satisfied:true,evidence:'Check output reviewed'}]}}));
+  const done=await completeViaTools(async(name,args)=>{const r=await call(name,args);assert.notEqual(r.isError,true,JSON.stringify(r));return data(r);},task.id);
   assert.equal(done.status,'done');
-  await call('task.archive',{taskId:task.id,expectedRevision:3,archived:true});
+  await call('task.archive',{taskId:task.id,expectedRevision:done.revision,archived:true});
   assert.equal(data(await call('task.list',{})).total,0);
   assert.equal(data(await call('task.get',{taskId:task.id})).archived,true);
  }finally{await client.close();await server.close();}

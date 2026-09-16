@@ -229,3 +229,28 @@ do not prevent worker recovery. These are separate journal reads; assignments ar
 not atomic reservations, and missing workers remain referenced for later
 reassignment. Worker observations cannot satisfy criteria or set task status.
 Task-change event delivery and automatic dispatch are outside this implementation.
+
+
+## Reported results and verification
+
+Task state version 2 keeps bounded attempts, reports and verification decisions
+in the existing atomic task journal. An attempt snapshots requirements and worker
+assignment. Only its latest report can be verified; verification references the
+same work version and requires explicit evidence for each criterion. Both completion
+APIs enforce the same graph and verification invariants. Failed checks prevent a
+passing decision. Old done records migrate as legacy completions, without evidence.
+Reads migrate in memory; successful writes persist the new format.
+
+Terminal observations cannot write task results. Managed submissions persist a
+turn ID and optional task/attempt reference with delivery intent. Assignment is
+checked before sending, but separate journals do not create an atomic reservation.
+Reports remain supervisor-supplied, with worker-reported or supervisor-recorded
+provenance; exact command capture is outside this release. Work-version references
+are declarations, not a filesystem monitor or executable commands.
+
+Input request state is observation-local and contains metadata plus a fingerprint,
+not durable prompt text. Required input and readiness are separate flags, while
+legacy awaitingInput remains compatible. Unknown output retains uncertainty;
+sending input does not resolve a request. Turn waits return explicit reasons and
+retain permission precedence, the stale-prompt guard, and verified disappearance.
+Binding changes, supersession and uncertain delivery cannot yield turn completion.

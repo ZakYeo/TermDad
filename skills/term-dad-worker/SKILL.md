@@ -29,3 +29,12 @@ verification actually performed, and remaining risks or blockers. Distinguish
 finished work from work awaiting integration. For non-coding tasks, use the
 equivalent relevant evidence. Honor a task's requested response format; a simple
 task does not require a lengthy handoff.
+
+
+When reporting tracked work, identify the supplied task/attempt, the exact work
+version, and artifact locations with their repository/domain context. For checks,
+report what ran, pass/fail/skipped, known exit codes, execution times when known,
+and evidence locations. Leave unknown values explicitly unknown; never infer exit
+codes from returning to a prompt. A finished response is a report for the supervisor
+to verify, not proof that the task is accepted. Surface required permissions,
+authentication, and unanswered questions as blockers needing attention.

@@ -1,7 +1,8 @@
-export type Status='STARTING'|'WORKING'|'READY_FOR_PROMPT'|'WAITING_FOR_PERMISSION'|'WAITING_FOR_QUESTION'|'RUNNING_EXTERNAL_COMMAND'|'IDLE'|'ERROR'|'UNKNOWN';
+export type Status='STARTING'|'WORKING'|'READY_FOR_PROMPT'|'WAITING_FOR_PERMISSION'|'WAITING_FOR_QUESTION'|'WAITING_FOR_AUTHENTICATION'|'RUNNING_EXTERNAL_COMMAND'|'IDLE'|'ERROR'|'UNKNOWN';
 export interface InteractiveAgentAdapter { cli:string; classify(text:string):Status; }
 function common(text:string):Status|undefined {
  if(/(?:do you trust|trust this folder|allow .*\?|permission required|would you like to proceed|Do you want to proceed)/i.test(text))return 'WAITING_FOR_PERMISSION';
+ if(/(?:sign in to continue|log in to continue|please (?:sign|log) in|enter (?:your )?(?:authentication|verification) code|open .+ to (?:sign|log) in)/i.test(text))return 'WAITING_FOR_AUTHENTICATION';
  if(/(?:select an option|choose an option|Enter to select|Which .+\?)/i.test(text))return 'WAITING_FOR_QUESTION';
  if(/(?:not logged in|authentication failed|failed to connect|command not found|API Error:)/i.test(text))return 'ERROR';
 }

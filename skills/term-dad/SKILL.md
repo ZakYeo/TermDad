@@ -57,3 +57,17 @@ retrying. Reattach with `acknowledgeUncertainDelivery:true` and an explicit
 `workerSkillInitialized` value based on observed delivery. Never automatically
 replay the previous task. Detached workers require verified targeting or explicit
 reattachment; matching titles or pane numbers alone do not establish identity.
+
+
+For tracked tasks, assign a worker and start a task attempt before dispatching.
+Pass the task/attempt reference to `agent.send`, then use its returned turn ID with
+`agent.wait_for_outcome`. `input_required` needs attention; a ready prompt and
+quiet output do not establish successful work. Inspect permission requests and
+follow the user's authorization; never approve them automatically.
+
+Record the worker's result using `task.report_result`, including the work version,
+artifacts and checks actually reported. Keep unknown exit codes null and distinguish
+worker-reported evidence from checks you recorded yourself. Review acceptance
+criteria and use `task.verify` to record the decision; `complete:true` completes
+only on a passing verification. Read `task.history` for full evidence. Reopen tasks
+and start a new attempt when requirements or the verified work change.

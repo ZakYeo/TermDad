@@ -30,6 +30,7 @@ Tool names use dots. All arguments are JSON objects. Omitted arguments below use
 | agent.stop | `agentId` → kill pane and remove mapping |
 | agent.screenshot | `agentId` → provider image |
 | agent.wait_for_text | `agentId, text, timeoutMs?` → wait for literal substring in recent output |
+| agent.wait_for_outcome | `agentId, turnId, timeoutMs?, quietMs?` → input required, heuristic turn finished, optional quiet output, disappearance, or timeout |
 | agent.wait_until_idle | `agentId, timeoutMs?` → recognized ready/idle state; no silence heuristic |
 | agent.broadcast | `agentIds: string[], text` → per-worker send success/error |
 | agent.collect_results | `{}` → current observations, no inferred task success |
@@ -112,7 +113,7 @@ filesystems, including WSL; disconnect never kills worker panes.
 `event.list`, `event.acknowledge`, and `event.wait_for_event` expose the durable
 local event journal. Background watches publish to this queue by default; there
 is deliberately no MCP publish/injection tool. Internal producers use
-`await events.publish(input)`. The server exposes 36 tools, including the three
+`await events.publish(input)`. The server exposes 47 tools, including the three
 watch tools and three event tools.
 
 | Tool | Arguments | Result |
@@ -242,7 +243,7 @@ is not a stable snapshot while other clients edit tasks. Criteria are objects wi
 `id`, `description`, optional `satisfied` (default false), and optional `evidence`.
 
 Statuses are `todo`, `in_progress`, `done`, `cancelled`. Completion is explicit and
-requires satisfied criteria, completed dependencies and no blockers. Task readiness
+requires passing verification of the current report, satisfied criteria, completed dependencies and no blockers. Setting criterion booleans alone cannot complete a task. Task readiness
 means an unblocked, unarchived `todo` record; terminal readiness is unrelated.
 Archived tasks must be restored before editing. Missing workers never delete tasks.
 A revision conflict requires rereading the task before retrying the intended change.
@@ -257,7 +258,8 @@ writes only record the supplied UUID and do not promise worker availability.
 
 `agent.list`, `orchestrator.status`, `agent.collect_results` and the agents inside
 `terminal.snapshot` include `tasks`: total unarchived assignments, up to 20 compact
-items sorted by priority, a `truncated` flag and `storageWarning`. Use
+items sorted by priority (including `currentAttemptId`, `reportedOutcome`, and
+`verificationStatus`), a `truncated` flag and `storageWarning`. Use
 `task.list({assignedAgentId:"<uuid>"})` to page through full details. If task storage
 cannot be read, worker views remain available with `total:null` and
 `TASK_SUMMARY_UNAVAILABLE`; `task.list` exposes the underlying error.
@@ -279,3 +281,98 @@ servers using the directory, preserve `tasks.json`, and only then remove stale
 Tasks, workers and events are separate journals, so their views are not one atomic
 snapshot. Task text and evidence are explicit stored content; treat them as
 untrusted, and do not include secrets or automatically copy terminal output.
+
+
+## Completion reporting and verification
+
+Output activity, worker interaction, reported task outcome, and verification are
+independent. Quiet output does not imply a finished turn; a finished turn does not
+imply a successful or verified task. Reports and decisions are explicit supplied
+content, never automatically extracted from terminal text.
+
+| Tool | Inputs and behavior |
+| --- | --- |
+| `task.start_attempt` | `taskId, expectedRevision`. Requires an assigned worker UUID and an editable task. Records the goal/criteria/dependencies and starts `in_progress`; supersedes earlier attempts without dispatching input. |
+| `task.report_result` | `taskId, expectedRevision, attemptId`, plus the report fields below. Only the current attempt can report. Replaces the current result by appending history and makes earlier verification stale. |
+| `task.verify` | `taskId, expectedRevision, attemptId, reportId, workVersion, result, rationale, criteria, complete?`. Records a decision against the current report; `complete:true` atomically marks the task done when verification passes. |
+| `task.history` | `taskId, offset?, limit?` (default 5, maximum 20). Returns full attempts with reports and decisions, total, nextOffset and current revision. |
+
+Report fields are `outcome` (`succeeded`, `failed`, `blocked`, `cancelled`),
+`summary`, `workVersion`, `provenance` (`worker_reported`, `supervisor_recorded`),
+`artifacts`, and `checks`. A work version should identify the commit plus any
+relevant working-tree changes, or the equivalent artifact version for other work.
+Each artifact has `kind` (`file`, `commit`, `pull_request`, `other`), `reference`,
+and `context` identifying its domain/repository. References are not fetched.
+Each check has `id`, `criterionIds`, `execution`, `context`, nullable ISO `startedAt` and
+`finishedAt`, `result` (`passed`, `failed`, `skipped`), nullable integer `exitCode`,
+an `evidence` reference array, and `provenance`. Exit codes belong to executions;
+unknown codes and execution times stay null. This release does not capture commands or exit codes
+itself, and cannot attest that supplied evidence is true.
+
+Verification `result` is `passed`, `failed`, or `inconclusive`. Each entry in
+`criteria` has `criterionId`, `result`, and a nonempty `evidence` reference array.
+Passing requires a succeeded report without failed checks, one passing decision
+for every criterion, resolved dependencies and no blockers. A rationale is always
+required, including for tasks without criteria. Skipped checks do not themselves
+establish criterion satisfaction. A passing decision updates criterion evidence;
+`task.update(status:"done")` uses the same gate as `task.verify(complete:true)`.
+
+Task reads include `currentAttemptId`, compact `currentAttempt`, `latestReport`,
+and `verification` summaries. Verification status is `unverified`, `passed`,
+`failed`, `inconclusive`, `stale`, or `legacy_unverified`. Full evidence appears
+only in `task.history`. A new attempt, report, changed requirements, changed
+blockers, reassignment, cancellation, or reopening invalidates current verification.
+Title, priority and archival preserve it. Completed tasks must be reopened before
+invalidating edits; reopen dependents before their completed prerequisites.
+External file edits are not monitored: verification covers only the recorded work
+version. Failed or blocked reports leave task lifecycle status unchanged.
+
+Attempts are capped at 20 per task, with 20 reports and 20 verification decisions
+per attempt and 50 artifacts/checks per report. The existing 4 MB global bound
+still applies; capacity errors never purge evidence. Archived history counts.
+Old version-1 task journals are validated and migrated in memory on reads, and
+written as version 2 on the next successful mutation. Existing done tasks remain
+`legacy_unverified` and continue satisfying dependencies; reopening requires the
+new verification workflow. Old server versions cannot read version-2 journals;
+restart all clients on the new build before making writes.
+
+Example workflow (use returned UUIDs and revisions at every step):
+
+```text
+task.assign({taskId, expectedRevision, agentId})
+task.start_attempt({taskId, expectedRevision})
+agent.send({agentId, text:"Implement the assigned outcome", attempt:{taskId, attemptId}})
+agent.wait_for_outcome({agentId, turnId, timeoutMs:30000})
+task.report_result({taskId, expectedRevision, attemptId, outcome:"succeeded", summary:"Implemented and checked", workVersion:"commit:<sha>", provenance:"worker_reported", artifacts:[], checks:[]})
+task.verify({taskId, expectedRevision, attemptId, reportId, workVersion:"commit:<sha>", result:"passed", rationale:"Reviewed the outcome", criteria:[{criterionId:"checks", result:"passed", evidence:["reviewed check log"]}], complete:true})
+```
+
+### Input-aware turn waits
+
+Managed `agent.send` and prompted `agent.spawn` return `turnId`; observations and
+worker lists expose it. Every managed text submission gets a fresh durable ID
+before delivery, including follow-ups. `agent.send` optionally accepts
+`attempt:{taskId,attemptId}` and checks current assignment before sending. Task
+validation and terminal delivery are separate transactions, not an atomic dispatch
+reservation. Raw terminal input is not tracked as a managed turn.
+
+`agent.wait_for_outcome` requires the current turn ID, defaults to 30 seconds and
+caps at 120 seconds. Optional `quietMs` ranges from 1 second to 1 hour. It returns
+`reason` and `lastObservation` (nullable): `input_required`, `turn_finished`,
+`output_quiet`, `worker_disappeared`, or `timeout`. Turn completion includes
+`provenance:"heuristic"`. Stale prompts cannot finish a turn; input takes precedence
+over readiness and silence. A missing pane is confirmed against its original
+terminal identity. Transport failure is an error, not disappearance.
+Superseded turns, changed bindings, uncertain delivery and cancelled requests
+return explicit errors. Existing wait tools keep their original semantics.
+
+Observations retain `awaitingInput` for compatibility and add `inputRequired`,
+`readyForPrompt`, and `inputRequest`. A request has an ID, kind (`permission`,
+`question`, `authentication`), turn ID, detection time, heuristic provenance, and
+`pending` or `uncertain` state. IDs remain stable for an unchanged observed request.
+Unknown output preserves an uncertain request; observed work or readiness resolves
+it. Sending input alone does not resolve it. Requests are bounded, process-local
+observation state, reset on restart/reattachment; no prompt text is stored durably.
+Permission classification takes precedence. Recognizable sign-in prompts require
+input; generic authentication failures still classify as errors. No prompt is
+automatically approved or answered.

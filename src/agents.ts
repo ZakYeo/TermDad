@@ -1,13 +1,15 @@
 import { createHash,randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { adapters, type Status } from './adapters.js';
+import { observeInteraction,type InteractionState } from './interaction.js';
+import { attemptReferenceSchema } from './task-results.js';
 import { initialWorkerPrompt } from './worker-skill.js';
 import { type TerminalBackend,type SpawnOptions,spawnSchema,submit,sendKeys,id } from './backend.js';
 import { MemoryWorkerStorage,newWorker,workerSchema,type WorkerStorage,type WorkerRecord,type TerminalInstance } from './worker-storage.js';
 export const hashOutput=(text:string)=>createHash('sha256').update(text).digest('hex');
 export function delta(previous:string,current:string){if(previous===current)return {mode:'unchanged',text:''};if(current.startsWith(previous))return {mode:'append',text:current.slice(previous.length)};return {mode:'replace',text:current};}
 type Observation={id:string;text:string;status:Status};
-export interface Agent extends Omit<WorkerRecord,'paneId'> {paneId:number;lastOutputAt:number;outputHash:string;recentText:string;status:Status;history:Observation[];}
+export interface Agent extends Omit<WorkerRecord,'paneId'>,InteractionState {paneId:number;lastOutputAt:number;outputHash:string;recentText:string;status:Status;history:Observation[];}
 const sameInstance=(a:TerminalInstance|null,b:TerminalInstance|null)=>a!==null&&b!==null&&a.key===b.key&&a.endpoint===b.endpoint;
 export const adoptionSchema=z.object({name:workerSchema.shape.name,paneId:id,cli:workerSchema.shape.cli,workerSkillInitialized:z.boolean().optional()}).strict();
 export const reattachSchema=z.object({agentId:z.string().min(1),paneId:id,acknowledgeUncertainDelivery:z.boolean().optional(),workerSkillInitialized:z.boolean().optional()}).strict();
@@ -92,7 +94,7 @@ export class Agents {
    // Submission failures report uncertainty, never the incorrect claim that no input was sent.
    await this.send(w.agentId,o.prompt);
   }
-  return {agentId:w.agentId,name:w.name,paneId,status:this.get(w.agentId).status};
+  return {agentId:w.agentId,name:w.name,paneId,status:this.get(w.agentId).status,turnId:this.get(w.agentId).turn?.id??null};
  });}
  adopt(input:z.input<typeof adoptionSchema>){return this.run(async()=>{
   const o=adoptionSchema.parse(input),instance=await this.identity();
@@ -116,7 +118,7 @@ export class Agents {
   });
  });}
  forget(agentId:string){return this.run(()=>this.locked(agentId,async w=>{await this.remove(w.agentId);return {forgotten:true};}));}
- private view(w:WorkerRecord,attachment:string,recoveryReason:string|null){return {agentId:w.agentId,name:w.name,paneId:w.paneId,cli:w.cli,attachment,recoveryReason,deliveryPending:w.deliveryPending,workerSkillInitialized:w.workerSkillSent,storageWarning:this.storage.warning??null};}
+ private view(w:WorkerRecord,attachment:string,recoveryReason:string|null){return {agentId:w.agentId,name:w.name,paneId:w.paneId,cli:w.cli,attachment,recoveryReason,deliveryPending:w.deliveryPending,turnId:w.turn?.id??null,workerSkillInitialized:w.workerSkillSent,storageWarning:this.storage.warning??null};}
  list(){return this.run(async()=>{
   const workers=await this.saved();for(const key of this.records.keys())if(!workers.some(w=>w.agentId===key))this.records.delete(key);
   if(!workers.length)return [];
@@ -138,22 +140,26 @@ export class Agents {
   const {a,pane}=await this.checked(w);
   const text=(await this.backend.read(a.paneId,150)).slice(-24000),hash=hashOutput(text),changed=hash!==a.outputHash;
   if(changed)a.lastOutputAt=Date.now();a.outputHash=hash;a.recentText=text;a.status=adapters[a.cli].classify(text);
+  const classifiedStatus=a.status;
   if((a.deliveryPending||(a.lastInputAt&&(Date.now()-a.lastInputAt<750||hash===a.inputOutputHash)))&&a.status==='READY_FOR_PROMPT')a.status='WORKING';
+  // A guarded stale prompt is not observed progress and must not resolve input requests.
+  const interaction=observeInteraction(a,a.status==='WORKING'&&classifiedStatus==='READY_FOR_PROMPT'?'UNKNOWN':a.status,text,a.turn?.id??null);
   const previous=since?a.history.find(h=>h.id===since):undefined,observationId=randomUUID(),output=previous?delta(previous.text,text):{mode:'replace',text};
   a.history.push({id:observationId,text,status:a.status});if(a.history.length>16)a.history.shift();
-  return {agentId:a.agentId,name:a.name,paneId:a.paneId,observationId,previousObservationId:since,deltaReset:!!since&&!previous,status:a.status,activity:changed?'changed':'unchanged',lastActivitySecondsAgo:(Date.now()-a.lastOutputAt)/1000,lastInputAt:a.lastInputAt,lastOutputAt:a.lastOutputAt,outputHash:hash,cwd:pane.cwd,process:pane.foreground_process_name??null,awaitingInput:['READY_FOR_PROMPT','WAITING_FOR_PERMISSION','WAITING_FOR_QUESTION'].includes(a.status),permissionPrompt:a.status==='WAITING_FOR_PERMISSION',deliveryPending:a.deliveryPending,recentText:output.text,outputMode:output.mode,screenshotAvailable:!!process.env.TERM_DAD_SCREENSHOT_COMMAND};
+  return {agentId:a.agentId,name:a.name,paneId:a.paneId,observationId,...interaction,turnId:a.turn?.id??null,attempt:a.turn?.attempt??null,previousObservationId:since,deltaReset:!!since&&!previous,status:a.status,activity:changed?'changed':'unchanged',lastActivitySecondsAgo:(Date.now()-a.lastOutputAt)/1000,lastInputAt:a.lastInputAt,lastOutputAt:a.lastOutputAt,outputHash:hash,cwd:pane.cwd,process:pane.foreground_process_name??null,awaitingInput:['READY_FOR_PROMPT','WAITING_FOR_PERMISSION','WAITING_FOR_QUESTION','WAITING_FOR_AUTHENTICATION'].includes(a.status),permissionPrompt:a.status==='WAITING_FOR_PERMISSION',deliveryPending:a.deliveryPending,recentText:output.text,outputMode:output.mode,screenshotAvailable:!!process.env.TERM_DAD_SCREENSHOT_COMMAND};
  }));}
- send(agentId:string,text:string){return this.run(()=>this.locked(agentId,async w=>{
+ send(agentId:string,text:string,attempt?:z.infer<typeof attemptReferenceSchema>){return this.run(()=>this.locked(agentId,async w=>{
   z.string().max(100000).parse(text);
+  if(attempt)attemptReferenceSchema.parse(attempt);
   const {a}=await this.checked(w);
   if(a.deliveryPending)throw new Error('WORKER_DELIVERY_UNCERTAIN: inspect and agent.reattach before further input');
   const initialize=a.cli==='codex'&&!a.workerSkillSent,prompt=initialize?initialWorkerPrompt(text):text;
   z.string().max(100000).parse(prompt);
   const hash=hashOutput((await this.backend.read(a.paneId,150)).slice(-24000));
-  await this.change(a.agentId,w=>{w.inputOutputHash=hash;w.lastInputAt=Date.now();w.deliveryPending=true;});
+  await this.change(a.agentId,w=>{w.inputOutputHash=hash;w.lastInputAt=Date.now();w.deliveryPending=true;w.turn={id:randomUUID(),bindingRevision:w.revision,...(attempt?{attempt}: {})};});
   try{await submit(this.backend,a.paneId,prompt);await this.change(a.agentId,w=>{w.deliveryPending=false;if(initialize)w.workerSkillSent=true;});}
   catch{throw new Error('WORKER_DELIVERY_UNCERTAIN: input may have reached the pane; inspect and agent.reattach before retrying');}
-  a.status='WORKING';return {agentId:a.agentId,sent:true};
+  a.status='WORKING';return {agentId:a.agentId,sent:true,turnId:a.turn!.id};
  }));}
  interrupt(agentId:string){return this.run(()=>this.locked(agentId,async w=>{
   const {a}=await this.checked(w);if(a.deliveryPending)throw new Error('WORKER_DELIVERY_UNCERTAIN: inspect and reattach first');
@@ -177,5 +183,41 @@ export class Agents {
  async requireAttachment(agentId:string){const w=await this.lookup(agentId);if(!this.attached(w,await this.identity()))throw new Error('WORKER_DETACHED');return w;}
  async reconcileClosed(paneId:number){const w=await this.findByPane(paneId);if(w)await this.run(()=>this.locked(w.agentId,async current=>{await this.checked(current);})).catch(e=>{if(!(e instanceof Error&&e.message.includes('disappeared')))throw e;});}
  wait(agentId:string,predicate:(o:Awaited<ReturnType<Agents['observe']>>)=>boolean,timeoutMs=30000){return this.run(async()=>{const deadline=Date.now()+timeoutMs;let last;do{last=await this.observe(agentId);if(predicate(last))return last;if(Date.now()>=deadline)break;await new Promise(r=>setTimeout(r,Math.min(250,deadline-Date.now())));}while(Date.now()<=deadline);throw new Error(`Timed out waiting for ${agentId}; last status ${last?.status}`);});}
+ waitForOutcome(agentId:string,turnId:string,timeoutMs=30000,quietMs?:number,signal?:AbortSignal){return this.run(async()=>{
+  z.uuid().parse(turnId);z.number().int().min(1).max(120000).parse(timeoutMs);
+  if(quietMs!==undefined)z.number().int().min(1000).max(3600000).parse(quietMs);
+  const binding=await this.lookup(agentId),deadline=Date.now()+timeoutMs;
+  const assertTurn=(w:WorkerRecord)=>{
+   if(w.revision!==binding.revision||w.turn?.bindingRevision!==w.revision)throw new Error('WORKER_BINDING_CHANGED');
+   if(w.turn?.id!==turnId)throw new Error('WORKER_TURN_SUPERSEDED');
+   if(w.deliveryPending)throw new Error('WORKER_DELIVERY_UNCERTAIN');
+  };
+  assertTurn(binding);
+  let last:Awaited<ReturnType<Agents['observe']>>|undefined;
+  do{
+   if(signal?.aborted)throw new Error('WORKER_WAIT_CANCELLED');
+   if(this.closed)throw new Error('WORKER_CLOSED');
+   const current=await this.resolveOptional(binding.agentId);
+   if(!current){
+    if(!await this.bindingPaneExists(binding))return {reason:'worker_disappeared',lastObservation:last??null};
+    throw new Error('WORKER_NO_LONGER_MANAGED');
+   }
+   assertTurn(current);
+   try{last=await this.observe(binding.agentId);}
+   catch(e){
+    if(e instanceof Error&&e.message.includes('disappeared')&&!await this.bindingPaneExists(binding))return {reason:'worker_disappeared',lastObservation:last??null};
+    throw e;
+   }
+   // Input and reattachment can interleave between observations; do not answer for a newer turn.
+   const after=await this.resolveOptional(binding.agentId);if(after)assertTurn(after);else continue;
+   if(last.turnId!==turnId)throw new Error('WORKER_TURN_SUPERSEDED');
+   if(last.inputRequired)return {reason:'input_required',lastObservation:last};
+   if(last.readyForPrompt)return {reason:'turn_finished',provenance:'heuristic',lastObservation:last};
+   if(quietMs!==undefined&&Date.now()-Math.max(last.lastOutputAt,last.lastInputAt??0)>=quietMs)return {reason:'output_quiet',lastObservation:last};
+   if(Date.now()>=deadline)break;
+   await new Promise(r=>setTimeout(r,Math.min(250,Math.max(0,deadline-Date.now()))));
+  }while(Date.now()<=deadline);
+  return {reason:'timeout',lastObservation:last??null};
+ });}
  async snapshot(){const workers=await this.list();return Promise.all(workers.map(async w=>{if(w.attachment==='detached')return w;try{return await this.observe(w.agentId);}catch(e){return {...w,error:String(e)};}}));}
 }

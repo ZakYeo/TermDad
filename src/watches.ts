@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { inputKind } from './interaction.js';
 import { adapters, type Status } from './adapters.js';
 import { Agents, hashOutput } from './agents.js';
 import type { WorkerRecord } from './worker-storage.js';
@@ -82,8 +83,8 @@ export class WatchManager {
   if(!this.active(w))return;
   const changed=hash!==w.hash;
   if(changed){w.changedAt=this.now();w.quiet=false;}
-  const input=(s:Status|undefined)=>s==='WAITING_FOR_PERMISSION'||s==='WAITING_FOR_QUESTION';
-  if(input(status)&&!input(w.status))this.enqueue(w,'input_required');
+  const input=(s:Status|undefined)=>s!==undefined&&inputKind(s)!==null;
+  if(input(status)&&(!input(w.status)||status!==w.status))this.enqueue(w,'input_required');
   if(!baseline&&status==='READY_FOR_PROMPT'&&w.status!=='READY_FOR_PROMPT')this.enqueue(w,'ready');
   if(!baseline&&!changed&&!w.quiet&&this.now()-w.changedAt>=w.inactivityMs){this.enqueue(w,'inactive');w.quiet=true;}
   w.hash=hash;w.status=status;

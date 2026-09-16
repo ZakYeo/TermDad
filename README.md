@@ -154,8 +154,12 @@ task.list({"boardId":"my-project","readyOnly":true})
 Use returned UUIDs and revisions. Tasks survive worker removal, and concurrent
 stale edits are rejected. Worker lists and supervisor snapshots include assigned
 task summaries; task reads show attached, detached or missing assignees. Completion
-is explicit and requires satisfied criteria, completed dependencies and no blockers.
-Assignment records intent; sending instructions to the worker remains a separate
+requires an explicit passing verification of the current result, satisfied criteria,
+completed dependencies and no blockers.
+Use `task.start_attempt`, `task.report_result`, and `task.verify` to record results,
+artifacts and checks; `task.history` retains the evidence. Supplied exit codes are
+reported evidence, not automatically captured execution results. Existing done tasks
+remain explicitly `legacy_unverified` until reopened and verified. Assignment records intent; sending instructions to the worker remains a separate
 operation. See [task tools and recovery](docs/tools.md#persistent-task-board).
 
 ## Screenshots
@@ -167,6 +171,15 @@ codex mcp add term-dad --env TERM_DAD_SCREENSHOT_COMMAND=/home/zak/personal/term
 ```
 
 `terminal.screenshot` and `agent.screenshot` return MCP PNG images. The bundled provider captures the whole WezTerm window and activates the requested pane/tab first. It matches the target GUI window by title, restores it if minimized, and fails when the title is ambiguous. See [screenshot strategy](docs/architecture.md#screenshots).
+
+## Input-aware waits
+
+Use `agent.wait_for_outcome({agentId, turnId})` with the turn ID returned by
+`agent.send` to wait for required input, heuristic turn completion, disappearance,
+or timeout. Add `quietMs` to also return on unchanged output. Observations expose
+`inputRequired`, `readyForPrompt`, and pending permission/question/authentication
+requests. Quiet output and prompt readiness never verify task success; permission
+requests are never automatically approved. See [tool details](docs/tools.md#input-aware-turn-waits).
 
 ## Background watches
 
