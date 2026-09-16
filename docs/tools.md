@@ -35,6 +35,54 @@ Keys: ENTER, ESC, TAB, UP, DOWN, LEFT, RIGHT, CTRL_C, CTRL_D, CTRL_A, CTRL_E, CT
 
 `terminal.close` can close your master session too: select IDs deliberately. Broadcast operates only on explicit agent IDs. Observations can report errors individually in workspace snapshots when panes vanish during polling.
 
+## Durable metadata events
+
+`event.list`, `event.acknowledge`, and `event.wait_for_event` expose the durable
+local event journal. Background watches publish to this queue by default; there
+is deliberately no MCP publish/injection tool. Internal producers use
+`await events.publish(input)`. The server exposes 32 tools, including the three
+watch tools and three event tools.
+
+| Tool | Arguments | Result |
+| --- | --- | --- |
+| `event.list` | Optional filters below; `includeAcknowledged` (default false), `limit` (1–1000, default 100) | `events` in ascending sequence order, `hasMore`, global `pendingCount`, `capacity`, `storageWarning` |
+| `event.acknowledge` | `ids`: 1–100 UUID event IDs | Retained matching `events` with acknowledgment timestamps, plus `unknownIds` |
+| `event.wait_for_event` | Optional filters; `timeoutMs` (1–120000, default 30000) | `{status:"event",event}` or `{status:"timeout"}`, `{status:"cancelled"}`, `{status:"closed"}` |
+
+Filters are `paneIds`, `agentIds`, `watchIds`, `kinds` (each 1–64 values), and
+`afterSequence` (exclusive). Values within a filter are alternatives; supplied
+filters are combined with AND. Omit filters to wait for any pending event.
+Listing and waiting never acknowledge or consume events, and multiple waiters
+can receive the same event. MCP request cancellation settles the wait; disconnect
+settles all waits without touching panes. A timeout conveys no worker outcome.
+
+Events contain only `kind`, `paneId`, optional `watchId`/`agentId`, ISO `occurredAt`,
+and a short producer-authored `summary`, plus queue-owned UUID `id`, monotonic
+`sequence`, and nullable `acknowledgedAt`. Producers must use static metadata
+summaries, never terminal output, prompts, error strings, or secrets. IDs and
+summaries are bounded; extra payload fields are rejected.
+
+Pending entries replay after restart. Repeated acknowledgments preserve the
+original timestamp. Acknowledged records remain until space is needed; an ID
+that has been evicted is reported in `unknownIds` without modifying the journal.
+Use `afterSequence` with the last returned sequence to paginate. Sequence values
+are never reused within a journal, including after all pending events are acked.
+
+The queue defaults to 1000 retained entries, 64 concurrent waiters and 128 queued
+or active storage operations. If pending entries fill capacity, publishing fails
+with `EVENT_QUEUE_FULL`; no pending entry is evicted. Producers must surface the
+failure and retry after acknowledgment. Excess requests fail with
+`EVENT_WAITER_LIMIT` or `EVENT_OPERATION_LIMIT`. Storage lock contention retries
+for up to about 200ms and then reports `EVENT_STORAGE_BUSY`; waits retry lock
+contention until their own deadline. The 4 MB journal byte limit similarly rejects
+writes with `EVENT_STORAGE_SIZE_LIMIT`. Other storage errors fail explicitly.
+
+Set `TERM_DAD_STATE_DIR` to a private directory on a local filesystem. The default
+is `$XDG_STATE_HOME/term-dad`, or `~/.local/state/term-dad`. The final directory must
+be owned by the current user with mode 0700; journal files use 0600. Unrelated
+tools and event reads against an absent directory do not create durable state.
+See [architecture](architecture.md#durable-event-journal) for crash recovery.
+
 ## Background watches
 
 - `watch.create`: choose exactly one `paneId` or `agentId` (ID or managed name).
@@ -62,7 +110,12 @@ pending kinds per watch). Delivery failures remain visible and retry on later
 polls; a successful sink is not called again just because desktop delivery failed.
 An external sink which accepts an event and then rejects can still cause duplicate
 publication on retry; sinks should resolve after acceptance. Removal drops pending
-events. No watch sends input or approves permissions. Polling and desktop delivery
+events that have not reached the sink; committed queue events remain available
+until acknowledged. Watches themselves are process-local and must be recreated
+after restart. MCP disconnect drains in-flight watch delivery before closing the
+queue; other undelivered watch transitions are not persisted. Queue overload is
+visible in `watch.list.deliveryError` and retries after capacity is acknowledged.
+No watch sends input or approves permissions. Polling and desktop delivery
 are serial, so configured intervals are minimum delays, not real-time guarantees.
 
 ### Opt-in desktop notifications

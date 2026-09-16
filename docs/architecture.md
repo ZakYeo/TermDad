@@ -42,6 +42,65 @@ The bundled PowerShell provider matches the current mux window title against Wez
 
 MCP stdio stdout contains only protocol messages. Tool failures return `isError` and diagnostics; logs go to stderr without intentionally logging terminal content. CLI calls have a 15-second subprocess timeout and 8 MiB output limit. Worker waits allow up to 120 seconds plus the duration of the final observation. A failed initial prompt wait retains the worker for diagnosis. Closing the MCP connection does not kill workers. Multiple server instances have independent registries but see the same terminal panes.
 
+## Durable event journal
+
+`events.ts` exports `EventQueue`, `FileEventStorage`, the event input contract, and
+an injectable `EventStorage` transaction boundary. `event-tools.ts` exports
+`registerEventTools`. `createServer(backend?, screenshots?, watchOptions?, eventQueue?)`
+returns both `watches` and `events`; passing an `EventQueue` as the third argument
+remains supported. By default WatchManager publishes through the durable queue.
+An explicitly injected `WatchOptions.sink` replaces that default for embedders.
+Queue rejection leaves watch delivery pending and observable for later retry.
+Event tool registration precedes watch registration so MCP disconnect disposes
+watchers and awaits their in-flight sink before closing the queue and settling
+event waits. No arbitrary event injection is exposed over MCP.
+
+The queue persists only bounded metadata and queue-owned identity/acknowledgment
+fields. Producers must construct summaries from static metadata, never excerpts
+from terminal content, prompts, credentials, or exception messages. Journal
+validation rejects unknown fields, malformed records, duplicate IDs, inconsistent
+sequences and files over 4 MB. Corruption raises `EVENT_STATE_CORRUPT`; it never
+resets the journal or silently discards pending records. Keep the damaged file
+for explicit recovery from a verified copy; do not delete it to bypass an error.
+
+Every file transaction takes an exclusive `events.lock` using atomic creation.
+This serializes local processes sharing the state directory; short contention
+retries are bounded. Each transaction rereads the journal, so other instances'
+publications and acknowledgments are visible. Waits register before reading and
+check pending events on local publication and every 100ms while waiting, avoiding
+lost notifications and observing other instances. Filters combine with AND;
+values within each filter combine with OR. Waiting does not reserve events.
+Request cancellation, deadlines and queue close settle waits even during a pending
+read. Queue close drains already accepted storage operations and rejects new work;
+it never closes terminal panes. The in-memory operation backlog is capped at 128.
+
+A mutation writes a unique 0600 temporary file, syncs it, atomically renames it to
+`events.json`, then syncs the private containing directory. The rename is the
+commit point. Failures before it reject publication and leave the old journal
+intact. Directory sync or lock cleanup failure after commit is exposed through
+`storageWarning` on subsequent lists, without rejecting an already committed
+publication and provoking a duplicate producer retry. A directory-sync warning
+means power-loss durability is uncertain. Warnings last for the storage instance's
+lifetime. A process death immediately after commit may still leave the producer
+unsure whether publication completed; this API does not promise exactly-once
+production across that crash window.
+
+A crash during a transaction can leave `events.lock` or an orphan `events.*.tmp`.
+Locks are deliberately not stolen on a timer: a slow live writer must never lose
+exclusivity. Stop **all** servers using that directory, preserve `events.json`,
+then remove the stale lock and orphan temporary files before restarting. Pending
+committed events then replay normally. Do not remove a lock while another server
+may be using it. This implementation targets private local POSIX filesystems;
+network filesystems and hostile same-user filesystem modification are outside its
+locking/security model. Existing unsafe directory or journal permissions are
+rejected. No background journal is created merely by starting the MCP server.
+
+Only acknowledged events are evicted for space; full pending capacity rejects
+publication explicitly. Acknowledgment is idempotent while a record is retained;
+expired/unknown IDs are returned separately. Stable sequence counters survive
+compaction, and overflow fails rather than wrapping. Waiters, list output, event
+fields, journal size, operation backlog and timeouts all have fixed bounds.
+
 
 ## Background watches and desktop delivery
 
@@ -61,14 +120,15 @@ pane disappearance. Transitions deduplicate; inactivity resets on changed text.
 Events contain only `{kind,paneId,watchId?,agentId?,occurredAt,summary}`, where
 `occurredAt` is ISO and summaries are fixed strings. No titles, terminal output,
 paths, secrets, raw backend errors, IDs for the queue, or acknowledgment metadata
-are generated. Queue integration injects `WatchOptions.sink`; standalone watches
-still expose the last event and support optional desktop delivery. Four pending
+are generated. The server supplies the queue as the default async sink; standalone
+`WatchManager` instances still allow an optional sink and desktop delivery. Four pending
 kinds per watch coalesce repeated undelivered transitions. Successful destinations
 are tracked independently so one failed destination does not repeat another.
 
 `registerWatchTools` isolates schemas and registration from `server.ts`, returns
-an async disposer, and chains shutdown after awaiting disposal. Integrators can
-explicitly `await watches.dispose()` before closing their queue. Disposal clears
+an async disposer, and chains shutdown after awaiting disposal. The server chains
+this with queue close; embedders can explicitly `await watches.dispose()` before
+closing their queue. Disposal clears
 timers and registrations immediately, waits for in-flight polls/creation, and
 suppresses further delivery after an awaited operation returns. An external
 notification or sink operation already in flight cannot be retracted. Nothing
