@@ -1,0 +1,36 @@
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
+import { WezTermBackend,type TerminalBackend,id,spawnSchema,sendKeys,submit } from './backend.js';
+import { Agents } from './agents.js';
+import { CommandScreenshotProvider,type ScreenshotProvider } from './screenshots.js';
+export function createServer(backend:TerminalBackend=new WezTermBackend(),screenshots:ScreenshotProvider=new CommandScreenshotProvider()){
+ const server=new McpServer({name:'term-dad',version:'0.1.0'}),agents=new Agents(backend);
+ const register=(name:string,description:string,shape:z.ZodRawShape,fn:(a:any)=>Promise<unknown>)=>server.registerTool(name,{description,inputSchema:shape},async a=>{try{const result=await fn(a);return {content:[{type:'text' as const,text:JSON.stringify(result??{ok:true})}]};}catch(e){const message=e instanceof Error?e.message:String(e);console.error(`[term-dad] ${name}: ${message}`);return {isError:true,content:[{type:'text' as const,text:message}]};}});
+ const pane={paneId:id},agent={agentId:z.string().min(1)},text={text:z.string().max(100000)},wait={timeoutMs:z.number().int().min(1).max(120000).default(30000)};
+ register('terminal.list','List live WezTerm windows, tabs and panes.',{},()=>backend.list());
+ register('terminal.spawn','Create a visible tab or window; command is an argv array.',spawnSchema.shape,a=>backend.spawn(a));
+ register('terminal.split','Split right (side by side) or bottom (stacked).',{...spawnSchema.shape,...pane,direction:z.enum(['right','bottom']).default('right'),percent:z.number().int().min(1).max(99).optional()},a=>backend.split(a));
+ register('terminal.read','Read last N lines of visible text and scrollback.',{...pane,lines:z.number().int().min(1).max(5000).default(100)},a=>backend.read(a.paneId,a.lines));
+ register('terminal.send_text','Paste text into an interactive PTY without Enter.',{...pane,...text},a=>backend.sendText(a.paneId,a.text));
+ register('terminal.submit','Paste text then press Enter in an existing application.',{...pane,...text},a=>submit(backend,a.paneId,a.text));
+ register('terminal.send_key','Send a named terminal key.',{...pane,key:z.string()},a=>sendKeys(backend,a.paneId,[a.key]));
+ register('terminal.send_keys','Send an ordered sequence of terminal keys.',{...pane,keys:z.array(z.string()).min(1).max(100)},a=>sendKeys(backend,a.paneId,a.keys));
+ const target={target:z.enum(['pane','tab','window']).default('pane'),id};
+ register('terminal.close','Kill all processes in the selected pane, tab or window.',target,async a=>{const panes=(await backend.list()).filter(p=>p[`${a.target}_id`]===a.id);if(!panes.length)throw new Error('Target not found');for(const p of panes)await backend.close(p.pane_id);return {closed:panes.map(p=>p.pane_id)};});
+ register('terminal.focus','Activate a pane or a pane in a tab/window (OS foreground is platform dependent).',target,async a=>{const p=(await backend.list()).find(p=>p[`${a.target}_id`]===a.id);if(!p)throw new Error('Target not found');await backend.focus(p.pane_id);});
+ register('terminal.resize','Resize a split by cell count.',{...pane,direction:z.enum(['Left','Right','Up','Down']),amount:z.number().int().min(1).max(1000).default(1)},a=>backend.resize(a.paneId,a.direction,a.amount));
+ register('terminal.move','Move pane into a new tab, optionally in a new or specified window.',{...pane,newWindow:z.boolean().optional(),windowId:id.optional()},a=>{if(a.newWindow&&a.windowId!==undefined)throw new Error('Choose newWindow or windowId');return backend.move(a.paneId,a.newWindow,a.windowId);});
+ register('terminal.snapshot','Workspace panes with recent text and managed agents.',{},async()=>({panes:await Promise.all((await backend.list()).map(async p=>({...p,recentText:await backend.read(p.pane_id,30)}))),agents:await agents.snapshot()}));
+ register('agent.spawn','Start a visible interactive worker. Readiness timeout leaves pane available for diagnosis; never auto-approves permissions.',{...spawnSchema.shape,name:z.string().min(1).max(100),cli:z.enum(['claude','codex','shell']),prompt:z.string().max(100000).optional(),...wait},a=>agents.spawn(a));
+ register('agent.send','Submit a follow-up to the existing worker.',{...agent,...text},a=>agents.send(a.agentId,a.text));
+ for(const name of ['observe','status'])register(`agent.${name}`,'Observe state, activity and bounded output delta.',{...agent,since:z.string().optional()},a=>agents.observe(a.agentId,a.since));
+ register('agent.interrupt','Send Ctrl+C to worker.',agent,a=>agents.interrupt(a.agentId));
+ register('agent.stop','Close worker pane and remove mapping.',agent,a=>agents.stop(a.agentId));
+ register('agent.wait_for_text','Wait for literal text in recent output.',{...agent,text:z.string().min(1),...wait},a=>agents.wait(a.agentId,o=>o.recentText.includes(a.text),a.timeoutMs));
+ register('agent.wait_until_idle','Wait for a recognized prompt; silence alone never counts.',{...agent,...wait},a=>agents.wait(a.agentId,o=>['READY_FOR_PROMPT','IDLE'].includes(o.status),a.timeoutMs));
+ register('agent.broadcast','Submit a message to explicit workers; returns per-agent outcomes.',{agentIds:z.array(z.string()).min(1).max(64),...text},async a=>Promise.all(a.agentIds.map(async (agentId:string)=>{try{return await agents.send(agentId,a.text);}catch(e){return {agentId,error:String(e)};}})));
+ register('agent.collect_results','Collect observations; does not infer task success from idle state.',{},()=>agents.snapshot());
+ register('orchestrator.status','Observe all managed agents.',{},()=>agents.snapshot());
+ for(const kind of ['terminal','agent'])server.registerTool(`${kind}.screenshot`,{description:'Capture on demand through the configured platform screenshot provider.',inputSchema:kind==='terminal'?pane:agent},async(a:any)=>{try{return {content:[await screenshots.capture(kind==='terminal'?a.paneId:agents.get(a.agentId).paneId)]};}catch(e){return {isError:true,content:[{type:'text' as const,text:String(e)}]};}});
+ return {server,agents};
+}
