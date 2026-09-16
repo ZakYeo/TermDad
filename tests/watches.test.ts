@@ -40,6 +40,23 @@ test('poll calls never overlap and removal prevents in-flight delivery',async()=
  f.backend.read=async()=>{reads++;await new Promise<void>(r=>release=r);return 'Do you want to proceed?';};
  const pass=f.tick();await new Promise(r=>setImmediate(r));const concurrent=f.watches.poll();assert.equal(reads,1);f.watches.remove(w.watchId);release();await Promise.all([pass,concurrent]);assert.equal(f.events.length,0);await f.watches.dispose();
 });
+test('concurrent watch creations cannot exceed capacity',async()=>{
+ const f=fixture();
+ try{
+  const results=await Promise.allSettled(Array.from({length:65},()=>f.watches.create(config)));
+  assert.equal(results.filter(r=>r.status==='fulfilled').length,64);
+  const rejected=results.find(r=>r.status==='rejected');
+  assert.ok(rejected&&rejected.status==='rejected');assert.match(rejected.reason.message,/Maximum/);
+  assert.equal(f.watches.list().length,64);
+ }finally{await f.watches.dispose();}
+});
+test('disposal during worker lookup prevents late watch insertion',async()=>{
+ const f=fixture();let release!:()=>void;
+ f.agents.findByPane=async()=>{await new Promise<void>(r=>release=r);return undefined;};
+ const creation=f.watches.create(config),rejected=assert.rejects(creation,/disposed/);
+ const closing=f.watches.dispose();release();await Promise.all([closing,rejected]);
+ assert.deepEqual(f.watches.list(),[]);assert.equal(f.calls.length,0);
+});
 test('notification command preserves literal argv, JSON stdin, timeout and failures',async()=>{
  const event:WatchEventInput={kind:'ready',paneId:7,occurredAt:new Date(0).toISOString(),summary:'Fixed summary'};let call:any;
  const p=new CommandNotificationProvider(['/trusted/program','$(never execute)'],async(...args)=>{call=args;return '';});await p.notify(event);assert.deepEqual(call,['/trusted/program',['$(never execute)'],JSON.stringify(event),5000]);

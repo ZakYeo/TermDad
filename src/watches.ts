@@ -30,6 +30,9 @@ export class WatchManager {
   if(this.records.size>=64)throw new Error('Maximum of 64 watches reached');
   if(config.notify&&!this.options.notifications)throw new Error('Desktop notifications are not configured');
   const agent=config.agentId?await this.agents.resolve(config.agentId):await this.agents.findByPane(config.paneId!);
+  // Lookup yields to concurrent creations and disposal; validate again before inserting.
+  if(this.disposed)throw new Error('Watch manager is disposed');
+  if(this.records.size>=64)throw new Error('Maximum of 64 watches reached');
   if(agent?.paneId===null)throw new Error('Worker spawn reservation needs explicit recovery');
   if(!agent&&!config.adapter)throw new Error('An unmanaged pane requires an explicit adapter');
   const w:Watch={...config,agentBinding:agent,agentId:agent?.agentId,paneId:agent?.paneId??config.paneId!,watchId:randomUUID(),changedAt:this.now(),quiet:false,disappeared:false,nextPoll:Infinity,pending:new Map()};

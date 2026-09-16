@@ -14,7 +14,7 @@ codex mcp add term-dad -- /home/zak/personal/term-dad/scripts/launch-local
 
 Restart the Codex session after adding the server. Ask it: “Use term-dad to list my terminal panes, start a shell worker in a new tab, run `pwd`, and show its output.” The command syntax follows the [official Codex MCP documentation](https://developers.openai.com/codex/mcp/).
 
-The local launcher resolves Claude and Codex from your PATH, including npm-installed Codex under nvm. For another checkout, replace the absolute path. No global npm install is required. Any stdio MCP client can use `node` with the absolute `dist/index.js` argument. Avoid `npm start` as the MCP launch command: npm can print banners to stdout. Server diagnostics go to stderr.
+The local launcher resolves Claude and Codex from your PATH, including npm-installed Codex under nvm. Claude workers inherit that PATH so local hook runtimes such as Bun remain available in GUI-spawned panes. For another checkout, replace the absolute path. No global npm install is required. Any stdio MCP client can use `node` with the absolute `dist/index.js` argument. Avoid `npm start` as the MCP launch command: npm can print banners to stdout. Server diagnostics go to stderr.
 
 WezTerm is detected as `wezterm` or the standard Windows installation at `/mnt/c/Program Files/WezTerm/wezterm.exe` when running in WSL. Set `TERM_DAD_WEZTERM` to override. Run the server with access to your desktop/WSL interoperability; a sandbox that blocks Windows process execution cannot reach the GUI.
 
@@ -49,10 +49,37 @@ The local launcher assumes workers run on this host; for remote domains, supply 
 
 If startup stops at a trust, login, or permission screen, `agent.spawn` with a prompt times out with the agent ID and pane ID; the pane stays open. Observe it and use `terminal.send_key` to interact deliberately, then `agent.send`. The server never automatically approves these screens. Spawn without a prompt to manage onboarding yourself.
 
+## Claude Code setup
+
+Term Dad also works with Claude Code as both the supervisor MCP client and a
+visible managed worker. Register the server for all local projects:
+
+```sh
+claude mcp add --scope user term-dad -- /home/zak/personal/term-dad/scripts/launch-local
+mkdir -p "$HOME/.claude/skills"
+ln -s /home/zak/personal/term-dad/skills/term-dad "$HOME/.claude/skills/term-dad"
+ln -s /home/zak/personal/term-dad/skills/term-dad-worker "$HOME/.claude/skills/term-dad-worker"
+claude mcp get term-dad
+```
+
+In a fresh Claude Code session, invoke `/term-dad` for the supervisor role or
+`/term-dad-worker` for a delegated worker. Use `agent.spawn` with `cli:"claude"`
+to start a visible Claude worker. Claude receives task text unchanged, so invoke
+`/term-dad-worker <assignment>` explicitly when its role is needed; automatic
+first-task role embedding currently applies to Codex workers only.
+
+With multiple WezTerm GUIs, configure the server's `WEZTERM_UNIX_SOCKET` environment
+setting to the selected GUI socket as described below. Optional screenshot support
+uses `TERM_DAD_SCREENSHOT_COMMAND=/home/zak/personal/term-dad/scripts/screenshot-wsl`.
+A successful MCP connection alone does not prove that a terminal endpoint is
+selected; verify with `terminal.list`. A socket containing a GUI PID must be updated
+if that GUI process restarts. See the official [Claude MCP setup](https://code.claude.com/docs/en/mcp)
+and [personal skills](https://code.claude.com/docs/en/skills) documentation.
+
 ## Supervisor and worker skills
 
 The bundled `skills/term-dad` and `skills/term-dad-worker` directories are
-installable Codex skills. To make them available across local repositories,
+installable Codex and Claude Code skills. For Codex, to make them available across local repositories,
 symlink each directory into `${CODEX_HOME:-$HOME/.codex}/skills` (or copy them
 there). For this checkout:
 
@@ -165,7 +192,7 @@ npm run test:agent -- codex   # Actual authenticated Codex, two short prompts
 npm run test:screenshot      # Actual Windows/WSL screenshot returned through MCP
 ```
 
-Live tests open visible tabs and clean up their own panes. Agent tests use your CLI account and can incur usage. They do not ask workers to edit files. Unit tests use an injected CLI runner; the live tests use the real stdio MCP server and real WezTerm. Run tests outside a sandbox that blocks subprocess pipes or WSL interoperability. See [test evidence](docs/testing.md).
+Live tests use private temporary state directories, open visible tabs, and clean up only panes they created. Set `TERM_DAD_TEST_PANE` to select a parent pane; with multiple GUIs, also set `WEZTERM_UNIX_SOCKET` as described above. Agent tests use your CLI account and can incur usage. They do not ask workers to edit files. Captured UI fixtures are overwritten only when `TERM_DAD_CAPTURE_FIXTURES=1` is set. Unit tests use an injected CLI runner; the live tests use the real stdio MCP server and real WezTerm. Run tests outside a sandbox that blocks subprocess pipes or WSL interoperability. See [test evidence](docs/testing.md).
 
 ## Limitations and security
 

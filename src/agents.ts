@@ -2,7 +2,7 @@ import { createHash,randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { adapters, type Status } from './adapters.js';
 import { initialWorkerPrompt } from './worker-skill.js';
-import { type TerminalBackend,type SpawnOptions,submit,sendKeys,id } from './backend.js';
+import { type TerminalBackend,type SpawnOptions,spawnSchema,submit,sendKeys,id } from './backend.js';
 import { MemoryWorkerStorage,newWorker,workerSchema,type WorkerStorage,type WorkerRecord,type TerminalInstance } from './worker-storage.js';
 export const hashOutput=(text:string)=>createHash('sha256').update(text).digest('hex');
 export function delta(previous:string,current:string){if(previous===current)return {mode:'unchanged',text:''};if(current.startsWith(previous))return {mode:'append',text:current.slice(previous.length)};return {mode:'replace',text:current};}
@@ -75,11 +75,13 @@ export class Agents {
  spawn(o:SpawnOptions & {name:string;cli:WorkerRecord['cli'];prompt?:string;timeoutMs?:number}){return this.run(async()=>{
   const configured=process.env[`TERM_DAD_${o.cli.toUpperCase()}_COMMAND`];
   const command=o.command??(configured?z.array(z.string().min(1)).min(1).parse(JSON.parse(configured)):(o.cli==='shell'?undefined:[o.cli]));
+  const options=spawnSchema.parse({...o,command});
+  if(options.newWindow&&options.windowId!==undefined)throw new Error('newWindow and windowId are mutually exclusive');
   const w=newWorker(o.name,o.cli,null,await this.identity(),this.sessionId);
   let paneId:number|undefined;
   await this.storage.exclusive(w.agentId,async()=>{
    await this.insert(w);
-   try{paneId=await this.backend.spawn({...o,command});}
+   try{paneId=await this.backend.spawn(options);}
    catch{throw new Error(`WORKER_SPAWN_UNCERTAIN: launch response was lost or rejected; reservation ${w.agentId} retained. Inspect terminal.list before forgetting the reservation and adopting any surviving pane. Do not repeat spawn blindly.`);}
    try{await this.change(w.agentId,a=>{a.paneId=paneId!;});}
    catch{throw new Error(`WORKER_STORAGE_FAILED: pane ${paneId} is alive but mapping was not saved; inspect it, forget reservation ${w.agentId}, and agent.adopt it. No prompt sent.`);}

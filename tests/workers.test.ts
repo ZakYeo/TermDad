@@ -137,6 +137,28 @@ test('lost spawn response preserves reservation and prevents duplicate launch un
  await f.agents.forget(saved[0].agentId);await f.agents.adopt({name:'worker',cli:'shell',paneId:7});assert.equal(f.inputs.length,0);
 });
 
+test('invalid spawn options fail before reservation or launch and leave the name available',async()=>{
+ const f=fixture();
+ for(const options of [{newWindow:true,windowId:1},{command:['bad\0command']},{command:Array(101).fill('arg')},{cwd:'bad\0path'}]){
+  await assert.rejects(f.agents.spawn({name:'worker',cli:'shell',...options}));
+  assert.deepEqual(await f.agents.list(),[]);
+ }
+ assert.deepEqual(f.calls,[]);
+ await f.agents.spawn({name:'worker',cli:'shell'});
+ assert.equal((await f.agents.list()).length,1);
+});
+
+test('invalid configured spawn argv is validated before reservation',async()=>{
+ const previous=process.env.TERM_DAD_SHELL_COMMAND;
+ try{
+  process.env.TERM_DAD_SHELL_COMMAND=JSON.stringify(['bad\0command']);
+  const f=fixture();await assert.rejects(f.agents.spawn({name:'worker',cli:'shell'}));
+  assert.deepEqual(await f.agents.list(),[]);assert.deepEqual(f.calls,[]);
+  await f.agents.spawn({name:'worker',cli:'shell',command:['valid-shell']});
+  assert.equal((await f.agents.list()).length,1);
+ }finally{if(previous===undefined)delete process.env.TERM_DAD_SHELL_COMMAND;else process.env.TERM_DAD_SHELL_COMMAND=previous;}
+});
+
 test('cache admission is bounded even if a creator only adopts while another server forgets',async()=>{
  const f=fixture(),other=new Agents(f.backend,f.storage);
  for(let i=0;i<100;i++){

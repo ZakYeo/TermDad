@@ -1,5 +1,6 @@
 import { spawn as spawnProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { StringDecoder } from 'node:string_decoder';
 import { z } from 'zod';
 import { windowsInstance } from './terminal-instance.js';
 import type { TerminalInstance } from './worker-storage.js';
@@ -15,12 +16,16 @@ export type Runner = (args:string[], input?:string)=>Promise<string>;
 export function execute(file:string,args:string[],input?:string,timeout=15000,env?:NodeJS.ProcessEnv):Promise<string> {
   return new Promise((resolve,reject)=>{
     const p=spawnProcess(file,args,{stdio:['pipe','pipe','pipe'],windowsHide:true,env});
-    let stdout='',stderr='',done=false;
+    p.stderr.setEncoding('utf8');
+    const decoder=new StringDecoder('utf8');
+    let stdout='',stderr='',done=false,stdoutBytes=0;
     const finish=(error?:Error)=>{if(done)return;done=true;clearTimeout(timer);error?reject(error):resolve(stdout);};
-    const timer=setTimeout(()=>{p.kill();finish(new Error(`${file}: command timed out after ${timeout}ms`));},timeout);
+    const terminate=(error:Error)=>{if(done)return;p.kill('SIGKILL');p.stdin.destroy();p.stdout.destroy();p.stderr.destroy();finish(error);};
+    const timer=setTimeout(()=>terminate(new Error(`${file}: command timed out after ${timeout}ms`)),timeout);
     p.on('error',e=>finish(new Error(`${file}: ${e.message}. Check executable and terminal connectivity.`)));
-    p.stdout.on('data',b=>{stdout+=b;if(stdout.length>8*1024*1024){p.kill();finish(new Error('Command output exceeded 8 MiB'));}});
-    p.stderr.on('data',b=>{stderr=(stderr+b).slice(-8192);});
+    p.stdout.on('data',(b:Buffer)=>{if(done)return;stdoutBytes+=b.length;if(stdoutBytes>8*1024*1024){terminate(new Error('Command output exceeded 8 MiB'));return;}stdout+=decoder.write(b);});
+    p.stdout.on('end',()=>{if(!done)stdout+=decoder.end();});
+    p.stderr.on('data',b=>{if(!done)stderr=(stderr+b).slice(-8192);});
     p.stdin.on('error',()=>{});p.stdin.end(input);
     p.on('close',code=>finish(code===0?undefined:new Error(`${file} ${args[0]} failed (${code}): ${stderr}`)));
   });
@@ -61,5 +66,5 @@ export class WezTermBackend implements TerminalBackend {
  async move(paneId:number,newWindow=false,windowId?:number){await this.run(['move-pane-to-new-tab','--pane-id',String(id.parse(paneId)),...(newWindow?['--new-window']:[]),...(windowId!==undefined?['--window-id',String(id.parse(windowId))]:[])]);}
 }
 export const keys:Record<string,string>={ENTER:'\r',ESC:'\x1b',TAB:'\t',UP:'\x1b[A',DOWN:'\x1b[B',RIGHT:'\x1b[C',LEFT:'\x1b[D',CTRL_C:'\x03',CTRL_D:'\x04',CTRL_A:'\x01',CTRL_E:'\x05',CTRL_U:'\x15',BACKSPACE:'\x7f',DELETE:'\x1b[3~',HOME:'\x1b[H',END:'\x1b[F'};
-export async function sendKeys(b:TerminalBackend,paneId:number,sequence:string[]){for(const key of sequence)if(!(key in keys))throw new Error(`Unsupported key: ${key}`);for(const key of sequence)await b.sendText(paneId,keys[key],true);}
+export async function sendKeys(b:TerminalBackend,paneId:number,sequence:string[]){for(const key of sequence)if(!Object.hasOwn(keys,key))throw new Error(`Unsupported key: ${key}`);for(const key of sequence)await b.sendText(paneId,keys[key],true);}
 export async function submit(b:TerminalBackend,paneId:number,text:string){await b.sendText(paneId,text);await new Promise(r=>setTimeout(r,100));await sendKeys(b,paneId,['ENTER']);}

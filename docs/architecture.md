@@ -24,6 +24,11 @@ We need stable pane identities, inexpensive incremental observations, and reliab
 
 `TerminalBackend` isolates the terminal implementation. `WezTermBackend` invokes the installed CLI with argument arrays and `--no-auto-start`, avoiding hidden GUI creation. The [WezTerm CLI reference](https://wezterm.org/cli/cli/index.html) defines the operations. IDs and commands are validated; no shell joins argv. Spawn commands belong to the selected terminal domain. The optional `scripts/launch-local` resolves local Claude/Codex executables from PATH and passes JSON argv overrides; npm Codex is launched with the same Node executable as the MCP host. Remote domains require explicitly supplied target-domain commands. Text goes through stdin with bracketed paste handling, while keys use `send-text --no-paste`. Submit separates paste and Enter by 100ms to allow TUI paste processing.
 
+For automatically resolved local Claude commands, the launcher passes the host
+PATH through an `env` argv entry. GUI-created WSL panes otherwise omit paths such
+as Bun's installation directory and can break Claude hooks. Explicit command
+overrides remain unchanged; remote domains still require target-domain commands.
+
 Windows WezTerm can be controlled from WSL using its `.exe`; it spawns Linux programs when the parent pane is in a WSL domain. The server environment must permit Windows interoperability. This was exercised against the installed 2024 CLI. Get-text uses negative starting lines for scrollback, then bounds the final tail. List preserves additional WezTerm JSON properties.
 
 ## Adapters and activity
@@ -38,7 +43,7 @@ Observations return IDs, status, activity, timestamps, output hash, cwd, process
 
 `ScreenshotProvider` returns a PNG MCP image. `CommandScreenshotProvider` invokes a configured trusted executable with one pane ID argument; stdout must contain base64 PNG. It enforces a signature and 5 MiB bound. No polling captures screenshots.
 
-The bundled PowerShell provider restricts candidates to the configured GUI socket PID when present, matches the current mux window title against that process window title, and captures the matching HWND with PrintWindow. A leading braille activity spinner is ignored. Ambiguous or changing titles produce an error instead of capturing an unrelated window. Captures include the whole terminal window, including other visible panes, activate the requested pane first, and restore a minimized window. The WSL wrapper uses a process-local execution policy override to run this repository's script; it does not change the machine policy. GPU capture may vary by driver, so inspect results on a new machine. Linux/macOS providers can implement the same executable contract.
+The bundled PowerShell provider restricts candidates to the configured GUI socket PID when present, enumerates that process's visible native windows, and captures the uniquely matching HWND with PrintWindow. It considers both the mux window title and active pane title because the mux title can be empty or stale after tab activation. Default tab-count prefixes and a leading braille activity spinner are ignored. Multiple matching windows produce an error; custom title formats can still prevent matching. Captures include the whole terminal window, including other visible panes, activate the requested pane first, and restore a minimized window. The WSL wrapper uses a process-local execution policy override to run this repository's script; it does not change the machine policy. GPU capture may vary by driver, so inspect results on a new machine. Linux/macOS providers can implement the same executable contract.
 
 ## Lifecycle and failures
 

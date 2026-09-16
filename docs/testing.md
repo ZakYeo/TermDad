@@ -158,3 +158,75 @@ and worker identity across MCP restart, observed a follow-up marker, explicitly
 recorded acceptance evidence and completion, and retained the task after stopping
 its worker with a missing-assignee view. Adoption, forgetting and pane cleanup also
 passed. No authenticated agent usage or screenshot check was needed for this change.
+
+## Full project review and manual verification (2026-09-16)
+
+`npm run check` passed the build and all 109 tests. The initial sandboxed run
+could not communicate with stdio child processes; host execution passed the
+93-test baseline and the final suite. New regressions cover split UTF-8 output,
+invalid inherited key names before input, byte limits and forced subprocess
+termination, concurrent watch capacity and disposal, prelaunch validation, and
+live-test ownership, isolation and uncertain-spawn recovery metadata.
+
+Independent correctness/API, security/reliability, and tests/documentation/skills
+reviews found and drove these fixes. The live agent test previously had a cleanup
+branch that stopped unrelated workers. All live tests now use private state and
+close only recorded owned panes; they also tolerate a verified pane exit after
+Ctrl+C and leave UI fixtures unchanged unless explicitly requested.
+
+Live checks used the real Windows/WSL WezTerm GUI with its endpoint explicitly
+selected because two GUI processes were running:
+
+- `npm run test:live`: shell input/output, layout, broadcast, snapshots, movement,
+  interruption and cleanup passed.
+- `npm run test:recovery`: worker/task persistence, MCP restart, observation reset,
+  follow-up input, adoption, forgetting and cleanup passed on the final build.
+- `npm run test:agent -- claude` and `-- codex`: both authenticated CLIs answered
+  two no-tools prompts in the same session and completed verified pane cleanup.
+  Codex's normal Ctrl+C exit exposed and drove a live-test cleanup correction.
+- An additional manual MCP session verified Unicode output, unchanged observation
+  deltas, invalid-key rejection, watch inactivity events, event replay after MCP
+  restart, acknowledgment and subsequent worker input.
+- A separate managed Codex worker received the bundled worker skill and described
+  its responsibilities, implementation ownership, lack of extra permissions and
+  terminal reporting path correctly. The response was inspected manually. Both
+  installed skills resolve to the bundled repository directories; deterministic
+  tests also cover first-task-only delivery and literal follow-ups.
+- `npm run test:screenshot` passed after fixing native-window enumeration and
+  title matching. Initial attempts exposed tab-count prefixes, empty/stale mux
+  titles and multiple windows per process. New-window and ordinary-tab captures
+  were visually inspected; the final MCP image was a 2576×1408 PNG. Matching
+  remains title-based and rejects multiple candidate windows.
+
+The final GUI listing contained only the original pane 0/tab 0/window 0. Only
+test-created panes were closed. No trust or permission prompts were approved.
+The server was rebuilt; existing MCP clients need a restart to load it and an
+explicit GUI endpoint when automatic discovery finds multiple GUI processes.
+
+## Claude installation and client verification (2026-09-16)
+
+Installed both bundled skills as symlinks under `~/.claude/skills`, and updated
+the existing user-scoped `term-dad` MCP entry with the selected GUI endpoint and
+screenshot provider. Preserved the prior MCP entry separately. `claude mcp get
+term-dad` reported connected after installation.
+
+Repeated `npm run test:agent -- claude`: the visible authenticated Claude worker
+answered both prompts and its owned pane was cleaned up. In another visible
+Claude worker, `/term-dad-worker` loaded the installed skill and correctly
+described the role, implementation ownership, lack of extra permissions and
+terminal reporting path. This initially exposed a non-blocking `bun: not found`
+stop-hook failure in GUI-created panes. The local launcher now forwards its PATH
+to automatically resolved Claude commands. The repeat role test completed with
+no stop-hook error in the inspected output.
+
+Fresh Claude print-mode client tests loaded `term-dad` through the actual Skill
+tool and called the real MCP tools: first `terminal_list`, then `agent_send` and
+`agent_wait_for_text` against a separately created owned shell worker. The shell
+printed `CLAUDE_CONTROL_VERIFIED`; a separate MCP observation confirmed it. The
+client reported no permission denials. Tests used only the installed Term Dad
+server entry, with private state for the shell-control test, and allowed only
+the specific skill and tool calls needed. All created panes were cleaned up.
+
+`npm run check` passed the build and all 110 tests. The added launcher regression
+verifies runtime discovery from a stripped target PATH, literal handling of paths
+containing spaces and dollar signs, and preservation of explicit command overrides.

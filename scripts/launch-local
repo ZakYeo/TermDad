@@ -4,7 +4,8 @@ set -eu
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 node_bin=$(command -v node)
 if [ -z "${TERM_DAD_CLAUDE_COMMAND:-}" ] && command -v claude >/dev/null 2>&1; then
-  TERM_DAD_CLAUDE_COMMAND=$("$node_bin" -e 'console.log(JSON.stringify(process.argv.slice(1)))' "$(command -v claude)")
+  # GUI-spawned WSL panes may omit local runtimes needed by Claude hooks.
+  TERM_DAD_CLAUDE_COMMAND=$("$node_bin" -e 'console.log(JSON.stringify([process.argv[1],`PATH=${process.env.PATH}`,process.argv[2]]))' "$(command -v env)" "$(command -v claude)")
   export TERM_DAD_CLAUDE_COMMAND
 fi
 if [ -z "${TERM_DAD_CODEX_COMMAND:-}" ] && command -v codex >/dev/null 2>&1; then
