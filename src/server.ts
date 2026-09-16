@@ -1,9 +1,11 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { EventQueue } from './events.js';
+import { registerEventTools } from './event-tools.js';
 import { WezTermBackend,type TerminalBackend,id,spawnSchema,sendKeys,submit } from './backend.js';
 import { Agents } from './agents.js';
 import { CommandScreenshotProvider,type ScreenshotProvider } from './screenshots.js';
-export function createServer(backend:TerminalBackend=new WezTermBackend(),screenshots:ScreenshotProvider=new CommandScreenshotProvider()){
+export function createServer(backend:TerminalBackend=new WezTermBackend(),screenshots:ScreenshotProvider=new CommandScreenshotProvider(),events:EventQueue=new EventQueue()){
  const server=new McpServer({name:'term-dad',version:'0.1.0'}),agents=new Agents(backend);
  const register=(name:string,description:string,shape:z.ZodRawShape,fn:(a:any)=>Promise<unknown>)=>server.registerTool(name,{description,inputSchema:shape},async a=>{try{const result=await fn(a);return {content:[{type:'text' as const,text:JSON.stringify(result??{ok:true})}]};}catch(e){const message=e instanceof Error?e.message:String(e);console.error(`[term-dad] ${name}: ${message}`);return {isError:true,content:[{type:'text' as const,text:message}]};}});
  const pane={paneId:id},agent={agentId:z.string().min(1)},text={text:z.string().max(100000)},wait={timeoutMs:z.number().int().min(1).max(120000).default(30000)};
@@ -32,5 +34,6 @@ export function createServer(backend:TerminalBackend=new WezTermBackend(),screen
  register('agent.collect_results','Collect observations; does not infer task success from idle state.',{},()=>agents.snapshot());
  register('orchestrator.status','Observe all managed agents.',{},()=>agents.snapshot());
  for(const kind of ['terminal','agent'])server.registerTool(`${kind}.screenshot`,{description:'Capture on demand through the configured platform screenshot provider.',inputSchema:kind==='terminal'?pane:agent},async(a:any)=>{try{return {content:[await screenshots.capture(kind==='terminal'?a.paneId:agents.get(a.agentId).paneId)]};}catch(e){return {isError:true,content:[{type:'text' as const,text:String(e)}]};}});
- return {server,agents};
+ registerEventTools(server,events);
+ return {server,agents,events};
 }
