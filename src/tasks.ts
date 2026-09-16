@@ -49,6 +49,19 @@ export class TaskBoard {
    return {result:{tasks:tasks.slice(filter.offset,end),total:tasks.length,nextOffset:end<tasks.length?end:null,storageWarning:this.storage.warning??null}};
   });
  });}
+ /** Compact, bounded summaries for worker views; full details remain paginated in task.list. */
+ workerSummaries(){return this.run(()=>this.storage.transaction(false,state=>{
+  const groups=new Map<string,ReturnType<typeof taskView>[]>();
+  for(const task of state.tasks){
+   if(task.archived||!task.assignedAgentId)continue;
+   const tasks=groups.get(task.assignedAgentId)??[];tasks.push(taskView(task,state));groups.set(task.assignedAgentId,tasks);
+  }
+  const summaries=new Map([...groups].map(([agentId,tasks])=>{
+   tasks.sort((a,b)=>priorities[a.priority]-priorities[b.priority]||a.createdAt.localeCompare(b.createdAt)||a.id.localeCompare(b.id));
+   return [agentId,{total:tasks.length,items:tasks.slice(0,20).map(({id,boardId,title,status,priority,blocked,revision})=>({id,boardId,title,status,priority,blocked,revision})),truncated:tasks.length>20}];
+  }));
+  return {result:summaries};
+ }));}
  private change(taskId:string,expectedRevision:number,apply:(task:Task)=>void){
   return this.storage.transaction(true,state=>{
    const task=this.find(state,taskId);

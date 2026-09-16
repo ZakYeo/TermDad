@@ -132,3 +132,29 @@ restricting HWND candidates to that GUI's PID. It failed safely because the
 provider could not uniquely match the selected window title to an HWND. No
 successful screenshot capture is claimed for this change; the existing provider's
 window-title matching limitation remains.
+
+## Persistent task board integration (2026-09-16)
+
+`npm run check` passed the TypeScript build and all 93 tests after authorized host
+execution. The completed worker baseline was separately verified with all 73 tests
+before integration. The 20 task tests cover explicit acceptance and dependencies,
+revision conflicts, memory isolation, file restart recovery, private permissions,
+corrupt/oversized journals, rollback, stale locks, post-commit warnings, strict MCP
+validation, bounded worker summaries and unavailable/missing assignments.
+
+Separate production stdio MCP processes persisted task IDs and revisions across
+restart and rejected one of two conflicting edits. Injected-terminal MCP processes
+verified assigned worker summaries, detach/forget/reassignment behavior and that
+task operations emitted no terminal input. These fixtures do not constitute live
+GUI evidence. A fresh ordinary read-only subagent review found no actionable
+integration issues; its focused storage/summary checks passed, while its sandboxed
+stdio connections closed during initialization.
+
+`npm run test:recovery` passed against real Windows/WSL WezTerm after explicitly
+selecting a verified GUI socket and parent pane. The initial unconfigured attempt
+stopped before spawning because multiple GUIs were running. The successful run
+used a private temporary state directory and test-owned shell panes, verified task
+and worker identity across MCP restart, observed a follow-up marker, explicitly
+recorded acceptance evidence and completion, and retained the task after stopping
+its worker with a missing-assignee view. Adoption, forgetting and pane cleanup also
+passed. No authenticated agent usage or screenshot check was needed for this change.

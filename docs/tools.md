@@ -219,13 +219,13 @@ balloons. The process-local execution-policy argument does not change machine
 policy. The helper renders fixed messages, never terminal output or event summaries.
 It has been supplied with injected-provider tests, not live desktop verification.
 
-## Task board foundation (not registered in the production server yet)
+## Persistent task board
 
-The `feat/task-board` foundation exports `TaskBoard`, an injectable `TaskStorage`,
-`MemoryTaskStorage`, and `registerTaskTools(server, board)`. Embedders may explicitly
-register these six tools. Memory storage is process-local; persistent storage and
-worker summaries will be connected after worker persistence lands. See the
-[task-board contract and integration plan](plans/persistent-task-board.md).
+The production server registers six task tools backed by `tasks.json` in
+`TERM_DAD_STATE_DIR` (default `${XDG_STATE_HOME:-$HOME/.local/state}/term-dad`).
+Tasks and stable worker assignments survive MCP restarts. Tasks are independent
+of worker lifetime and are never completed from terminal readiness or silence.
+See the [task-board contract](plans/persistent-task-board.md).
 
 | Tool | Inputs and behavior |
 | --- | --- |
@@ -246,3 +246,36 @@ requires satisfied criteria, completed dependencies and no blockers. Task readin
 means an unblocked, unarchived `todo` record; terminal readiness is unrelated.
 Archived tasks must be restored before editing. Missing workers never delete tasks.
 A revision conflict requires rereading the task before retrying the intended change.
+
+`task.get` and `task.list` add an `assignment` snapshot: null for unassigned tasks,
+otherwise the worker UUID, name, pane ID, availability (`attached`, `detached`,
+`missing`, or `unknown`) and recovery reason. Unknown means the worker registry
+could not be read. Detached includes unresolved spawn reservations and unavailable
+terminal identity/transport. These reads may reconcile disappeared worker mappings
+through `agent.list`; they never dispatch input or change task records. Assignment
+writes only record the supplied UUID and do not promise worker availability.
+
+`agent.list`, `orchestrator.status`, `agent.collect_results` and the agents inside
+`terminal.snapshot` include `tasks`: total unarchived assignments, up to 20 compact
+items sorted by priority, a `truncated` flag and `storageWarning`. Use
+`task.list({assignedAgentId:"<uuid>"})` to page through full details. If task storage
+cannot be read, worker views remain available with `total:null` and
+`TASK_SUMMARY_UNAVAILABLE`; `task.list` exposes the underlying error.
+
+Every write validates the full dependency graph under the task journal lock.
+Concurrent stale updates fail with `TASK_REVISION_CONFLICT`; reread before retrying.
+There are at most 1,000 tasks (archived included), 4 MB of state, 100 dependencies,
+50 blockers and 50 criteria per task. Capacity errors preserve all existing tasks;
+archiving does not reclaim capacity. No automatic purge or dispatch is provided.
+
+The state directory must be private (0700), and `tasks.json` is written as 0600.
+Atomic replacement and directory sync follow the worker/event journal contract.
+`TASK_STATE_CORRUPT` preserves damaged state for explicit recovery; never delete it
+to suppress an error. A post-commit sync failure succeeds but sets a
+`TASK_DURABILITY_WARNING` on subsequent lists; power-loss durability is uncertain.
+`TASK_STORAGE_BUSY` may be temporary contention. For a confirmed crash, stop all
+servers using the directory, preserve `tasks.json`, and only then remove stale
+`tasks.lock` and orphan `tasks.*.tmp` files. No time-based lock stealing occurs.
+Tasks, workers and events are separate journals, so their views are not one atomic
+snapshot. Task text and evidence are explicit stored content; treat them as
+untrusted, and do not include secrets or automatically copy terminal output.

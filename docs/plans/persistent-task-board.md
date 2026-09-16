@@ -1,18 +1,17 @@
-# Persistent task board: independent foundation
+# Persistent task board
 
-Branch: `feat/task-board`, based on `a8d1abb`. This slice deliberately leaves
-`server.ts`, worker lifecycle and the in-progress worker persistence changes alone.
-It is an opt-in task library and MCP registration module, **not yet a durable,
-production-enabled board**. No worker is launched, inspected or sent input.
+Status: implemented with file-backed storage, production MCP registration and
+worker/task summary joins. Task mutations never send terminal input.
 
 ## Implemented contract
 
 - `task-model.ts`: versioned, bounded records and whole-graph validation.
-- `task-storage.ts`: injectable atomic transaction contract and isolated memory
-  implementation. There is intentionally no implicit in-memory production default.
+- `task-storage.ts`: injectable atomic transaction contract, isolated memory
+  implementation and file-backed storage using the shared journal.
 - `tasks.ts`: task operations, revision conflict checks, filtering, dependency
   readiness, bounded operation backlog and close/drain behavior.
-- `task-tools.ts`: six opt-in MCP tools, with close handling.
+- `task-tools.ts`: six production MCP tools, with close handling.
+- `task-workers.ts`: informational joins between worker identity and task records.
 
 Each task has a UUID, immutable board ID, title, goal, priority (`low`, `normal`,
 `high`, `urgent`), optional assigned worker UUID, dependency IDs, explicit blocker
@@ -50,42 +49,45 @@ Limits: 1,000 tasks across all boards including archived tasks; 4 MB serialized
 state; 100 dependencies, 50 blockers and 50 criteria per task; 128 outstanding
 operations per board instance; 100 results per list page. Title/board ID: 200
 characters; goal: 8,000; blocker/criterion description: 2,000; evidence: 4,000.
-Capacity failures never evict records. No purge is provided in this slice.
+Capacity failures never evict records. No purge is provided.
 
-## Storage and later integration
+## Storage and integration
 
-`TaskStorage.transaction(write, callback)` matches the shape of the in-progress
-journal abstraction. A callback is synchronous and must have no external side
-effects. The implementation must serialize transactions across users of a store,
-operate on isolated state, validate before commit, roll back thrown callbacks and
-avoid retaining aliases to caller-owned results. Memory storage provides those
-semantics within a process and can be shared by multiple `TaskBoard` instances.
-It does not survive process exit.
+`FileTaskStorage` uses `FileJournal<TaskState>` with `tasks.json` and `tasks.lock`
+in the shared private state directory. Reads reload and validate the entire graph;
+writes validate, sync a unique temporary file, atomically replace the journal and
+sync the directory. The journal lock serializes local processes, and revision
+checks reject stale writes. Corruption is reported without replacing damaged state.
+Post-commit warnings are exposed through task lists and worker task summaries.
 
-After worker persistence lands:
+`TaskStorage.transaction(write, callback)` callbacks are synchronous and must have
+no external side effects. Implementations isolate callback state, serialize
+transactions, validate before committing and roll back thrown callbacks.
+`MemoryTaskStorage` provides the same data semantics inside a process, without
+durability. `TaskBoard` requires explicit storage; `createServer` injects
+`FileTaskStorage` by default, accepts an alternative as its sixth argument and
+returns `tasks` alongside the other managers. Existing worker/event injection is
+unchanged. Starting the server does not create journals. Shutdown drains accepted
+task storage operations without closing worker panes.
 
-1. Rebase this branch onto the landed changes. Implement `FileTaskStorage` using
-   `FileJournal<TaskState>` with `tasks.json`, the shared state-directory selection,
-   `emptyTaskState` and `validateTaskState`. Surface task-specific corruption errors
-   without replacing damaged state. Confirm isolation/transaction semantics against
-   the final journal interface.
-2. Add file-backed recovery, cross-process concurrent mutation, corrupt journal,
-   lock contention and commit failure tests. Validate the 4 MB limit before writes.
-3. Inject that storage into a `TaskBoard` in `createServer`, register the task tools,
-   return the board for embedders, and update stdio tool-count/schema assertions.
-4. Join assignments to the worker registry by UUID in supervisor summaries.
-   Report missing/detached assignees without deleting tasks or rewriting historical
-   assignments. Worker existence checks are inherently separate from task commits;
-   they must not promise a cross-journal transaction or guaranteed dispatch.
-5. Document production enablement and persistent state recovery in the architecture,
-   tools and README. Use a separate `TERM_DAD_STATE_DIR` for development instances.
+Task reads enrich assignments through the worker registry. An unavailable registry
+reports `unknown`; missing worker IDs report `missing`, never deletion of the task.
+Detached workers retain their assignment and recovery reason. Worker observations
+and lists carry compact summaries of up to 20 unarchived tasks, with total and
+truncation indicators; full task lists remain paginated. A damaged task journal
+cannot suppress worker recovery views: summaries explicitly report unavailable.
+Joins are independent read snapshots, not cross-journal transactions or guarantees
+of worker availability when a later command is sent.
+
+Use a separate `TERM_DAD_STATE_DIR` for development instances. See the tool reference
+for private directory requirements and explicit stale-lock/corruption recovery.
 
 Task text is explicit user/supervisor input; it may include sensitive descriptions
 or evidence. Do not automatically persist terminal output, log task content, or
 copy it into the existing metadata event queue. Task data must remain untrusted
 when subsequently used to construct worker prompts.
 
-Automatic dispatch, scheduling, worker availability verification, task-change
+Automatic dispatch, scheduling, guaranteed worker availability, task-change
 notifications and a graphical board are deferred. In particular, task storage and
 the event queue do not currently share a commit: reliable notifications would need
 an outbox or another explicit recovery strategy. Offset pagination is bounded but
@@ -93,19 +95,13 @@ not a snapshot across concurrent edits; reload to reconcile a changing board.
 
 ## Verification
 
-New tests exercise the pure task layer with injected storage and the MCP module
-with the SDK's in-memory transport. These are not live WezTerm or disk-recovery
-checks. Run `npm run check` in this worktree to build and exercise the existing
-suite plus the task tests. File durability and production stdio registration remain
-integration work listed above.
+Tests cover pure task operations, memory isolation, whole-graph invariants, file
+recovery, corruption and lock handling, durability warnings, multi-process MCP
+revision conflicts, strict schemas, worker joins and missing assignments. The
+production stdio tests use private state directories; worker protocol scenarios
+use an injected terminal and are not live GUI evidence.
 
-Validation performed on 2026-09-16: `npm ci --offline --ignore-scripts`, then
-`npm run check` (build and all 54 tests passed, including 11 new task tests).
-The full check needed execution outside the sandbox because existing stdio MCP
-subprocess connections closed inside it. No live GUI checks were performed.
-
-Fresh independent review identified an MCP schema-boundary issue: supplying only
-Zod shapes allowed the SDK to strip unknown top-level properties before validation.
-Registration now supplies complete strict schemas. MCP regression calls cover
-unknown create/read/filter/update/assign/archive fields and verify rejected writes
-leave records unchanged. The full 54-test check passed again after that fix.
+The live recovery script also creates a task assigned to its test-owned shell,
+verifies the assignment after MCP restart, explicitly records acceptance evidence,
+and checks the task survives worker removal. See `docs/testing.md` for executions
+actually performed and their results.

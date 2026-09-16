@@ -6,6 +6,8 @@ Status: accepted for the proof of concept.
 flowchart LR
     Master[Master MCP client] --> MCP[Stdio MCP tools]
     MCP --> Agents[Agent registry and observations]
+    MCP --> Tasks[Persistent task board]
+    Tasks --> Journal[Atomic local journals]
     MCP --> Backend[TerminalBackend]
     Agents --> Adapters[Claude / Codex / Shell adapters]
     Agents --> Backend
@@ -58,7 +60,7 @@ MCP stdio stdout contains only protocol messages. Tool failures return `isError`
 
 `events.ts` exports `EventQueue`, `FileEventStorage`, the event input contract, and
 an injectable `EventStorage` transaction boundary. `event-tools.ts` exports
-`registerEventTools`. `createServer(backend?, screenshots?, watchOptions?, eventQueue?)`
+`registerEventTools`. `createServer(backend?, screenshots?, watchOptions?, eventQueue?, workerStorage?, taskStorage?)`
 returns both `watches` and `events`; passing an `EventQueue` as the third argument
 remains supported. By default WatchManager publishes through the durable queue.
 An explicitly injected `WatchOptions.sink` replaces that default for embedders.
@@ -193,3 +195,32 @@ existing durable event records remain independent of worker removal.
 
 See the tool reference for explicit adoption, uncertainty acknowledgment, stale-lock
 recovery, and the single-GUI-per-server boundary.
+
+## Persistent task board
+
+`TaskBoard` separates task progress from terminal activity and worker lifecycle.
+Strict task records contain goals, priorities, assignment UUIDs, dependency IDs,
+blockers and acceptance criteria. Whole-graph validation rejects missing/cross-board
+references, cycles and invalid completion. Every mutation after creation compares
+an expected revision under the storage transaction, preventing lost updates across
+supervisors. Worker disappearance never deletes tasks or infers completion.
+
+`FileTaskStorage` shares `FileJournal` with workers/events but owns `tasks.json` and
+`tasks.lock`. Startup is lazy. Corrupt state is preserved, writes are atomic, and
+post-commit durability warnings do not turn successful writes into retryable
+failures. Task state is bounded to 1,000 records and 4 MB; archived records still
+count. Explicit descriptions and evidence are stored content, unlike the event
+queue's static metadata; they must never be automatically populated from terminal
+output. No task content is logged or used to execute commands.
+
+`createServer` registers task tools with file storage by default, accepts injected
+`TaskStorage` as its sixth argument and returns `tasks`. Task operations are capped
+at 128 outstanding requests and drained during shutdown. Existing event/watch
+shutdown ordering is retained. The standalone library requires explicit storage.
+
+`task-workers.ts` enriches task reads with worker attachment snapshots and worker
+views with up to 20 compact task summaries each. Summary failures are explicit and
+do not prevent worker recovery. These are separate journal reads; assignments are
+not atomic reservations, and missing workers remain referenced for later
+reassignment. Worker observations cannot satisfy criteria or set task status.
+Task-change event delivery and automatic dispatch are outside this implementation.

@@ -11,6 +11,8 @@ in an existing WezTerm GUI. It uses Node.js 22+ and strict TypeScript with ESM
 - `src/backend.ts`: `TerminalBackend`, WezTerm CLI transport, and key injection.
 - `src/agents.ts`: durable worker lifecycle, observation caches, deltas, and waits.
 - `src/worker-storage.ts`, `src/journal.ts`: shared worker metadata and atomic local journals.
+- `src/tasks.ts`, `src/task-model.ts`, `src/task-storage.ts`: persistent task graph and revisions.
+- `src/task-tools.ts`, `src/task-workers.ts`: task MCP APIs and worker assignment summaries.
 - `src/adapters.ts`: Claude, Codex, and shell text classifiers.
 - `src/screenshots.ts`: optional screenshot provider contract and validation.
 - `tests/`: Node test runner tests, stdio protocol tests, and captured UI fixtures.

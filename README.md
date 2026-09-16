@@ -112,6 +112,25 @@ use `agent.reattach` with `acknowledgeUncertainDelivery:true` and an explicit
 `workerSkillInitialized` value before retrying. See [worker recovery and storage
 failures](docs/tools.md#persistent-workers) for crash-lock recovery.
 
+## Persistent task board
+
+Track goals, priorities, assignments, dependencies, blockers and acceptance criteria
+with `task.create`, `task.get`, `task.list`, `task.update`, `task.assign` and
+`task.archive`. Tasks persist alongside worker metadata in `TERM_DAD_STATE_DIR`.
+
+```text
+task.create({"boardId":"my-project","title":"Implement feature","goal":"Meet the agreed requirements","priority":"high","acceptanceCriteria":[{"id":"checks","description":"Relevant checks pass"}]})
+task.assign({"taskId":"<task UUID>","expectedRevision":1,"agentId":"<worker UUID>"})
+task.list({"boardId":"my-project","readyOnly":true})
+```
+
+Use returned UUIDs and revisions. Tasks survive worker removal, and concurrent
+stale edits are rejected. Worker lists and supervisor snapshots include assigned
+task summaries; task reads show attached, detached or missing assignees. Completion
+is explicit and requires satisfied criteria, completed dependencies and no blockers.
+Assignment records intent; sending instructions to the worker remains a separate
+operation. See [task tools and recovery](docs/tools.md#persistent-task-board).
+
 ## Screenshots
 
 Text is the primary observation channel. An optional Windows/WSL provider is included:
