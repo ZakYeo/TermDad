@@ -30,7 +30,7 @@ Windows WezTerm can be controlled from WSL using its `.exe`; it spawns Linux pro
 
 Observation first checks pane existence and metadata, reads the recent tail, hashes it with SHA-256, updates output timestamps on change, and classifies text. Silence does not cause an IDLE transition. Permission/question patterns take precedence over prompt markers. After input, a short timing guard and comparison with the pre-input output hash prevent an unchanged old prompt from becoming ready merely because time passes. RUNNING_EXTERNAL_COMMAND and IDLE are reserved states; the current CLI/text evidence does not reliably distinguish them. Process information is passed through only when WezTerm supplies it.
 
-Observations return IDs, status, activity, timestamps, output hash, cwd, process, input flags, and recent text. With `since`, identical output is omitted; prefix additions use append; screen rewrites use replace. Expired/unknown observation IDs return a full replacement with `deltaReset`. Each worker retains at most 16 observations of 24,000 characters; the registry is capped at 64. Polling is on demand, not a background loop. Missing panes remove registry entries; transport failures preserve them. Waits are bounded, return diagnostic last state, and never approve a prompt.
+Observations return IDs, status, activity, timestamps, output hash, cwd, process, input flags, and recent text. With `since`, identical output is omitted; prefix additions use append; screen rewrites use replace. Expired/unknown observation IDs return a full replacement with `deltaReset`. Each worker retains at most 16 observations of 24,000 characters; the registry is capped at 64. Agent observations are on demand; explicitly created watches also poll through the same guarded observation path. Missing panes remove registry entries; transport failures preserve them. Waits are bounded, return diagnostic last state, and never approve a prompt.
 
 ## Screenshots
 
@@ -41,3 +41,39 @@ The bundled PowerShell provider matches the current mux window title against Wez
 ## Lifecycle and failures
 
 MCP stdio stdout contains only protocol messages. Tool failures return `isError` and diagnostics; logs go to stderr without intentionally logging terminal content. CLI calls have a 15-second subprocess timeout and 8 MiB output limit. Worker waits allow up to 120 seconds plus the duration of the final observation. A failed initial prompt wait retains the worker for diagnosis. Closing the MCP connection does not kill workers. Multiple server instances have independent registries but see the same terminal panes.
+
+
+## Background watches and desktop delivery
+
+`WatchManager` in `src/watches.ts` owns up to 64 explicit watches. It takes injected
+`TerminalBackend`, `Agents`, optional async event sink, notification provider, and
+clock. A single unref'ed recursive timer drives serial non-overlapping passes;
+`automatic:false` plus `poll()` supports deterministic schedulers. Backend calls
+remain bounded by the transport. Injected sinks/providers must settle in bounded
+time; they are awaited serially and must not call back into `poll()`/`dispose()`.
+
+Managed watches call `Agents.observe`, preserving permission precedence and the
+post-input stale-prompt guard. Unmanaged watches require an explicit adapter and
+retain only a hash of the bounded 24,000-character text tail. Baseline suppresses
+ready but surfaces input-required screens. Only successful listings establish
+pane disappearance. Transitions deduplicate; inactivity resets on changed text.
+
+Events contain only `{kind,paneId,watchId?,agentId?,occurredAt,summary}`, where
+`occurredAt` is ISO and summaries are fixed strings. No titles, terminal output,
+paths, secrets, raw backend errors, IDs for the queue, or acknowledgment metadata
+are generated. Queue integration injects `WatchOptions.sink`; standalone watches
+still expose the last event and support optional desktop delivery. Four pending
+kinds per watch coalesce repeated undelivered transitions. Successful destinations
+are tracked independently so one failed destination does not repeat another.
+
+`registerWatchTools` isolates schemas and registration from `server.ts`, returns
+an async disposer, and chains shutdown after awaiting disposal. Integrators can
+explicitly `await watches.dispose()` before closing their queue. Disposal clears
+timers and registrations immediately, waits for in-flight polls/creation, and
+suppresses further delivery after an awaited operation returns. An external
+notification or sink operation already in flight cannot be retracted. Nothing
+closes worker panes on watch removal or MCP disconnect.
+
+`CommandNotificationProvider` is opt-in through a JSON argv environment setting;
+its bounded subprocess receives metadata JSON via stdin and never writes child
+output to MCP stdout. See the tool reference for the Windows/WSL helper setup.

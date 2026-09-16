@@ -19,3 +19,19 @@ The shell test uses `printf` with a split marker so the expected result cannot p
 Known test environment constraints: this Codex sandbox blocks Windows interoperability and some child-process pipes. Checks were rerun with authorized host execution. Linux/macOS screenshot providers, alternate WezTerm versions, remote domains, extended keyboard protocols and arbitrary CLI UI revisions have not been live-tested.
 
 To repeat screenshot validation, run `npm run test:screenshot` from this checkout. It writes `/tmp/term-dad-screenshot.png`, activates the first listed pane, and restores its window if minimized. Title matching must be unambiguous. The fixture tests run without CLI accounts or a GUI.
+
+## Background watch implementation trial (2026-09-16)
+
+In the isolated `feat/background-watches` worktree, `npm run check` passed the
+TypeScript build and all 27 tests on Node 22.14.0. Added deterministic coverage for
+baseline suppression, initial input-required screens, permission precedence,
+managed stale prompts, quiet episodes, cooldown, transport recovery/disappearance,
+independent sink/notifier retries, capacity, concurrent polls, removal/disposal
+while work is awaited, automatic timer cleanup, command argv/stdin/timeout contract,
+and MCP create/list/remove/close behavior. The stdio protocol smoke test also
+verifies watch schemas and failure responses. Dependency installation and protocol
+tests required the standard sandbox escalation for subprocess execution.
+
+No live terminal/desktop tests were run: this trial forbids operating other panes
+and sending desktop test notifications. Notification-provider tests inject the
+runner; the PowerShell balloon helper has not been live verified.
