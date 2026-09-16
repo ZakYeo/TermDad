@@ -218,3 +218,31 @@ interactive desktop must be available; Windows notification settings may suppres
 balloons. The process-local execution-policy argument does not change machine
 policy. The helper renders fixed messages, never terminal output or event summaries.
 It has been supplied with injected-provider tests, not live desktop verification.
+
+## Task board foundation (not registered in the production server yet)
+
+The `feat/task-board` foundation exports `TaskBoard`, an injectable `TaskStorage`,
+`MemoryTaskStorage`, and `registerTaskTools(server, board)`. Embedders may explicitly
+register these six tools. Memory storage is process-local; persistent storage and
+worker summaries will be connected after worker persistence lands. See the
+[task-board contract and integration plan](plans/persistent-task-board.md).
+
+| Tool | Inputs and behavior |
+| --- | --- |
+| `task.create` | Required `boardId`, `title`, `goal`; optional `priority`, `assignedAgentId`, `dependencies`, `blockers`, `acceptanceCriteria`. Creates a `todo` task at revision 1. |
+| `task.get` | `taskId`; returns the task even when archived, plus `blocked`, `unresolvedDependencyIds` and `ready`. |
+| `task.list` | Optional `boardId`, `assignedAgentId` (null means unassigned), `status`, `priority`, `readyOnly`, `includeArchived`, `offset` and `limit`. Filters combine with AND. Returns `tasks`, `total`, `nextOffset` and `storageWarning`. |
+| `task.update` | `taskId`, `expectedRevision`, nonempty `patch`. Editable fields are title, goal, priority, assignment, dependencies, blockers, criteria and status. Arrays replace previous values. |
+| `task.assign` | `taskId`, `expectedRevision`, `agentId` (worker UUID or null). Records assignment without worker lookup or terminal input. |
+| `task.archive` | `taskId`, `expectedRevision`, `archived` boolean. Hides/restores the record without deleting it or satisfying dependencies. |
+
+Priorities sort urgent, high, normal, low, then creation timestamp and task UUID.
+Lists default to 50 results, cap at 100, and omit archived tasks. Offset pagination
+is not a stable snapshot while other clients edit tasks. Criteria are objects with
+`id`, `description`, optional `satisfied` (default false), and optional `evidence`.
+
+Statuses are `todo`, `in_progress`, `done`, `cancelled`. Completion is explicit and
+requires satisfied criteria, completed dependencies and no blockers. Task readiness
+means an unblocked, unarchived `todo` record; terminal readiness is unrelated.
+Archived tasks must be restored before editing. Missing workers never delete tasks.
+A revision conflict requires rereading the task before retrying the intended change.
