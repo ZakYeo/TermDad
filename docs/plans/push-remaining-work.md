@@ -18,11 +18,11 @@ every turn end, and `inactive` fires constantly during long test runs. There is
 still no subscribable signal for "blocked on a person", which cost one lane about
 eleven idle minutes.
 
-The `wait-for-event` subcommand already shipped with
-`--kinds attention_required` in its documented example, and
-`skills/term-dad/SKILL.md` tells a supervisor to subscribe to it. **That kind does
-not exist yet**, so that filter currently matches nothing. Either implement this
-section or correct those two references.
+Until this lands, the documented wake filters use `input_required`, which covers
+only recognised permission, login and menu prompts. When `attention_required`
+exists, update the example in `docs/tools.md` and in `skills/term-dad/SKILL.md`
+to subscribe to it, and drop the skill's caveat that waking on a prose question is
+unavailable.
 
 ### Design as planned
 
