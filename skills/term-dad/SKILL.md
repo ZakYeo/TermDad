@@ -88,7 +88,7 @@ To be woken while idle, launch the bundled waiter as a detached background proce
 before ending a turn with work outstanding, and let its exit be the wake:
 
 ```sh
-term-dad wait-for-event --kinds attention_required,pane_disappeared,session_ended \
+term-dad wait-for-event --kinds input_required,pane_disappeared,session_ended \
                         --timeout-seconds 900
 ```
 
@@ -97,7 +97,10 @@ event that woke you, and `{"status":"timeout"}` means **re-arm**, not that nothi
 happened. Read `status`, never the exit code. On waking, inspect the worker,
 handle the outcome, `event.acknowledge` what you handled, and arm the next waiter.
 Filter to the kinds that need a person; subscribing to `ready` or `inactive` wakes
-you at every turn end and throughout every long test run.
+you at every turn end and throughout every long test run. `input_required` is
+currently the closest signal for "a person is needed", and it covers only
+recognised permission, login and menu prompts — a worker asking a question in
+prose still emits `ready`, so waking on a prose question is not yet available.
 
 Whether a client resumes a session when a background process exits is a property
 of that client. Confirm it in your own environment before promising a later

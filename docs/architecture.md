@@ -127,8 +127,7 @@ Only acknowledged events are evicted for space; full pending capacity rejects
 publication explicitly. Ageing `ready` and `inactive` records acknowledge
 themselves after a bounded window so an undrained journal does not reach that
 limit; the expirable set is closed and default-deny, so `input_required`,
-`attention_required`, `pane_disappeared`, `session_ended` and unknown kinds are
-never swept. The sweep decides in a read-only pass and escalates to a write only
+`pane_disappeared`, `session_ended` and unknown kinds are never swept. The sweep decides in a read-only pass and escalates to a write only
 when something has actually aged, so a quiet server still creates no journal. It
 runs inside publication and on an unref'ed bounded timer, never on a read, and
 never from an external reader. No journal field records the reason: the state

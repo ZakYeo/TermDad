@@ -162,9 +162,9 @@ that has been evicted is reported in `unknownIds` without modifying the journal.
 `ready` and `inactive` entries older than the auto-acknowledge window (default 15
 minutes) acknowledge themselves, so a journal nobody drains does not grow until it
 rejects publication. That set is closed and default-deny: `input_required`,
-`attention_required`, `pane_disappeared`, `session_ended` and any unrecognised
-kind never expire, because a request for a person or a lost pane must not vanish on
-a timer. Expiry runs inside `event.list`-free write paths — a publication, an
+`pane_disappeared`, `session_ended` and any unrecognised kind never expire,
+because a request for a person or a lost pane must not vanish on a timer. The set
+is default-deny, so a kind added later is never swept unless it is added to it. Expiry runs inside `event.list`-free write paths — a publication, an
 acknowledgment, or a bounded background pass — never on a read, and an
 auto-acknowledged record is indistinguishable from an explicitly acknowledged one.
 Acknowledge because you handled something, not to keep waits usable.
@@ -193,7 +193,7 @@ cannot start one. To be woken while idle, run the bundled subcommand as a detach
 background process and let **its exit** be the wake:
 
 ```sh
-term-dad wait-for-event --kinds attention_required,pane_disappeared,session_ended \
+term-dad wait-for-event --kinds input_required,pane_disappeared,session_ended \
                         --timeout-seconds 900
 ```
 
