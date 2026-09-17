@@ -128,14 +128,26 @@ watch tools and three event tools.
 | --- | --- | --- |
 | `event.list` | Optional filters below; `includeAcknowledged` (default false), `limit` (1–1000, default 100) | `events` in ascending sequence order, `hasMore`, global `pendingCount`, `capacity`, `storageWarning` |
 | `event.acknowledge` | `ids`: 1–100 UUID event IDs | Retained matching `events` with acknowledgment timestamps, plus `unknownIds` |
-| `event.wait_for_event` | Optional filters; `timeoutMs` (1–120000, default 30000) | `{status:"event",event}` or `{status:"timeout"}`, `{status:"cancelled"}`, `{status:"closed"}` |
+| `event.wait_for_event` | Optional filters; `timeoutMs` (1–120000, default 30000); `freshOnly` (default true) | `{status:"event",event}` or `{status:"timeout"}`, `{status:"cancelled"}`, `{status:"closed"}` |
 
-Filters are `paneIds`, `agentIds`, `watchIds`, `kinds` (each 1–64 values), and
-`afterSequence` (exclusive). Values within a filter are alternatives; supplied
-filters are combined with AND. Omit filters to wait for any pending event.
+Filters are `paneIds`, `agentIds`, `watchIds`, `kinds` (each 1–64 values),
+`afterSequence` (exclusive), `notBefore` (ISO, compared against `occurredAt`) and
+`maxAgeMs` (1–604800000). Values within a filter are alternatives; supplied
+filters are combined with AND. Omit filters to match any pending event.
+
+`event.wait_for_event` is **fresh by default**: it only matches events published
+after the wait arms, so a pending backlog can never fire as though it were new.
+Freshness is a sequence baseline, not a clock comparison, because `occurredAt` is
+when a pane was observed while publication can lag it by a watch's `cooldownMs` —
+a timestamp cutoff would time out while the event sat pending. Pass
+`freshOnly:false` to drain history deliberately, or an explicit `afterSequence` to
+resume from a known point; both override the baseline. `event.list` is unchanged
+and still returns history by default.
+
 Listing and waiting never acknowledge or consume events, and multiple waiters
 can receive the same event. MCP request cancellation settles the wait; disconnect
-settles all waits without touching panes. A timeout conveys no worker outcome.
+settles all waits without touching panes. A timeout conveys no worker outcome —
+it means re-arm, not that nothing happened.
 
 Events contain only `kind`, `paneId`, optional `watchId`/`agentId`, ISO `occurredAt`,
 and a short producer-authored `summary`, plus queue-owned UUID `id`, monotonic
@@ -146,6 +158,16 @@ summaries are bounded; extra payload fields are rejected.
 Pending entries replay after restart. Repeated acknowledgments preserve the
 original timestamp. Acknowledged records remain until space is needed; an ID
 that has been evicted is reported in `unknownIds` without modifying the journal.
+
+`ready` and `inactive` entries older than the auto-acknowledge window (default 15
+minutes) acknowledge themselves, so a journal nobody drains does not grow until it
+rejects publication. That set is closed and default-deny: `input_required`,
+`attention_required`, `pane_disappeared`, `session_ended` and any unrecognised
+kind never expire, because a request for a person or a lost pane must not vanish on
+a timer. Expiry runs inside `event.list`-free write paths — a publication, an
+acknowledgment, or a bounded background pass — never on a read, and an
+auto-acknowledged record is indistinguishable from an explicitly acknowledged one.
+Acknowledge because you handled something, not to keep waits usable.
 Use `afterSequence` with the last returned sequence to paginate. Sequence values
 are never reused within a journal, including after all pending events are acked.
 

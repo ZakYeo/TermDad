@@ -1,9 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { WezTermBackend } from '../src/backend.js';
 import { Agents } from '../src/agents.js';
 import { WatchManager,type WatchEventInput } from '../src/watches.js';
 import { CommandNotificationProvider } from '../src/notifications.js';
+import { EventQueue,type EventState,type EventStorage } from '../src/events.js';
+import { MemoryWorkerStorage } from '../src/worker-storage.js';
+import { MemoryTaskStorage } from '../src/task-storage.js';
+// This file builds real servers, which bind a push socket in the state directory. Point the
+// whole file at a private one so a test run never creates sockets in, or sweeps sockets from,
+// the developer's own state directory.
+process.env.TERM_DAD_STATE_DIR=await mkdtemp(join(tmpdir(),'term-dad-state-'));
+/** Isolated event storage: a unit test must never read or write the developer's real journal. */
+function memoryEvents():EventStorage{
+ let state:EventState={version:1,nextSequence:1,events:[]};
+ return {async transaction(_write,fn){const value=fn(structuredClone(state));if(value.state)state=value.state;return value.result;}};
+}
 function fixture(options:any={}){
  let now=0,text='› ',alive=true,fail=false;
  const calls:string[]=[];const events:WatchEventInput[]=[];
@@ -81,7 +96,7 @@ test('automatic timer schedules serial polls and disposal clears future work',as
 });
 test('MCP watch tools create, list, remove and close without closing panes',async()=>{
  const {InMemoryTransport}=await import('@modelcontextprotocol/sdk/inMemory.js');const {Client}=await import('@modelcontextprotocol/sdk/client/index.js');const {createServer}=await import('../src/server.js');
- const f=fixture();const {server,watches}=createServer(f.backend,undefined,{automatic:false});const [a,b]=InMemoryTransport.createLinkedPair();const client=new Client({name:'watch-test',version:'1'});await server.connect(a);await client.connect(b);
+ const f=fixture();const {server,watches}=createServer(f.backend,undefined,{automatic:false},new EventQueue(memoryEvents()),new MemoryWorkerStorage(),new MemoryTaskStorage());const [a,b]=InMemoryTransport.createLinkedPair();const client=new Client({name:'watch-test',version:'1'});await server.connect(a);await client.connect(b);
  try{const created=await client.callTool({name:'watch.create',arguments:config});assert.equal(created.isError,undefined);const watch=JSON.parse((created.content as any)[0].text);const listed=await client.callTool({name:'watch.list',arguments:{}});assert.equal(JSON.parse((listed.content as any)[0].text)[0].watchId,watch.watchId);await client.callTool({name:'watch.remove',arguments:{watchId:watch.watchId}});assert.deepEqual(watches.list(),[]);await client.callTool({name:'watch.create',arguments:config});}finally{await client.close();await server.close();await watches.dispose();}assert.deepEqual(watches.list(),[]);assert.ok(!f.calls.includes('kill-pane'));
 });
 test('push-backed watches back off to a liveness interval and verify pushed events by sampling',async()=>{

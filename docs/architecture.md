@@ -88,7 +88,16 @@ retries are bounded. Each transaction rereads the journal, so other instances'
 publications and acknowledgments are visible. Waits register before reading and
 check pending events on local publication and every 100ms while waiting, avoiding
 lost notifications and observing other instances. Filters combine with AND;
-values within each filter combine with OR. Waiting does not reserve events.
+values within each filter combine with OR, and now include an `occurredAt` window
+(`notBefore`, `maxAgeMs`). Waiting does not reserve events.
+
+The MCP wait is fresh by default while the library primitive still replays: a
+fresh wait registers, then reads the journal's current sequence as an exclusive
+baseline. Freshness is deliberately a sequence and not a clock reading, because
+`occurredAt` records when a pane was sampled while publication can lag it by a
+watch's cooldown; a timestamp cutoff would let a wait time out while its event sat
+pending. Registering before reading the baseline can only over-include one event,
+never lose one.
 Request cancellation, deadlines and queue close settle waits even during a pending
 read. Queue close drains already accepted storage operations and rejects new work;
 it never closes terminal panes. The in-memory operation backlog is capped at 128.
@@ -115,7 +124,17 @@ locking/security model. Existing unsafe directory or journal permissions are
 rejected. No background journal is created merely by starting the MCP server.
 
 Only acknowledged events are evicted for space; full pending capacity rejects
-publication explicitly. Acknowledgment is idempotent while a record is retained;
+publication explicitly. Ageing `ready` and `inactive` records acknowledge
+themselves after a bounded window so an undrained journal does not reach that
+limit; the expirable set is closed and default-deny, so `input_required`,
+`attention_required`, `pane_disappeared`, `session_ended` and unknown kinds are
+never swept. The sweep decides in a read-only pass and escalates to a write only
+when something has actually aged, so a quiet server still creates no journal. It
+runs inside publication and on an unref'ed bounded timer, never on a read, and
+never from an external reader. No journal field records the reason: the state
+schema is strict, so adding one would make a newer journal unreadable by an older
+server and stop it publishing — provenance stays derivable from the closed kind
+set and the record's age. Acknowledgment is idempotent while a record is retained;
 expired/unknown IDs are returned separately. Stable sequence counters survive
 compaction, and overflow fails rather than wrapping. Waiters, list output, event
 fields, journal size, operation backlog and timeouts all have fixed bounds.

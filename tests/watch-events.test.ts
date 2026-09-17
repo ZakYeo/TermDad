@@ -1,4 +1,5 @@
 import { MemoryWorkerStorage } from '../src/worker-storage.js';
+import { MemoryTaskStorage } from '../src/task-storage.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp,readFile,rm } from 'node:fs/promises';
@@ -10,12 +11,18 @@ import { createServer } from '../src/server.js';
 import { WezTermBackend } from '../src/backend.js';
 import { EventQueue,FileEventStorage,type EventStorage } from '../src/events.js';
 import type { WatchOptions } from '../src/watches.js';
+// This file builds real servers, which bind a push socket in the state directory. Point the
+// whole file at a private one so a test run never creates sockets in, or sweeps sockets from,
+// the developer's own state directory.
+process.env.TERM_DAD_STATE_DIR=await mkdtemp(join(tmpdir(),'term-dad-state-'));
 
+/** Never reaches a real GUI, and never the real state directory. */
+const backendStub=()=>new WezTermBackend(async args=>args[0]==='list'?JSON.stringify([]):'',async()=>null);
 function deferred(){let resolve!:()=>void;const promise=new Promise<void>(r=>{resolve=r;});return {promise,resolve};}
 async function connect(queue:EventQueue,options:WatchOptions={}){
  let now=0,text='Working (1s • esc to interrupt)';const calls:string[]=[];
  const backend=new WezTermBackend(async args=>{calls.push(args[0]);if(args[0]==='list')return JSON.stringify([{pane_id:7,tab_id:1,window_id:1,title:'private-title',cwd:'/',size:{rows:24,cols:80}}]);if(args[0]==='spawn')return '7';return text;});
- const app=createServer(backend,undefined,{automatic:false,now:()=>now,...options},queue,new MemoryWorkerStorage());
+ const app=createServer(backend,undefined,{automatic:false,now:()=>now,...options},queue,new MemoryWorkerStorage(),new MemoryTaskStorage());
  const [a,b]=InMemoryTransport.createLinkedPair();const client=new Client({name:'integration-test',version:'1'});
  await app.server.connect(a);await client.connect(b);
  const call=async(name:string,args:Record<string,unknown>={})=>{const r=await client.callTool({name,arguments:args});assert.notEqual(r.isError,true,JSON.stringify(r));return JSON.parse((r.content as {text:string}[])[0].text);};
@@ -69,7 +76,7 @@ test('MCP disconnect drains default watch sink before closing queue and settles 
 
 test('createServer retains queue-only injection and explicit watch sink override',async t=>{
  const path=await directory(t),queue=new EventQueue(new FileEventStorage(path));
- const original=createServer(undefined,undefined,queue);assert.equal(original.events,queue);await original.watches.dispose();await original.events.close();
+ const original=createServer(backendStub(),undefined,queue,undefined,new MemoryWorkerStorage(),new MemoryTaskStorage());assert.equal(original.events,queue);await original.watches.dispose();await original.events.close();
  let delivered=0;const overrideQueue=new EventQueue(new FileEventStorage(path));const app=await connect(overrideQueue,{sink:async()=>{delivered++;}});t.after(()=>app.close());
  app.setText('Do you want to proceed?');await app.call('watch.create',config);await app.tick();assert.equal(delivered,1);assert.equal((await app.call('event.list')).pendingCount,0);
 });

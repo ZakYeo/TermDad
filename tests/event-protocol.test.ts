@@ -14,7 +14,9 @@ test('stdio event timeout, filter, publish visibility, idempotent ack and restar
  try{
   client=await connect();const event=await queue.publish({kind:'ready',paneId:3,watchId:'w',occurredAt:new Date().toISOString(),summary:'Worker status changed'});
   assert.deepEqual(value(await client.callTool({name:'event.wait_for_event',arguments:{paneIds:[4],timeoutMs:20}})),{status:'timeout'});
-  assert.equal(value(await client.callTool({name:'event.wait_for_event',arguments:{paneIds:[3],kinds:['ready'],timeoutMs:100}})).event.id,event.id);
+  // Waits are fresh by default, so an event published before this one armed must not fire.
+  assert.deepEqual(value(await client.callTool({name:'event.wait_for_event',arguments:{paneIds:[3],kinds:['ready'],timeoutMs:100}})),{status:'timeout'});
+  assert.equal(value(await client.callTool({name:'event.wait_for_event',arguments:{paneIds:[3],kinds:['ready'],timeoutMs:100,freshOnly:false}})).event.id,event.id);
   await client.close();client=await connect();
   assert.equal(value(await client.callTool({name:'event.list',arguments:{watchIds:['w']}})).events[0].id,event.id);
   const ack=value(await client.callTool({name:'event.acknowledge',arguments:{ids:[event.id]}}));

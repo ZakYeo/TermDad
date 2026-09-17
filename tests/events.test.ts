@@ -83,3 +83,73 @@ test('directory-sync failure after commit reports warning without rejecting publ
  const event=await queue.publish(input());const listed=await queue.list();assert.equal(listed.events[0].id,event.id);assert.equal(listed.events.length,1);assert.match(listed.storageWarning!,/EVENT_DURABILITY_WARNING/);
  const reopened=new EventQueue(new FileEventStorage(directory));t.after(()=>reopened.close());assert.deepEqual((await reopened.list()).events,[event]);
 });
+const at=(ms:number,kind='ready',paneId=1):EventInput=>({kind,paneId,watchId:'watch-1',agentId:'worker-1',occurredAt:new Date(ms).toISOString(),summary:'Worker status changed'});
+test('time filters exclude events outside the window and reject unusable bounds',async t=>{
+ const directory=await mkdtemp(join(tmpdir(),'term-dad-filters-'));const now=Date.parse('2026-09-17T12:00:00.000Z');
+ // Auto-acknowledge off: this test is about filtering, not expiry.
+ const queue=new EventQueue(new FileEventStorage(directory),10,64,()=>now,0);
+ t.after(async()=>{await queue.close();await rm(directory,{recursive:true,force:true});});
+ const old=await queue.publish(at(now-3_600_000)),recent=await queue.publish(at(now-60_000,'inactive')),fresh=await queue.publish(at(now));
+ const ids=async(f:any)=>(await queue.list(f,false,10)).events.map(e=>e.id);
+ assert.deepEqual(await ids({notBefore:new Date(now-120_000).toISOString()}),[recent.id,fresh.id]);
+ assert.deepEqual(await ids({notBefore:new Date(now-120_000).toISOString(),kinds:['inactive']}),[recent.id],'time filters AND with the rest');
+ assert.deepEqual(await ids({notBefore:new Date(now-3_600_001).toISOString()}),[old.id,recent.id,fresh.id]);
+ assert.deepEqual(await ids({maxAgeMs:120_000}),[recent.id,fresh.id],'maxAgeMs is the same window from the other end');
+ // The filter schema is strict, so unusable bounds are refused rather than silently ignored.
+ await assert.rejects(queue.list({notBefore:'yesterday'} as any));
+ await assert.rejects(queue.list({maxAgeMs:0} as any));
+ await assert.rejects(queue.list({maxAge:1} as any));
+});
+test('a fresh wait ignores the pending backlog and settles only on a later publication',async t=>{
+ const {queue}=await fixture(t,10);const pending=await queue.publish(input());
+ assert.deepEqual(await queue.wait({},50,undefined,true),{status:'timeout'},'a fresh wait skips history');
+ assert.deepEqual(await queue.wait({},50),{status:'event',event:pending},'the library default still replays');
+ const waiting=queue.wait({},2000,undefined,true);
+ const later=await queue.publish(input(2));
+ assert.deepEqual(await waiting,{status:'event',event:later});
+});
+test('freshness follows publication order, not the producing clock',async t=>{
+ const {queue}=await fixture(t,10);
+ const waiting=queue.wait({},2000,undefined,true);
+ // A cooldown-delayed watch event is published long after the moment it describes.
+ const delayed=await queue.publish(at(0,'input_required'));
+ assert.deepEqual(await waiting,{status:'event',event:delayed},'an old occurredAt must not hide a new publication');
+});
+test('stale ready and inactive events acknowledge themselves while human-blocking kinds never expire',async t=>{
+ const directory=await mkdtemp(join(tmpdir(),'term-dad-sweep-'));
+ let clock=Date.parse('2026-09-17T12:00:00.000Z');
+ const queue=new EventQueue(new FileEventStorage(directory),50,64,()=>clock,900_000);
+ t.after(async()=>{await queue.close();await rm(directory,{recursive:true,force:true});});
+ for(const kind of ['ready','inactive','attention_required','input_required','pane_disappeared','session_ended','made_up'])await queue.publish(at(clock,kind));
+ assert.equal(await queue.sweep(),0,'nothing expires inside the window');
+ clock+=3_600_000;
+ const recent=await queue.publish(at(clock,'ready'));
+ assert.deepEqual((await queue.list({},false,50)).events.map(e=>e.kind),
+  ['attention_required','input_required','pane_disappeared','session_ended','made_up','ready'],
+  'publish expired the aged noise and never a request for a person');
+ assert.equal((await queue.list({},false,50)).events.at(-1)!.id,recent.id);
+ assert.equal((await queue.list({},true,50)).events.length,8,'swept records are acknowledged, never discarded');
+ assert.equal(await queue.sweep(),0,'a second sweep is a no-op');
+ clock+=3_600_000;
+ assert.equal(await queue.sweep(),1,'an explicit sweep drains without a publication');
+ assert.deepEqual((await queue.list({},false,50)).events.map(e=>e.kind),
+  ['attention_required','input_required','pane_disappeared','session_ended','made_up']);
+});
+test('publish sweeps in its own transaction and a sweep never runs on a read',async t=>{
+ const directory=await mkdtemp(join(tmpdir(),'term-dad-sweep2-'));
+ let clock=Date.parse('2026-09-17T12:00:00.000Z');
+ const queue=new EventQueue(new FileEventStorage(directory),50,64,()=>clock,900_000);
+ t.after(async()=>{await queue.close();await rm(directory,{recursive:true,force:true});});
+ await queue.publish(at(clock,'ready'));
+ clock+=3_600_000;
+ assert.equal((await queue.list()).pendingCount,1,'listing alone acknowledges nothing');
+ await queue.publish(at(clock,'inactive'));
+ assert.deepEqual((await queue.list({},false,50)).events.map(e=>e.kind),['inactive'],'publish expired the stale record');
+});
+test('a sweep against an absent state directory neither throws nor creates it',async t=>{
+ const directory=await mkdtemp(join(tmpdir(),'term-dad-sweep3-'));const absent=join(directory,'absent');
+ const queue=new EventQueue(new FileEventStorage(absent));
+ t.after(async()=>{await queue.close();await rm(directory,{recursive:true,force:true});});
+ assert.equal(await queue.sweep(),0);
+ await assert.rejects(access(absent));
+});
