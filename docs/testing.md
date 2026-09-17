@@ -348,3 +348,26 @@ No live checks were run for this work: no WezTerm GUI round trip, no real Claude
 Codex worker, and no `npm run test:recovery`. The credential re-key and
 `attention_required` sections of the plan are not yet implemented, so the live
 push script they require does not exist.
+
+## Credential re-key (2026-09-17)
+
+`npm run check`: **212 tests**. New deterministic coverage: credential files are
+written atomically and owner-only into an owner-only directory, refuse a
+symlinked, world-readable, oversized or malformed target without following it,
+carry the path but never the token in a diagnostic, sweep by durable membership
+only, and expose no read method on the server-side store. Hook argv carries a
+credential path and no token or socket path, including through the wrapper argv
+`scripts/launch-local` produces and for a path containing a space and a quote. The
+notifier resolves credentials at fire time, prefers a credential path over stale
+inline flags, still accepts `--socket`/`--token`, resolves an unmodelled event
+without touching the filesystem, and fails an unreadable credential explicitly.
+Across two servers over one state directory: a surviving worker is re-keyed so its
+unchanged argv keeps working, its pre-restart token is rejected, its binding
+revision is unchanged, push returns disabled and one `push.set` restores delivery;
+an unattached record is left byte-identical; an orphan credential is swept while a
+survivor's is kept; a server that could not bind neither re-keys nor sweeps; an
+adopted pane is refused with `PUSH_NOT_WIRED` and gets no credential; and
+`agent.reattach` re-keys and re-points the registration at the new pane. No token
+appears in `workers.json`.
+
+No live checks were run for this work.

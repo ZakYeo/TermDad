@@ -70,6 +70,19 @@ arrives, never what an event proves: a pushed `ready` is still only a claim that
 a turn ended, verified by the pane sample that follows it, and never evidence of
 task success.
 
+`push.set` can fail, and a success does not mean hooks are live. `enabled` is only
+this server's willingness to accept a push; `proven` is the single field meaning a
+hook has actually fired. Do not report push as working on the strength of
+`enabled` — say it is enabled and unproven until `proven` is true. Enabling a
+channel that cannot deliver fails outright with `PUSH_NOT_WIRED` for a pane this
+server did not launch with hooks, such as an adopted pane. Disabling always
+succeeds.
+
+A worker that survived a supervisor restart is recoverable: its hooks read a
+credential file the new server re-keys, so `push.status` shows `hookSurface` with
+`enabled:false`, and one `push.set` restores delivery without relaunching the
+worker or losing its context. Do not kill a surviving worker to restore push.
+
 Watches record events; recording one does not by itself resume this conversation.
 To be woken while idle, launch the bundled waiter as a detached background process
 before ending a turn with work outstanding, and let its exit be the wake:

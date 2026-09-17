@@ -12,6 +12,10 @@ export const workerSchema=z.object({
  cli:z.enum(['claude','codex','shell']),instance:instanceSchema.nullable(),sessionId:z.uuid(),revision:z.uuid(),
  turn:z.object({id:z.uuid(),bindingRevision:z.uuid(),attempt:attemptReferenceSchema.optional()}).strict().optional(),
  workerSkillSent:z.boolean(),deliveryPending:z.boolean(),lastInputAt:z.number().nonnegative().optional(),
+ // Records that this pane was launched with a hook surface, and where it rereads its
+ // credentials. Never the token: the path is stored absolute because the baked argv is
+ // immutable, so this is the only record of what the worker actually reads.
+ push:z.object({credentialPath:z.string().min(1).max(4096),surface:z.enum(['claude_hooks','codex_notify'])}).strict().optional(),
  inputOutputHash:z.string().regex(/^[a-f0-9]{64}$/).optional(),
 }).strict();
 export type WorkerRecord=z.infer<typeof workerSchema>;

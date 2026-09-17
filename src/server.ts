@@ -29,10 +29,11 @@ export function createServer(backend:TerminalBackend=new WezTermBackend(),screen
  // so the recorded status comes from the terminal rather than from the worker's claim.
  const ingress=new PushIngress({sink:async event=>{await events.publish(event);await watches.confirm(event.paneId);}});
  const pushSocket=new PushSocket(ingress,socketPath);
- const push=new WorkerPushRegistry(ingress,socketPath,notifyCommand());
+ const stateDir=stateDirectory();
+ const push=new WorkerPushRegistry(ingress,socketPath,notifyCommand(),stateDir);
  const agents=new Agents(backend,workerStorage,push);
  // Push can then report on a managed worker it holds no registration for, rather than failing.
- push.attachWorkers(async agentId=>(await agents.resolveOptional(agentId))?.cli);
+ push.attachWorkers(async agentId=>{const w=await agents.resolveOptional(agentId);return w?{cli:w.cli,push:w.push}:undefined;});
  guardTerminalSelection(server);
  const register=(name:string,description:string,shape:z.ZodRawShape,fn:(a:any)=>Promise<unknown>)=>server.registerTool(name,{description,inputSchema:shape},async a=>{try{const result=await fn(a);return {content:[{type:'text' as const,text:JSON.stringify(result??{ok:true})}]};}catch(e){const message=e instanceof Error?e.message:String(e);console.error(`[term-dad] ${name}: ${message}`);return {isError:true,content:[{type:'text' as const,text:message}]};}});
  const pane={paneId:id},agent={agentId:z.string().min(1)},text={text:z.string().max(100000)},wait={timeoutMs:z.number().int().min(1).max(120000).default(30000)};
@@ -88,11 +89,15 @@ export function createServer(backend:TerminalBackend=new WezTermBackend(),screen
  server.server.onclose=async()=>{await pushSocket.close();await agents.close();await previousClose?.();};
  // Listening is best effort: a server that cannot bind still polls, it just cannot be pushed to.
  const pushReady=pushSocket.listen().then(path=>{push.attach({listening:true});return path;}).catch(e=>{const message=e instanceof Error?e.message:String(e);push.attach({listening:false,bindError:message});console.error(`[term-dad] push socket: ${message}`);return undefined;});
+ // A worker that outlived the previous server rereads its credential file, so re-keying it is
+ // what makes push recoverable without killing the pane. Skipped entirely when the socket did
+ // not bind: rewriting credentials to a dead path would also strand a live peer server's worker.
+ const pushRestored=pushReady.then(path=>path?agents.restorePush():undefined).catch(e=>{console.error(`[term-dad] push restore: ${e instanceof Error?e.message:e}`);});
  registerTaskTools(server,tasks,()=>agents.list());
  const attention=new AttentionService(()=>tasks.snapshot(),()=>agents.snapshot());
  registerAttentionTools(server,attention);
  registerEventTools(server,events);
  registerPushTools(server,push);
  registerWatchTools(server,watches);
- return {server,agents,watches,events,tasks,attention,push,ingress,pushSocket,pushReady};
+ return {server,agents,watches,events,tasks,attention,push,ingress,pushSocket,pushReady,pushRestored};
 }

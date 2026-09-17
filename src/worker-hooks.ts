@@ -1,11 +1,16 @@
 import { fileURLToPath } from 'node:url';
 import type { PushKind } from './ingress.js';
 
-export interface PushHookOptions {socketPath:string;token:string;notify:string[];}
+/**
+ * The argv carries the path of a credential file, not the credentials. A running process's
+ * argv cannot be rewritten, so baking in a socket path and token orphaned every surviving
+ * worker whenever the supervisor restarted; the file can be replaced under a live worker.
+ */
+export interface PushHookOptions {credentialPath:string;notify:string[];}
 /** The notifier bundled with the server; workers run it, so it must exist in the built output. */
 export const notifyCommand=()=>[process.execPath,fileURLToPath(new URL('./term-dad-notify.js',import.meta.url))];
 const quote=(value:string)=>`'${value.replaceAll("'",`'\\''`)}'`;
-const args=(o:PushHookOptions,extra:string[])=>[...o.notify,'--socket',o.socketPath,'--token',o.token,...extra];
+const args=(o:PushHookOptions,extra:string[])=>[...o.notify,'--credential',o.credentialPath,...extra];
 // Claude Code fires these on its own state changes, so no screen scraping is needed to learn about them.
 const claudeHooks:Record<string,PushKind>={Notification:'input_required',Stop:'ready',SessionEnd:'session_ended'};
 

@@ -50,7 +50,7 @@ export class Agents {
   const w=await this.storage.transaction(true,s=>{const a=s.workers.find(w=>w.agentId===agentId);if(!a)throw new Error('Unknown agent');fn(a);return {state:s,result:a};});
   if(w.paneId!==null)this.cache(w);return w;
  }
- private async remove(agentId:string){await this.storage.transaction(true,s=>({state:{...s,workers:s.workers.filter(w=>w.agentId!==agentId)},result:undefined}));this.records.delete(agentId);this.push?.release(agentId);}
+ private async remove(agentId:string){await this.storage.transaction(true,s=>({state:{...s,workers:s.workers.filter(w=>w.agentId!==agentId)},result:undefined}));this.records.delete(agentId);await this.push?.release(agentId);}
  private async insert(w:WorkerRecord){
   await this.storage.transaction(true,s=>{
    if(s.workers.length>=64)throw new Error('Maximum of 64 managed agents reached');
@@ -81,7 +81,10 @@ export class Agents {
   if(o.newWindow&&o.windowId!==undefined)throw new Error('newWindow and windowId are mutually exclusive');
   const w=newWorker(o.name,o.cli,null,await this.identity(),this.sessionId);
   // Hooks are injected at launch but stay inert: pushes are dropped until the pane is enabled.
-  const options=spawnSchema.parse({...o,command:this.push?.launch(w.agentId,o.cli,command)??command});
+  // The binding is set before the record is inserted, so it is durable from the first write.
+  const launched=await this.push?.launch(w.agentId,o.cli,command);
+  if(launched?.push)w.push=launched.push;
+  const options=spawnSchema.parse({...o,command:launched?launched.command:command});
   let paneId:number|undefined;
   await this.storage.exclusive(w.agentId,async()=>{
    await this.insert(w);
@@ -116,8 +119,30 @@ export class Agents {
     if(o.workerSkillInitialized!==undefined)a.workerSkillSent=o.workerSkillInitialized;
     if(moved){delete a.lastInputAt;delete a.inputOutputHash;}
     this.available(s.workers,a);return {state:s,result:a};
-   });this.cache(updated);return this.view(updated,'attached',null);
+   });this.cache(updated);
+   // The pane can change here, so the registration must follow it or pushes would be
+   // attributed to the wrong pane. A failed re-key must not fail a rebind that succeeded.
+   await this.push?.rekey(updated);
+   return this.view(updated,'attached',null);
   });
+ });}
+ /**
+  * Re-keys workers that outlived a previous server, so a surviving pane can push again without
+  * being killed. Gated on verified attachment: worker metadata is shared by state directory, so
+  * an ungated pass would re-key another live server's workers and silently revoke their tokens.
+  * Detached records are left for an explicit `agent.reattach`, which re-keys them anyway.
+  */
+ restorePush(){return this.run(async()=>{
+  if(!this.push)return;
+  const workers=await this.saved(),instance=await this.identity();
+  for(const w of workers){
+   if(!w.push||w.paneId===null||!this.attached(w,instance))continue;
+   try{await this.storage.exclusive(w.agentId,()=>this.push!.rekey(w));}
+   catch(e){console.error(`[term-dad] push rekey ${w.agentId}: ${e instanceof Error?e.message:e}`);}
+  }
+  // Only reached when the journal read above succeeded, so a credential is never removed
+  // because the durable set could not be established.
+  await this.push.sweepCredentials(new Set(workers.map(w=>w.agentId)));
  });}
  forget(agentId:string){return this.run(()=>this.locked(agentId,async w=>{await this.remove(w.agentId);return {forgotten:true};}));}
  private view(w:WorkerRecord,attachment:string,recoveryReason:string|null){return {agentId:w.agentId,name:w.name,paneId:w.paneId,cli:w.cli,attachment,recoveryReason,deliveryPending:w.deliveryPending,turnId:w.turn?.id??null,workerSkillInitialized:w.workerSkillSent,storageWarning:this.storage.warning??null};}

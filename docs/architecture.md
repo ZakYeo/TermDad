@@ -196,8 +196,35 @@ handle is unref'ed, so the ingress never keeps a process alive; the transport ow
 that lifetime. Connections are half-open so a reply survives a slow sink, and are
 bounded at 64 concurrent, 4,096 bytes per request and a 5-second idle timeout.
 
-Requests carry only `{token,kind}`. Tokens are 256-bit, per worker, in memory
-only, and released with the worker. Kinds are limited to `input_required`, `ready`
+Requests carry only `{token,kind}`. Tokens are 256-bit and per worker, held in
+memory *and* in that worker's owner-only credential file under
+`push-credentials/`, and released with the worker. The hook argv carries only that
+file's path: a running process's argv cannot be rewritten, so interpolating a
+socket path and token into it orphaned every surviving worker across a supervisor
+restart, and the file can be replaced under a live worker instead. `launch` writes
+it before the record is inserted, so the binding is durable from the first write;
+a write failure degrades to unmodified argv and no binding rather than failing the
+spawn, which is safe only because `push.set` then refuses the pane. The store is
+deliberately write-only — it exposes no read method — so "a credential is never
+loaded into server or event state" holds by construction. It is not a security
+boundary: workers share the server's uid, so 0600 isolates nothing that the
+previous argv did not already expose.
+
+Startup and `agent.reattach` re-key surviving workers and revoke their previous
+tokens, and both leave delivery disabled, since push is off until enabled and a
+restart cannot verify that a worker's hook configuration survived. Restore is
+gated on the same verified attachment that guards every other managed operation:
+worker metadata is shared by state directory, so an ungated pass would re-key
+another live server's workers and silently revoke their tokens. Each worker's
+re-key runs under its per-worker lock, so it cannot race a concurrent reattach
+into the wrong pane or resurrect a forgotten worker. It is skipped entirely when
+the socket did not bind, because rewriting credentials to a dead path would also
+strand a peer's worker. Credentials are swept by membership of the durable journal
+rather than by liveness probe — a credential cannot be probed the way a socket can
+— and never when that journal could not be read. Two servers attached to the same
+verified GUI still race a re-key, last writer wins, and the loser reports
+`enabled:false` and never becomes `proven`; that is observable rather than
+arbitrated. Kinds are limited to `input_required`, `ready`
 and `session_ended`; summaries are authored by the server, so a worker cannot
 inject event text, and the metadata bound is the same one watches obey. Unknown
 or revoked tokens yield `PUSH_UNAUTHORIZED`; a failed sink yields
@@ -278,8 +305,15 @@ and accepts storage as its fifth argument. Existing event-queue injection remain
 compatible. Starting the server does not create a journal.
 
 Durable records contain worker identity, adapter, endpoint/process identity, binding
-revision, skill delivery flag, and input timestamp/hash/uncertainty. They contain no
-terminal content, prompts, launch argv, cwd, or screenshots. Each managed operation
+revision, skill delivery flag, input timestamp/hash/uncertainty, and — when the pane
+was launched with injected hooks — the hook surface kind and the absolute path of its
+credential file. They contain no token, terminal content, prompts, launch argv, cwd,
+or screenshots. That path is stored rather than recomputed because the baked argv is
+immutable, so the record is the only account of what the worker actually rereads.
+The field is optional, so an older journal still parses; the schema is strict, so an
+**older server cannot read a newer journal** — it would reject the whole file as
+corrupt, not just that worker. Do not downgrade across this change while workers are
+registered without first forgetting them or moving `workers.json` aside. Each managed operation
 refreshes metadata before acting; observation caches are keyed by ID and binding
 revision. The synchronous `Agents.get` exposes only that instance's existing cache.
 Async resolution and managed operations are the source of truth.

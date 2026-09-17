@@ -29,7 +29,7 @@ Tool names use dots. All arguments are JSON objects. Omitted arguments below use
 | agent.observe | `agentId, since?: observationId` → compact state and output delta |
 | agent.status | Same as observe |
 | agent.interrupt | `agentId` → Ctrl+C |
-| agent.stop | `agentId` → kill pane and remove mapping; releases its push registration |
+| agent.stop | `agentId` → kill pane and remove mapping; releases its push registration and removes its credential file |
 | push.status | `agentId?` → socket bind state and per-pane delivery facts (`enabled` is intent, `deliverable` is reachability, `proven` is an observed hook) |
 | push.set | `agentId, enabled` → turn worker-pushed events on or off for one pane |
 | agent.screenshot | `agentId` → provider image |
@@ -271,16 +271,43 @@ is answered `{"ok":true,"delivered":false}` and nothing is recorded. Shell
 workers have no hook surface; `push.set` rejects them with
 `PUSH_UNSUPPORTED_WORKER`.
 
+A worker's hook argv carries the path of a private credential file
+(`<state>/push-credentials/<agentId>.json`, mode 0600), never the socket path and
+token themselves. A running process's argv cannot be rewritten, so baking
+credentials in used to orphan every surviving worker whenever the supervisor
+restarted. The notifier reads that file at fire time instead, so a restart can
+replace the socket path and mint a new token under a live worker: push is
+recoverable with one `push.set` and no relaunch, and no context is lost. This is
+not a security boundary — every worker runs as the same user as the server, so
+0600 no more isolates workers from each other than the previous argv did.
+
+On startup, and on `agent.reattach`, a server re-keys the workers it can verify
+it is attached to and revokes their previous tokens. Delivery comes back
+**disabled**: push is off for every pane until it is enabled, and a restart cannot
+verify that the worker's hook configuration survived. `push.status` reports
+`hookSurface` and `registered` so a re-keyed pane is visibly ready to be
+re-enabled. Credentials of workers that are no longer in the durable journal are
+swept on startup; a surviving worker's is never touched, and nothing is swept when
+that journal could not be read or the socket did not bind. `agent.adopt` records
+no hook surface, because a pane launched without injected argv can never deliver.
+`--socket`/`--token` remain supported for a worker launched by an earlier build,
+which keeps working until the next restart and then needs a relaunch.
+
 A hook connects to a per-server Unix socket in the state directory
 (`push.<pid>.sock`, mode 0600, one per server process so servers under different
 MCP clients never contend) and sends one bounded JSON line,
 `{"token":…,"kind":…}`. Only `input_required`, `ready` and `session_ended` are
 accepted, and only the token and kind are trusted: summaries are authored by the
 server, so a worker cannot inject event text. An unknown or revoked token is
-rejected with `PUSH_UNAUTHORIZED`. Tokens are per worker, minted at spawn, held
-in memory only, and released when the worker is stopped or forgotten. Sockets
-left by crashed servers are swept on startup; sockets that still answer are
-never removed.
+rejected with `PUSH_UNAUTHORIZED`. Tokens are per worker, minted at spawn or at a
+re-key, held in memory and in that worker's owner-only credential file, and
+released when the worker is stopped or forgotten. Sockets left by crashed servers
+are swept on startup; sockets that still answer are never removed.
+
+A credential that cannot be written never fails a spawn: the worker launches with
+unmodified argv and no durable binding, so `push.set` then refuses it with
+`PUSH_NOT_WIRED` rather than reporting a channel nothing can reach. A failed
+re-key leaves the worker unregistered and reports `credential:"unwritable"`.
 
 An accepted push publishes the event and then samples the pane, so the recorded
 status comes from the terminal rather than from the worker's claim. A watch on a

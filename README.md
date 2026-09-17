@@ -263,7 +263,9 @@ push.status({})
 relaunch, and the hooks record nothing while push is disabled. Hooks reach the
 server over a per-process Unix socket in the state directory (mode 0600, no
 network listener) and may send only a token and one of three event kinds; event
-text is authored by the server. Shell workers have no hook surface and always
+text is authored by the server. A worker's argv carries the path of a private
+credential file rather than the credentials, so a supervisor restart re-keys a
+surviving worker instead of orphaning it. Shell workers have no hook surface and always
 poll.
 
 `push.status` separates intent from evidence: `enabled` is only this server's
@@ -295,6 +297,6 @@ Worker mappings persist in a private shared journal; worker panes stay alive acr
 
 Key injection uses standard VT bytes, not global shortcuts. Apps using application cursor mode or extended keyboard protocols may need a custom key mapping. Focus activates the mux pane; OS foreground behavior varies. Movement currently supports moving to a new tab/window. Screenshots on Linux/macOS require your own provider executable. No remote transport, credentials, application relaunch, or push destination is configured.
 
-Worker-pushed events are local only: the ingress socket lives in your state directory, is owner-only, and accepts a bounded token and event kind, never event text. A worker that can read its own hook arguments can push those kinds for its own pane while push is enabled for it, which is why a push is verified by sampling the pane and never treated as evidence of task success. Push is off by default and cannot be enabled for a pane the server did not launch with hooks. Hooks run inside the worker; a worker started outside `agent.spawn` has none.
+Worker-pushed events are local only: the ingress socket lives in your state directory, is owner-only, and accepts a bounded token and event kind, never event text. Credential files are owner-only, but workers run as your user, so that is not an isolation boundary between them. A worker that can read its own credential file can push those kinds for its own pane while push is enabled for it, which is why a push is verified by sampling the pane and never treated as evidence of task success. Push is off by default and cannot be enabled for a pane the server did not launch with hooks. Hooks run inside the worker; a worker started outside `agent.spawn` has none.
 
 Read the [tool reference](docs/tools.md), [architecture and observation decision](docs/architecture.md), and [roadmap](docs/roadmap.md).

@@ -1,9 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync,rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { Agents } from '../src/agents.js';
 import { WezTermBackend } from '../src/backend.js';
 import { PushIngress } from '../src/ingress.js';
 import { WorkerPushRegistry } from '../src/push-workers.js';
+const stateDir=mkdtempSync(join(tmpdir(),'term-dad-push-workers-'));
+process.on('exit',()=>rmSync(stateDir,{recursive:true,force:true}));
 function fixture(){
  const spawns:string[][]=[];
  const backend=new WezTermBackend(async(args)=>{
@@ -13,7 +18,7 @@ function fixture(){
   return '';
  },async()=>null);
  const ingress=new PushIngress({sink:async()=>{}});
- const push=new WorkerPushRegistry(ingress,'/run/term-dad/push.sock',['/usr/bin/node','/opt/notify.js']);
+ const push=new WorkerPushRegistry(ingress,'/run/term-dad/push.sock',['/usr/bin/node','/opt/notify.js'],stateDir);
  push.attach({listening:true});
  return {agents:new Agents(backend,undefined,push),ingress,push,spawns};
 }
@@ -22,7 +27,9 @@ test('a spawned worker carries inert push plumbing and stays disabled until it i
  const {agentId}=await f.agents.spawn({name:'w','cli':'claude'} as any);
  const argv=f.spawns[0].join(' ');
  assert.ok(argv.includes('--settings'),'push hooks are injected at launch so enabling needs no restart');
- assert.ok(argv.includes('/run/term-dad/push.sock'));
+ // The argv carries a credential path, so a restart can re-key this worker without relaunching it.
+ assert.ok(argv.includes(join(stateDir,'push-credentials',`${agentId}.json`)));
+ assert.ok(!argv.includes('/run/term-dad/push.sock'),'no socket path or token is baked into argv');
  assert.equal(f.ingress.status(agentId).enabled,false,'push is off by default');
  assert.equal(f.ingress.status(agentId).paneId,7,'the registration is bound to the spawned pane');
  assert.equal(f.push.setEnabled(agentId,true).enabled,true);
@@ -61,7 +68,7 @@ test('enabling push fails for a channel that cannot deliver, rather than reporti
  const f=fixture();
  const {agentId}=await f.agents.spawn({name:'w',cli:'claude'} as any);
  // A pane this server never launched has no hook surface and can never deliver.
- f.push.attachWorkers(async id=>id===agentId?'claude':id==='adopted'?'codex':undefined);
+ f.push.attachWorkers(async id=>id===agentId?{cli:'claude'}:id==='adopted'?{cli:'codex'}:undefined);
  assert.throws(()=>f.push.setEnabled('adopted',true),/PUSH_NOT_WIRED/);
  f.push.attach({listening:false,bindError:'PUSH_SOCKET_PATH_OCCUPIED: refusing to replace a non-socket file'});
  assert.throws(()=>f.push.setEnabled(agentId,true),/PUSH_SOCKET_UNAVAILABLE/);
@@ -80,7 +87,7 @@ test('disabling push always succeeds, including for a worker with no registratio
 });
 test('push status reports a managed worker with no registration instead of throwing',async()=>{
  const f=fixture();
- f.push.attachWorkers(async id=>id==='survivor'?'claude':undefined);
+ f.push.attachWorkers(async id=>id==='survivor'?{cli:'claude',push:{credentialPath:join(stateDir,'push-credentials','x.json'),surface:'claude_hooks' as const}}:undefined);
  const survivor=await f.push.status('survivor');
  assert.equal(survivor.registered,false,'a worker this process never registered is reported, not an error');
  assert.equal(survivor.enabled,false);
@@ -89,7 +96,7 @@ test('push status reports a managed worker with no registration instead of throw
  // PUSH_UNKNOWN_WORKER is reserved for an id that is not a managed worker at all.
  await assert.rejects(f.push.status('never-existed'),/PUSH_UNKNOWN_WORKER/);
  const {agentId}=await f.agents.spawn({name:'w',cli:'claude'} as any);
- f.push.attachWorkers(async id=>id===agentId?'claude':undefined);
+ f.push.attachWorkers(async id=>id===agentId?{cli:'claude'}:undefined);
  const live=await f.push.status(agentId);
  assert.equal(live.registered,true);
  assert.equal(live.hookSurface,'claude_hooks');
