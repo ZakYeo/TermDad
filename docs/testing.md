@@ -248,6 +248,44 @@ containing spaces and dollar signs, and preservation of explicit command overrid
   The updated live turn-wait and verified-completion paths are **not live verified**.
   Rerun with a selected live endpoint; authenticated agent checks were not run.
 
+## Unified task attention — 2026-09-16
+
+- `npm run check`: passed the build and all 139 tests outside the sandbox, where
+  subprocess and stdio communication work. Added 11 deterministic attention tests
+  and one stdio protocol scenario covering categories, task/worker attribution,
+  observation age, uncertainty, partial failures, independent cursors, expiry,
+  frozen pagination, restart resets, and read-only task behavior.
+- A fresh review subagent found that worker-source failure could incorrectly
+  report zero decisions. Fixed the count to return unknown (`null`), added a
+  regression, and had the reviewer verify the fix; no further findings.
+- `npm run test:live` was attempted outside the sandbox. It stopped at initial
+  `terminal.list`: “WezTerm identity unavailable: Configure WEZTERM_UNIX_SOCKET to
+  select one WezTerm GUI endpoint.” No test panes were opened. The new live
+  attention/verification/cursor assertions are **not live verified**; rerun with
+  a selected GUI endpoint. No authenticated agent checks were run.
+
+
+## Containing GUI identity through WSL (2026-09-16)
+
+Added `WEZTERM_UNIX_SOCKET` and `WEZTERM_PANE` to the Windows WezTerm config's
+`set_environment_variables.WSLENV`, preserving the inherited WSLENV. No fixed
+socket or PID is stored in the config. `npm run build` passed.
+
+Live verification opened a temporary WSL pane in each of two already running
+GUI processes (17584 and 46848). Each probe inherited its own GUI socket and pane
+ID. In the probe process, the built `WezTermBackend.instance()` verified the
+corresponding Windows process, and `list()` included that probe's own pane.
+Verified probe panes were 18 and 59 respectively; both were closed after testing.
+An earlier environment-only probe (pane 17) also inherited the correct socket,
+but its test assertion rejected equivalent mixed Windows path separators; it
+was closed and the final probes used normalized Windows path comparisons.
+The first spawn attempt used an unsupported CLI option and opened no pane.
+
+These checks used actual Windows/WSL interoperability outside the sandbox, with
+no authenticated agent launches. Existing supervisor environments were not
+modified. A supervisor must be launched in a new pane to inherit the new values.
+Full orchestration/recovery suites were not run for this configuration-only fix.
+
 ## GUI discovery and switching — 2026-09-16
 
 - `npm run check` passed all 147 tests in the working checkout, including resolver

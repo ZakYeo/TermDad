@@ -84,3 +84,31 @@ test('MCP watch tools create, list, remove and close without closing panes',asyn
  const f=fixture();const {server,watches}=createServer(f.backend,undefined,{automatic:false});const [a,b]=InMemoryTransport.createLinkedPair();const client=new Client({name:'watch-test',version:'1'});await server.connect(a);await client.connect(b);
  try{const created=await client.callTool({name:'watch.create',arguments:config});assert.equal(created.isError,undefined);const watch=JSON.parse((created.content as any)[0].text);const listed=await client.callTool({name:'watch.list',arguments:{}});assert.equal(JSON.parse((listed.content as any)[0].text)[0].watchId,watch.watchId);await client.callTool({name:'watch.remove',arguments:{watchId:watch.watchId}});assert.deepEqual(watches.list(),[]);await client.callTool({name:'watch.create',arguments:config});}finally{await client.close();await server.close();await watches.dispose();}assert.deepEqual(watches.list(),[]);assert.ok(!f.calls.includes('kill-pane'));
 });
+test('push-backed watches back off to a liveness interval and verify pushed events by sampling',async()=>{
+ let enabled=true;
+ const f=fixture({pushEnabled:()=>enabled});
+ await f.watches.create({...config,pollMs:500,pushPollMs:30000});
+ const baseline=f.calls.length;
+ await f.tick(500);await f.tick(500);
+ assert.equal(f.calls.length,baseline,'a push-backed pane is not scraped on the normal interval');
+ f.setText('Do you want to proceed?\n› Yes');
+ await f.watches.confirm(7);
+ assert.ok(f.calls.length>baseline,'a push triggers an immediate confirming sample');
+ assert.deepEqual(f.events.map(e=>e.kind),['input_required']);
+ assert.equal(f.watches.list()[0].pushBacked,true);
+ enabled=false;
+ f.setText('done\n› ');
+ await f.tick(500);
+ assert.equal(f.events.at(-1)?.kind,'ready','disabling push restores the normal polling interval');
+ await f.watches.dispose();
+});
+test('a push for an unwatched or disappeared pane never fabricates an event',async()=>{
+ const f=fixture({pushEnabled:()=>true});
+ await f.watches.confirm(7);
+ assert.deepEqual(f.events,[]);
+ await f.watches.create({...config,pushPollMs:30000});
+ f.remove();
+ await f.watches.confirm(7);
+ assert.deepEqual(f.events.map(e=>e.kind),['pane_disappeared']);
+ await f.watches.dispose();
+});

@@ -9,6 +9,20 @@ try{
  await call('agent.wait_for_text',{agentId,text:'TERM_DAD_FIRST',timeoutMs:15000});
  const outcome=await call('agent.wait_for_outcome',{agentId,turnId:initialTurn.turnId,timeoutMs:15000});assert.equal(outcome.reason,'turn_finished');assert.equal(outcome.provenance,'heuristic');
  const first=await call('agent.observe',{agentId});assert.equal(first.paneId,a.paneId);
+ let task=await call('task.create',{boardId:'live-attention',title:'Shell round trip',goal:'Observe TERM_DAD_FIRST after submitting shell input',assignedAgentId:agentId});
+ const attention=await call('orchestrator.attention',{boardId:'live-attention'});
+ assert.equal(attention.counts.ready_to_dispatch,1);assert.equal(attention.entries[0].worker.availability,'attached');
+ assert.equal(typeof attention.entries[0].worker.observationAgeMs,'number');
+ task=await call('task.start_attempt',{taskId:task.id,expectedRevision:task.revision});
+ task=await call('task.report_result',{taskId:task.id,expectedRevision:task.revision,attemptId:task.currentAttemptId,
+  outcome:'succeeded',summary:'Observed the shell marker through agent.wait_for_text',workVersion:'live-shell-round-trip',provenance:'supervisor_recorded',artifacts:[],checks:[]});
+ const verification=await call('orchestrator.attention',{boardId:'live-attention',since:attention.cursor});
+ assert.equal(verification.counts.awaiting_verification,1);assert.ok(verification.changes.some((change:any)=>change.id===task.id));
+ await call('task.verify',{taskId:task.id,expectedRevision:task.revision,attemptId:task.currentAttemptId,reportId:task.latestReport.id,
+  workVersion:'live-shell-round-trip',result:'passed',rationale:'The live test observed TERM_DAD_FIRST after submission',criteria:[],complete:true});
+ const completed=await call('orchestrator.attention',{boardId:'live-attention',since:verification.cursor});
+ assert.equal(completed.pagination.entryTotal,0);assert.ok(completed.changes.some((change:any)=>change.id===task.id&&change.after.status==='done'));
+
  await call('agent.send',{agentId,text:"printf '\\nTERM_DAD_%s\\n' FOLLOWUP"});
  const follow=await call('agent.wait_for_text',{agentId,text:'TERM_DAD_FOLLOWUP',timeoutMs:15000});assert.ok(follow.recentText.includes('TERM_DAD_FOLLOWUP'));
  const split=await session.spawnPane({paneId:a.paneId,direction:'right',percent:30,command:['bash','--noprofile','--norc','-i']},true);
@@ -29,5 +43,5 @@ try{
  await call('agent.stop',{agentId});session.owned.delete(a.paneId);
  const after=await call('terminal.list');
  for(const pane of before)assert.ok(after.some((p:any)=>p.pane_id===pane.pane_id),'Pre-existing panes must survive');
- console.log('PASS: live MCP spawn, shell readiness, initial/follow-up input, output, split, resize, focus, move, broadcast, snapshots, new window, interrupt and cleanup');
+ console.log('PASS: live MCP spawn, shell readiness, initial/follow-up input, output, split, resize, focus, move, broadcast, snapshots, task attention/verification/change cursors, new window, interrupt and cleanup');
 }finally{await session.dispose();}

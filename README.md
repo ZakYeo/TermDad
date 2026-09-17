@@ -68,12 +68,13 @@ to start a visible Claude worker. Claude receives task text unchanged, so invoke
 `/term-dad-worker <assignment>` explicitly when its role is needed; automatic
 first-task role embedding currently applies to Codex workers only.
 
-With multiple WezTerm GUIs, configure the server's `WEZTERM_UNIX_SOCKET` environment
-setting to the selected GUI socket as described below. Optional screenshot support
+With multiple WezTerm GUIs, inherit the containing GUI's socket using the
+[WSL configuration below](#selecting-the-containing-wezterm-gui-in-wsl), or configure
+the server's `WEZTERM_UNIX_SOCKET` explicitly. Optional screenshot support
 uses `TERM_DAD_SCREENSHOT_COMMAND=/home/zak/personal/term-dad/scripts/screenshot-wsl`.
 A successful MCP connection alone does not prove that a terminal endpoint is
-selected; verify with `terminal.list`. A socket containing a GUI PID must be updated
-if that GUI process restarts. See the official [Claude MCP setup](https://code.claude.com/docs/en/mcp)
+selected; verify with `terminal.list`. An explicitly configured socket containing a GUI PID must be updated
+if that GUI process restarts; new panes inherit the current socket automatically. See the official [Claude MCP setup](https://code.claude.com/docs/en/mcp)
 and [personal skills](https://code.claude.com/docs/en/skills) documentation.
 
 ## Supervisor and worker skills
@@ -101,6 +102,30 @@ after an initial readiness timeout, the first successful `agent.send` supplies
 them. Use managed agent tools for Codex workers: raw terminal tools do not apply
 this initialization. Claude and shell workers receive their task text unchanged.
 
+## Selecting the containing WezTerm GUI in WSL
+
+Term Dad uses the `WEZTERM_UNIX_SOCKET` inherited from its supervisor process.
+For Windows WezTerm with WSL panes, forward that variable across the WSL boundary
+so multiple GUI processes can each host their own supervisor without fixed PIDs.
+Add this to your Windows `.wezterm.lua`, before `return config` (merge with any
+existing `set_environment_variables` entries):
+
+```lua
+config.set_environment_variables = {
+  WSLENV = (os.getenv 'WSLENV' or '') .. ':WEZTERM_UNIX_SOCKET:WEZTERM_PANE',
+}
+```
+
+Keep the socket as a Windows path: do not add the WSLENV `/p` flag. WezTerm supplies
+the socket and pane values for each new pane. Preserve any additional WSLENV entries
+in your existing configuration. Open a new WSL pane after the config reload and
+launch the supervisor there; existing shells and MCP servers retain their old
+environment. Remove fixed `WEZTERM_UNIX_SOCKET` overrides from the MCP registration
+or shell startup files if you want the containing GUI to be selected automatically.
+
+Check in the new shell with `printenv WEZTERM_UNIX_SOCKET WEZTERM_PANE`, then use
+`terminal.list` from the supervisor.
+
 ## Selecting and switching GUIs
 
 Without an inherited socket, Term Dad selects a running GUI automatically: the
@@ -127,14 +152,16 @@ fresh after restart.
 
 On Windows/WSL, the bundled host-side helper verifies the GUI process and its
 start time. With one running GUI, it discovers the standard socket automatically.
-With multiple GUIs, selection follows the foreground/newest policy above.
-To prefer a specific GUI, configure `WEZTERM_UNIX_SOCKET` on the MCP server to the chosen
+With multiple GUIs, automatic selection follows the foreground/newest policy above.
+To select the containing GUI reliably, inherit `WEZTERM_UNIX_SOCKET` as described
+above, or explicitly configure the MCP server with the chosen
 Windows path, typically `C:\Users\<user>\.local\share\wezterm\gui-sock-<PID>`.
 Find the GUI PID with PowerShell `Get-Process wezterm-gui`; socket files are under
 that user's `.local\share\wezterm` directory. The server forwards the endpoint
 explicitly to Windows CLI and screenshot subprocesses. Each server targets one
 GUI; saved workers belonging to another instance remain detached. If the GUI
-restarts, update the socket configuration and restart the MCP server.
+restarts, launch the supervisor from a new pane to inherit its current socket,
+or update an explicit socket configuration, and restart the MCP server.
 
 ```text
 agent.list({})
@@ -166,6 +193,14 @@ task.create({"boardId":"my-project","title":"Implement feature","goal":"Meet the
 task.assign({"taskId":"<task UUID>","expectedRevision":1,"agentId":"<worker UUID>"})
 task.list({"boardId":"my-project","readyOnly":true})
 ```
+
+Use `orchestrator.attention` for task-focused decisions, dispatch eligibility,
+verification work, and changes since your last check. Pass its returned `cursor`
+as `since` on the next refresh; use `pageCursor` and `offset` to page the frozen
+result. Each refresh observes workers and includes observation age, uncertainty,
+and worker constraints separately from task eligibility. Cursors are local to the
+server session; expired or restarted baselines reset explicitly. See the
+[attention reference](docs/tools.md#task-focused-attention) for the response contract.
 
 Use returned UUIDs and revisions. Tasks survive worker removal, and concurrent
 stale edits are rejected. Worker lists and supervisor snapshots include assigned
@@ -210,6 +245,27 @@ Pending events replay after restart; watch registrations must be recreated.
 Set `TERM_DAD_STATE_DIR` to choose a private local storage directory; see
 [queue limits and recovery](docs/tools.md#durable-metadata-events).
 
+## Worker-pushed events
+
+By default a watch discovers a worker's state by polling its pane. A Claude or
+Codex worker can instead push its own input requests and turn completions to the
+server, which then verifies them by sampling the pane.
+
+Push is off for every pane until it is enabled. Turn it on for long-running work
+and off again afterwards:
+
+```text
+push.set({"agentId":"research","enabled":true})
+push.status({})
+```
+
+`agent.spawn` injects the hook plumbing at launch, so enabling push never needs a
+relaunch, and the hooks record nothing while push is disabled. Hooks reach the
+server over a per-process Unix socket in the state directory (mode 0600, no
+network listener) and may send only a token and one of three event kinds; event
+text is authored by the server. Shell workers have no hook surface and always
+poll. See [worker-pushed events](docs/tools.md#worker-pushed-events).
+
 ## Development and tests
 
 ```sh
@@ -230,5 +286,7 @@ This is a personal proof of concept. Tool access grants terminal command executi
 Worker mappings persist in a private shared journal; worker panes stay alive across MCP disconnects. Automatic reattachment requires a verified terminal instance. Maximum 64 managed agents, 16 observations per agent, 24,000 characters per observation. No task completion guarantee: detected readiness is a heuristic, and unchanged text never proves success. UI revisions and echoed prompts can confuse classifiers. WezTerm's CLI does not expose reliable foreground process metadata on every platform; missing values are `null`.
 
 Key injection uses standard VT bytes, not global shortcuts. Apps using application cursor mode or extended keyboard protocols may need a custom key mapping. Focus activates the mux pane; OS foreground behavior varies. Movement currently supports moving to a new tab/window. Screenshots on Linux/macOS require your own provider executable. No remote transport, credentials, application relaunch, or push destination is configured.
+
+Worker-pushed events are local only: the ingress socket lives in your state directory, is owner-only, and accepts a bounded token and event kind, never event text. A worker that can read its own hook arguments can push those kinds for its own pane while push is enabled for it, which is why a push is verified by sampling the pane and never treated as evidence of task success. Push is off by default and cannot be enabled for a pane the server did not launch with hooks. Hooks run inside the worker; a worker started outside `agent.spawn` has none.
 
 Read the [tool reference](docs/tools.md), [architecture and observation decision](docs/architecture.md), and [roadmap](docs/roadmap.md).

@@ -18,7 +18,7 @@ async function connect(directory:string,fixture=false,identity='fixture-instance
 test('production stdio task tools persist across restart and serialize conflicting multi-process edits without a GUI',async t=>{
  const directory=await mkdtemp(join(tmpdir(),'term-dad-task-protocol-'));t.after(()=>rm(directory,{recursive:true,force:true}));
  const first=await connect(directory);t.after(()=>first.client.close());
- assert.equal((await first.client.listTools()).tools.length,49);await assert.rejects(access(join(directory,'tasks.json')));
+ assert.equal((await first.client.listTools()).tools.length,52);await assert.rejects(access(join(directory,'tasks.json')));
  const task=await first.call('task.create',{boardId:'repo',title:'Durable',goal:'Preserve metadata',acceptanceCriteria:[{id:'check',description:'Checked'}]});
  await first.client.close();const second=await connect(directory),third=await connect(directory);t.after(()=>second.client.close());t.after(()=>third.client.close());
  assert.deepEqual(await second.call('task.get',{taskId:task.id}),{...task,assignment:null});
@@ -68,4 +68,27 @@ test('stdio managed turns associate current attempts, preserve timeout semantics
  task=await f.call('task.start_attempt',{taskId:task.id,expectedRevision:task.revision});
  assert.match(JSON.stringify(await f.raw('agent.send',{agentId:worker.agentId,text:'Stale work',attempt})),/TASK_ATTEMPT_STALE/);
  const history=await f.call('task.history',{taskId:task.id,limit:1});assert.equal(history.total,2);assert.equal(history.nextOffset,1);
+});
+
+test('attention MCP refreshes task queues, pages frozen changes and resets cursors after restart',async t=>{
+ const directory=await mkdtemp(join(tmpdir(),'term-dad-attention-protocol-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+ const first=await connect(directory,true);t.after(()=>first.client.close());
+ const worker=await first.call('agent.adopt',{name:'attention-worker',paneId:7,cli:'codex'});
+ const baseline=await first.call('orchestrator.attention');
+ const assigned=await first.call('task.create',{boardId:'repo',title:'Assigned',goal:'Track',assignedAgentId:worker.agentId});
+ await first.call('task.create',{boardId:'repo',title:'Unassigned',goal:'Track'});
+ const fresh=await first.call('orchestrator.attention',{since:baseline.cursor,limit:1});
+ assert.equal(fresh.counts.ready_to_dispatch,2);assert.equal(fresh.counts.needs_decision,1);
+ assert.equal(fresh.pagination.changeTotal,2);assert.equal(fresh.pagination.nextOffset,1);
+ const page=await first.call('orchestrator.attention',{pageCursor:fresh.cursor,offset:1,limit:1});
+ assert.equal(page.entries[0].id,assigned.id);assert.equal(page.generatedAt,fresh.generatedAt);
+ assert.equal(page.entries[0].worker.availability,'attached');assert.equal(typeof page.entries[0].worker.observationAgeMs,'number');
+ assert.equal((await first.raw('orchestrator.attention',{pageCursor:fresh.cursor,boardId:'repo'})).isError,true);
+ assert.equal((await first.raw('orchestrator.attention',{limit:101})).isError,true);
+ const status=await first.call('orchestrator.status');assert.ok(Array.isArray(status));assert.equal(status[0].tasks.total,1);
+ assert.equal((await first.call('task.get',{taskId:assigned.id})).revision,1);
+ await assert.rejects(access(join(directory,'input.log')));
+ await first.client.close();const second=await connect(directory,true);t.after(()=>second.client.close());
+ const reset=await second.call('orchestrator.attention',{since:fresh.cursor});
+ assert.equal(reset.baseline.reason,'unknown_or_expired');assert.deepEqual(reset.changes,[]);assert.equal(reset.counts.ready_to_dispatch,2);
 });

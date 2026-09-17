@@ -5,6 +5,7 @@ import { observeInteraction,type InteractionState } from './interaction.js';
 import { attemptReferenceSchema } from './task-results.js';
 import { initialWorkerPrompt } from './worker-skill.js';
 import { type TerminalBackend,type SpawnOptions,spawnSchema,submit,sendKeys,id } from './backend.js';
+import type { WorkerPush } from './push-workers.js';
 import { MemoryWorkerStorage,newWorker,workerSchema,type WorkerStorage,type WorkerRecord,type TerminalInstance } from './worker-storage.js';
 export const hashOutput=(text:string)=>createHash('sha256').update(text).digest('hex');
 export function delta(previous:string,current:string){if(previous===current)return {mode:'unchanged',text:''};if(current.startsWith(previous))return {mode:'append',text:current.slice(previous.length)};return {mode:'replace',text:current};}
@@ -19,7 +20,7 @@ export class Agents {
  private readonly sessionId=randomUUID();
  private operations=new Set<Promise<unknown>>();
  private closed=false;
- constructor(readonly backend:TerminalBackend,readonly storage:WorkerStorage=new MemoryWorkerStorage()){}
+ constructor(readonly backend:TerminalBackend,readonly storage:WorkerStorage=new MemoryWorkerStorage(),readonly push?:WorkerPush){}
  private run<T>(fn:()=>Promise<T>):Promise<T>{
   if(this.closed)return Promise.reject(new Error('WORKER_CLOSED'));
   if(this.operations.size>=128)return Promise.reject(new Error('WORKER_OPERATION_LIMIT'));
@@ -49,7 +50,7 @@ export class Agents {
   const w=await this.storage.transaction(true,s=>{const a=s.workers.find(w=>w.agentId===agentId);if(!a)throw new Error('Unknown agent');fn(a);return {state:s,result:a};});
   if(w.paneId!==null)this.cache(w);return w;
  }
- private async remove(agentId:string){await this.storage.transaction(true,s=>({state:{...s,workers:s.workers.filter(w=>w.agentId!==agentId)},result:undefined}));this.records.delete(agentId);}
+ private async remove(agentId:string){await this.storage.transaction(true,s=>({state:{...s,workers:s.workers.filter(w=>w.agentId!==agentId)},result:undefined}));this.records.delete(agentId);this.push?.release(agentId);}
  private async insert(w:WorkerRecord){
   await this.storage.transaction(true,s=>{
    if(s.workers.length>=64)throw new Error('Maximum of 64 managed agents reached');
@@ -77,15 +78,16 @@ export class Agents {
  spawn(o:SpawnOptions & {name:string;cli:WorkerRecord['cli'];prompt?:string;timeoutMs?:number}){return this.run(async()=>{
   const configured=process.env[`TERM_DAD_${o.cli.toUpperCase()}_COMMAND`];
   const command=o.command??(configured?z.array(z.string().min(1)).min(1).parse(JSON.parse(configured)):(o.cli==='shell'?undefined:[o.cli]));
-  const options=spawnSchema.parse({...o,command});
-  if(options.newWindow&&options.windowId!==undefined)throw new Error('newWindow and windowId are mutually exclusive');
+  if(o.newWindow&&o.windowId!==undefined)throw new Error('newWindow and windowId are mutually exclusive');
   const w=newWorker(o.name,o.cli,null,await this.identity(),this.sessionId);
+  // Hooks are injected at launch but stay inert: pushes are dropped until the pane is enabled.
+  const options=spawnSchema.parse({...o,command:this.push?.launch(w.agentId,o.cli,command)??command});
   let paneId:number|undefined;
   await this.storage.exclusive(w.agentId,async()=>{
    await this.insert(w);
    try{paneId=await this.backend.spawn(options);}
    catch{throw new Error(`WORKER_SPAWN_UNCERTAIN: launch response was lost or rejected; reservation ${w.agentId} retained. Inspect terminal.list before forgetting the reservation and adopting any surviving pane. Do not repeat spawn blindly.`);}
-   try{await this.change(w.agentId,a=>{a.paneId=paneId!;});}
+   try{await this.change(w.agentId,a=>{a.paneId=paneId!;});this.push?.bind(w.agentId,paneId);}
    catch{throw new Error(`WORKER_STORAGE_FAILED: pane ${paneId} is alive but mapping was not saved; inspect it, forget reservation ${w.agentId}, and agent.adopt it. No prompt sent.`);}
   });
   if(o.prompt!==undefined){
@@ -146,7 +148,7 @@ export class Agents {
   const interaction=observeInteraction(a,a.status==='WORKING'&&classifiedStatus==='READY_FOR_PROMPT'?'UNKNOWN':a.status,text,a.turn?.id??null);
   const previous=since?a.history.find(h=>h.id===since):undefined,observationId=randomUUID(),output=previous?delta(previous.text,text):{mode:'replace',text};
   a.history.push({id:observationId,text,status:a.status});if(a.history.length>16)a.history.shift();
-  return {agentId:a.agentId,name:a.name,paneId:a.paneId,observationId,...interaction,turnId:a.turn?.id??null,attempt:a.turn?.attempt??null,previousObservationId:since,deltaReset:!!since&&!previous,status:a.status,activity:changed?'changed':'unchanged',lastActivitySecondsAgo:(Date.now()-a.lastOutputAt)/1000,lastInputAt:a.lastInputAt,lastOutputAt:a.lastOutputAt,outputHash:hash,cwd:pane.cwd,process:pane.foreground_process_name??null,awaitingInput:['READY_FOR_PROMPT','WAITING_FOR_PERMISSION','WAITING_FOR_QUESTION','WAITING_FOR_AUTHENTICATION'].includes(a.status),permissionPrompt:a.status==='WAITING_FOR_PERMISSION',deliveryPending:a.deliveryPending,recentText:output.text,outputMode:output.mode,screenshotAvailable:!!process.env.TERM_DAD_SCREENSHOT_COMMAND};
+  return {agentId:a.agentId,name:a.name,paneId:a.paneId,observedAt:new Date().toISOString(),bindingRevision:a.revision,observationId,...interaction,turnId:a.turn?.id??null,attempt:a.turn?.attempt??null,previousObservationId:since,deltaReset:!!since&&!previous,status:a.status,activity:changed?'changed':'unchanged',lastActivitySecondsAgo:(Date.now()-a.lastOutputAt)/1000,lastInputAt:a.lastInputAt,lastOutputAt:a.lastOutputAt,outputHash:hash,cwd:pane.cwd,process:pane.foreground_process_name??null,awaitingInput:['READY_FOR_PROMPT','WAITING_FOR_PERMISSION','WAITING_FOR_QUESTION','WAITING_FOR_AUTHENTICATION'].includes(a.status),permissionPrompt:a.status==='WAITING_FOR_PERMISSION',deliveryPending:a.deliveryPending,recentText:output.text,outputMode:output.mode,screenshotAvailable:!!process.env.TERM_DAD_SCREENSHOT_COMMAND};
  }));}
  send(agentId:string,text:string,attempt?:z.infer<typeof attemptReferenceSchema>){return this.run(()=>this.locked(agentId,async w=>{
   z.string().max(100000).parse(text);

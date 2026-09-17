@@ -29,7 +29,9 @@ Tool names use dots. All arguments are JSON objects. Omitted arguments below use
 | agent.observe | `agentId, since?: observationId` → compact state and output delta |
 | agent.status | Same as observe |
 | agent.interrupt | `agentId` → Ctrl+C |
-| agent.stop | `agentId` → kill pane and remove mapping |
+| agent.stop | `agentId` → kill pane and remove mapping; releases its push registration |
+| push.status | `agentId?` → push socket path and registrations (`enabled` is false until turned on) |
+| push.set | `agentId, enabled` → turn worker-pushed events on or off for one pane |
 | agent.screenshot | `agentId` → provider image |
 | agent.wait_for_text | `agentId, text, timeoutMs?` → wait for literal substring in recent output |
 | agent.wait_for_outcome | `agentId, turnId, timeoutMs?, quietMs?` → input required, heuristic turn finished, optional quiet output, disappearance, or timeout |
@@ -37,8 +39,11 @@ Tool names use dots. All arguments are JSON objects. Omitted arguments below use
 | agent.broadcast | `agentIds: string[], text` → per-worker send success/error |
 | agent.collect_results | `{}` → current observations, no inferred task success |
 | orchestrator.status | `{}` → observations for attached workers and metadata for detached workers |
+| orchestrator.attention | Task-focused decisions, eligibility, verification, and cursor-based changes; see below |
 
-Keys: ENTER, ESC, TAB, UP, DOWN, LEFT, RIGHT, CTRL_C, CTRL_D, CTRL_A, CTRL_E, CTRL_U, BACKSPACE, DELETE, HOME, END. Text is capped at 100,000 characters; key sequences at 100 keys. Wait timeout defaults to 30,000ms, maximum 120,000ms. Screenshots require `TERM_DAD_SCREENSHOT_COMMAND`. `newWindow` and `windowId` are mutually exclusive.
+Keys (case-insensitive): ENTER, ESC, TAB, UP, DOWN, LEFT, RIGHT, CTRL_C, CTRL_D, CTRL_A, CTRL_E, CTRL_U, BACKSPACE, DELETE, HOME, END. Aliases: Escape → ESC, Return → ENTER, ArrowUp/UpArrow → UP, ArrowDown/DownArrow → DOWN, ArrowLeft/LeftArrow → LEFT, ArrowRight/RightArrow → RIGHT. For example, `terminal.send_key({"paneId":7,"key":"ArrowDown"})` sends a down arrow. Both key tools send raw control bytes without bracketed paste; use them for menu navigation. `terminal.send_text` pastes text, so escape sequences sent through it may be treated as pasted content instead of navigation. Unsupported names report accepted keys, and a sequence containing any unsupported name sends no input.
+
+Text is capped at 100,000 characters; key sequences at 100 keys. Wait timeout defaults to 30,000ms, maximum 120,000ms. Screenshots require `TERM_DAD_SCREENSHOT_COMMAND`. `newWindow` and `windowId` are mutually exclusive.
 
 `terminal.close` can close your master session too: select IDs deliberately. Broadcast operates only on explicit agent IDs. Observations can report errors individually in workspace snapshots when panes vanish during polling.
 
@@ -159,13 +164,50 @@ be owned by the current user with mode 0700; journal files use 0600. Unrelated
 tools and event reads against an absent directory do not create durable state.
 See [architecture](architecture.md#durable-event-journal) for crash recovery.
 
+## Worker-pushed events
+
+Push is **off for every pane until it is enabled**. Enable it for long-running
+assignments so a worker reports its own state instead of being scraped.
+
+| Tool | Arguments | Result |
+| --- | --- | --- |
+| `push.status` | `agentId?` | Socket path plus one registration, or all of them: `{agentId,paneId,enabled}` |
+| `push.set` | `agentId`, `enabled` | Turns worker-pushed events on or off for that pane |
+
+`agent.spawn` injects the plumbing at launch — `--settings` hooks for a Claude
+worker, a `notify` program for a Codex worker — so enabling push never needs a
+relaunch. The hooks stay inert while the registration is disabled: the request
+is answered `{"ok":true,"delivered":false}` and nothing is recorded. Shell
+workers have no hook surface; `push.set` rejects them with
+`PUSH_UNSUPPORTED_WORKER`.
+
+A hook connects to a per-server Unix socket in the state directory
+(`push.<pid>.sock`, mode 0600, one per server process so servers under different
+MCP clients never contend) and sends one bounded JSON line,
+`{"token":…,"kind":…}`. Only `input_required`, `ready` and `session_ended` are
+accepted, and only the token and kind are trusted: summaries are authored by the
+server, so a worker cannot inject event text. An unknown or revoked token is
+rejected with `PUSH_UNAUTHORIZED`. Tokens are per worker, minted at spawn, held
+in memory only, and released when the worker is stopped or forgotten. Sockets
+left by crashed servers are swept on startup; sockets that still answer are
+never removed.
+
+An accepted push publishes the event and then samples the pane, so the recorded
+status comes from the terminal rather than from the worker's claim. A watch on a
+push-backed pane polls on `pushPollMs` instead of `pollMs`, keeping a liveness
+backstop for a pane that is killed without ever running a hook; disabling push
+restores the normal interval immediately. A pushed `ready` still means only that
+a turn ended, never that a task succeeded.
+
 ## Background watches
 
 - `watch.create`: choose exactly one `paneId` or `agentId` (ID or managed name).
   Unmanaged panes require `adapter`: `claude`, `codex`, or `shell`. A pane already
   mapped to a managed worker automatically uses its guarded observations.
-  `pollMs`: 500–60,000 (default 2,000); `inactivityMs`: 1,000–3,600,000
-  (default 60,000); `cooldownMs`: 0–3,600,000 (default 10,000).
+  `pollMs`: 500–60,000 (default 2,000); `pushPollMs`: 1,000–3,600,000
+  (default 30,000), used only while the watched worker pushes its own events;
+  `inactivityMs`: 1,000–3,600,000 (default 60,000); `cooldownMs`: 0–3,600,000
+  (default 10,000).
   `notify`: default false; true requires a configured desktop provider.
 - `watch.list`: configurations, last classified status, last metadata-only event,
   pending event count, disappearance flag, and safe observation/delivery errors.
@@ -379,6 +421,85 @@ observation state, reset on restart/reattachment; no prompt text is stored durab
 Permission classification takes precedence. Recognizable sign-in prompts require
 input; generic authentication failures still classify as errors. No prompt is
 automatically approved or answered.
+
+
+## Task-focused attention
+
+`orchestrator.attention` refreshes worker observations and joins them to a single
+read of the task graph. It does not dispatch input, approve requests, record
+results, or change task records. Existing `orchestrator.status` remains a worker
+observation array. Normal worker observation/recovery can still remove mappings
+for verified missing panes.
+
+Fresh query: `{boardId?, since?, limit?}`. `limit` defaults to 50, maximum 100.
+All boards are included by default. Worker-only attention is included only in
+unfiltered queries; board-scoped worker changes include workers assigned to that
+board's tasks. Completed, cancelled, and archived tasks leave active queues but
+remain represented in change comparisons.
+
+The response contains:
+
+- `cursor`, `boardId`, `generatedAt`, and `collection.startedAt/finishedAt`.
+- `sources.tasks/workers`, `warnings`, and `baseline` describing comparison resets
+  and incomplete sources. Unavailable task data makes category counts `null`;
+  unavailable worker data also makes `needs_decision` unknown (`null`).
+- `counts` for each category and compact `entries`, sorted by first category below,
+  then urgent/high/normal/low priority, creation time, and ID. Counts overlap.
+- `changes`: task/worker IDs, `added`, `removed`, or `updated`, `changedFields`, and
+  compact `before/after` metadata. Removal means leaving the compared scope, not
+  necessarily deletion. Terminal output changes appear as output-hash changes;
+  terminal text, task goals, report summaries, and raw errors are omitted.
+- `pagination`: `entryTotal`, `changeTotal`, `offset`, `limit`, `nextOffset`, and
+  `pageCursor`. Entries and changes use the same offset/limit independently;
+  continue until `nextOffset` is null, even if one array is already empty.
+
+| Category | Meaning |
+| --- | --- |
+| `needs_decision` | Required or uncertain input, explicit blockers, unsuccessful reports, failed/inconclusive verification, passed verification awaiting completion, assignment/worker problems, or a matching ready turn missing its report |
+| `awaiting_verification` | A current successful report whose verification is unverified or stale |
+| `ready_to_dispatch` | An unarchived, unblocked todo task; worker constraints are separate |
+| `waiting_on_dependencies` | Active work with unfinished dependencies |
+| `in_progress` | Active tasks explicitly marked in progress |
+
+Entries include `reasons` and suggested `nextActions`, task revision, priority,
+assignment, attempt/report references, verification status, blocker count, and
+unresolved dependency IDs. Fetch `task.get` or `task.history` for full details.
+`dispatchConstraints` exposes unassigned/unavailable workers, input requests,
+uncertain delivery, lack of readiness, and another in-progress task assigned to
+the same worker. These are informational checks, not an atomic reservation.
+
+Worker summaries include `observedAt`, `observationAgeMs`, `outputInactiveMs`,
+status, input request metadata, turn association, delivery uncertainty, and
+structured uncertainty reasons. Observation age measures successful acquisition,
+not how long output has been unchanged. Failed reads and detached/missing workers
+have null observation age and readiness. Fresh classification is still heuristic;
+there is no arbitrary age threshold that declares a worker stale or ready.
+`workerContext` distinguishes a matching current attempt from assignment-only
+context; unmatched context carries `task_turn_unconfirmed`. A matching ready turn
+without a result suggests inspection/reporting, never verification or completion.
+Raw observations additionally expose `observedAt` and `bindingRevision`.
+
+To page, call `{pageCursor: cursor, offset: nextOffset, limit?}`. This reads the
+frozen snapshot without observing again; timestamps and ages stay anchored to
+its generation time. Do not combine `pageCursor` with `boardId` or `since`, or use
+`offset` without `pageCursor`. Expired pages return `ATTENTION_PAGE_EXPIRED`; start
+a fresh query. Only one refresh per service can run at a time (`ATTENTION_BUSY`);
+paging remains available during a refresh.
+
+Pass a previous `cursor` as `since` for net changes over the complete dataset,
+regardless of whether all pages were read. Calls do not acknowledge changes for
+other callers. A first call returns `baseline.reset:true`, reason `initial`, and
+no changes. Unknown, expired, or restarted cursors use `unknown_or_expired`;
+changing board scope uses `scope_changed`. Resets return the current view and no
+invented historical changes. At most 16 snapshots survive for 15 minutes each per
+server instance. This is a comparison service, not durable event history.
+
+Source failures preserve independently available data and emit static warnings.
+Comparisons involving an unavailable source are skipped and listed in
+`baseline.incompleteSources`, including recovery from an incomplete baseline;
+absence of changes then does not establish absence of activity. No failed read
+is interpreted as mass removal. Task and worker reads are separate snapshots,
+not a cross-journal transaction. Inspect and reread task revisions before acting.
 
 ## Selecting a WezTerm GUI
 

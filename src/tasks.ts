@@ -50,6 +50,10 @@ export class TaskBoard {
    return {result:{tasks:tasks.slice(filter.offset,end),total:tasks.length,nextOffset:end<tasks.length?end:null,storageWarning:this.storage.warning??null}};
   });
  });}
+ /** One consistent graph read for derived orchestration views, including archived transitions. */
+ snapshot(){return this.run(()=>this.storage.transaction(false,state=>({
+  result:{tasks:state.tasks.map(task=>taskView(task,state)),storageWarning:this.storage.warning??null},
+ })));}
  /** Compact, bounded summaries for worker views; full details remain paginated in task.list. */
  workerSummaries(){return this.run(()=>this.storage.transaction(false,state=>{
   const groups=new Map<string,ReturnType<typeof taskView>[]>();

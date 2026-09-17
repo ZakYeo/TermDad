@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { EventQueue } from './events.js';
 import { registerEventTools } from './event-tools.js';
-import { WezTermBackend,type TerminalBackend,id,spawnSchema,sendKeys,submit } from './backend.js';
+import { WezTermBackend,type TerminalBackend,id,spawnSchema,sendKeys,submit,keyDescription } from './backend.js';
 import { Agents,adoptionSchema,reattachSchema } from './agents.js';
 import { FileWorkerStorage,type WorkerStorage } from './worker-storage.js';
 import { CommandScreenshotProvider,type ScreenshotProvider } from './screenshots.js';
@@ -14,9 +14,23 @@ import { TaskBoard } from './tasks.js';
 import { FileTaskStorage,type TaskStorage } from './task-storage.js';
 import { registerTaskTools } from './task-tools.js';
 import { withWorkerTasks } from './task-workers.js';
+import { AttentionService } from './attention.js';
+import { registerAttentionTools } from './attention-tools.js';
 import { guardTerminalSelection } from './terminal-selection.js';
+import { PushIngress,PushSocket,pushSocketPath } from './ingress.js';
+import { WorkerPushRegistry } from './push-workers.js';
+import { registerPushTools } from './push-tools.js';
+import { notifyCommand } from './worker-hooks.js';
+import { stateDirectory } from './journal.js';
 export function createServer(backend:TerminalBackend=new WezTermBackend(),screenshots:ScreenshotProvider=new CommandScreenshotProvider(),watchOptions:WatchOptions|EventQueue={},eventQueue?:EventQueue,workerStorage:WorkerStorage=new FileWorkerStorage(),taskStorage:TaskStorage=new FileTaskStorage()){
- const server=new McpServer({name:'term-dad',version:'0.1.0'}),agents=new Agents(backend,workerStorage),tasks=new TaskBoard(taskStorage);
+ const server=new McpServer({name:'term-dad',version:'0.1.0'}),tasks=new TaskBoard(taskStorage);
+ const socketPath=pushSocketPath(stateDirectory());
+ // A pushed event still publishes bounded metadata; `watches.confirm` then samples the pane
+ // so the recorded status comes from the terminal rather than from the worker's claim.
+ const ingress=new PushIngress({sink:async event=>{await events.publish(event);await watches.confirm(event.paneId);}});
+ const pushSocket=new PushSocket(ingress,socketPath);
+ const push=new WorkerPushRegistry(ingress,socketPath,notifyCommand());
+ const agents=new Agents(backend,workerStorage,push);
  guardTerminalSelection(server);
  const register=(name:string,description:string,shape:z.ZodRawShape,fn:(a:any)=>Promise<unknown>)=>server.registerTool(name,{description,inputSchema:shape},async a=>{try{const result=await fn(a);return {content:[{type:'text' as const,text:JSON.stringify(result??{ok:true})}]};}catch(e){const message=e instanceof Error?e.message:String(e);console.error(`[term-dad] ${name}: ${message}`);return {isError:true,content:[{type:'text' as const,text:message}]};}});
  const pane={paneId:id},agent={agentId:z.string().min(1)},text={text:z.string().max(100000)},wait={timeoutMs:z.number().int().min(1).max(120000).default(30000)};
@@ -37,8 +51,8 @@ export function createServer(backend:TerminalBackend=new WezTermBackend(),screen
  register('terminal.read','Read last N lines of visible text and scrollback.',{...pane,lines:z.number().int().min(1).max(5000).default(100)},a=>backend.read(a.paneId,a.lines));
  register('terminal.send_text','Paste text into an interactive PTY without Enter.',{...pane,...text},a=>backend.sendText(a.paneId,a.text));
  register('terminal.submit','Paste text then press Enter in an existing application.',{...pane,...text},a=>submit(backend,a.paneId,a.text));
- register('terminal.send_key','Send a named terminal key.',{...pane,key:z.string()},a=>sendKeys(backend,a.paneId,[a.key]));
- register('terminal.send_keys','Send an ordered sequence of terminal keys.',{...pane,keys:z.array(z.string()).min(1).max(100)},a=>sendKeys(backend,a.paneId,a.keys));
+ register('terminal.send_key',`Send a named terminal key without bracketed paste. ${keyDescription}`,{...pane,key:z.string().describe(keyDescription)},a=>sendKeys(backend,a.paneId,[a.key]));
+ register('terminal.send_keys',`Send an ordered sequence of terminal keys without bracketed paste; validates all names before sending. ${keyDescription}`,{...pane,keys:z.array(z.string().describe(keyDescription)).min(1).max(100)},a=>sendKeys(backend,a.paneId,a.keys));
  const target={target:z.enum(['pane','tab','window']).default('pane'),id};
  register('terminal.close','Kill all processes in the selected pane, tab or window.',target,async a=>{const panes=(await backend.list()).filter(p=>p[`${a.target}_id`]===a.id);if(!panes.length)throw new Error('Target not found');for(const p of panes){await backend.close(p.pane_id);await agents.reconcileClosed(p.pane_id);}return {closed:panes.map(p=>p.pane_id)};});
  register('terminal.focus','Activate a pane or a pane in a tab/window (OS foreground is platform dependent).',target,async a=>{const p=(await backend.list()).find(p=>p[`${a.target}_id`]===a.id);if(!p)throw new Error('Target not found');await backend.focus(p.pane_id);});
@@ -64,14 +78,19 @@ export function createServer(backend:TerminalBackend=new WezTermBackend(),screen
  register('agent.collect_results','Collect observations; does not infer task success from idle state.',{},async()=>withWorkerTasks(await agents.snapshot(),tasks));
  register('orchestrator.status','Observe all managed agents.',{},async()=>withWorkerTasks(await agents.snapshot(),tasks));
  for(const kind of ['terminal','agent'])server.registerTool(`${kind}.screenshot`,{description:'Capture on demand through the configured platform screenshot provider.',inputSchema:kind==='terminal'?pane:agent},async(a:any)=>{try{return {content:[await (kind==='terminal'?screenshots.capture(a.paneId,await backend.instance?.()):agents.withPane(a.agentId,(paneId,instance)=>screenshots.capture(paneId,instance)))]};}catch(e){return {isError:true,content:[{type:'text' as const,text:String(e)}]};}});
- const events=watchOptions instanceof EventQueue?watchOptions:eventQueue??new EventQueue();
+ const events:EventQueue=watchOptions instanceof EventQueue?watchOptions:eventQueue??new EventQueue();
  const options=watchOptions instanceof EventQueue?{}:watchOptions;
- const watches=new WatchManager(backend,agents,{notifications:CommandNotificationProvider.fromEnvironment(),...options,sink:options.sink??(input=>events.publish(input))});
+ const watches:WatchManager=new WatchManager(backend,agents,{notifications:CommandNotificationProvider.fromEnvironment(),pushEnabled:agentId=>push.enabled(agentId),...options,sink:options.sink??(input=>events.publish(input))});
  // Register the event close handler first so watch disposal drains its sink before queue close.
  const previousClose=server.server.onclose;
- server.server.onclose=async()=>{await agents.close();await previousClose?.();};
+ server.server.onclose=async()=>{await pushSocket.close();await agents.close();await previousClose?.();};
+ // Listening is best effort: a server that cannot bind still polls, it just cannot be pushed to.
+ const pushReady=pushSocket.listen().catch(e=>{console.error(`[term-dad] push socket: ${e instanceof Error?e.message:e}`);return undefined;});
  registerTaskTools(server,tasks,()=>agents.list());
+ const attention=new AttentionService(()=>tasks.snapshot(),()=>agents.snapshot());
+ registerAttentionTools(server,attention);
  registerEventTools(server,events);
+ registerPushTools(server,push,socketPath);
  registerWatchTools(server,watches);
- return {server,agents,watches,events,tasks};
+ return {server,agents,watches,events,tasks,attention,push,ingress,pushSocket,pushReady};
 }

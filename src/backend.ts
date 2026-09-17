@@ -72,5 +72,14 @@ export class WezTermBackend implements TerminalBackend {
  async move(paneId:number,newWindow=false,windowId?:number){await this.run(['move-pane-to-new-tab','--pane-id',String(id.parse(paneId)),...(newWindow?['--new-window']:[]),...(windowId!==undefined?['--window-id',String(id.parse(windowId))]:[])]);}
 }
 export const keys:Record<string,string>={ENTER:'\r',ESC:'\x1b',TAB:'\t',UP:'\x1b[A',DOWN:'\x1b[B',RIGHT:'\x1b[C',LEFT:'\x1b[D',CTRL_C:'\x03',CTRL_D:'\x04',CTRL_A:'\x01',CTRL_E:'\x05',CTRL_U:'\x15',BACKSPACE:'\x7f',DELETE:'\x1b[3~',HOME:'\x1b[H',END:'\x1b[F'};
-export async function sendKeys(b:TerminalBackend,paneId:number,sequence:string[]){for(const key of sequence)if(!Object.hasOwn(keys,key))throw new Error(`Unsupported key: ${key}`);for(const key of sequence)await b.sendText(paneId,keys[key],true);}
+const keyAliases:Record<string,string>={ESCAPE:'ESC',RETURN:'ENTER',ARROWUP:'UP',UPARROW:'UP',ARROWDOWN:'DOWN',DOWNARROW:'DOWN',ARROWLEFT:'LEFT',LEFTARROW:'LEFT',ARROWRIGHT:'RIGHT',RIGHTARROW:'RIGHT'};
+export const keyDescription=`Case-insensitive key name: ${Object.keys(keys).join(', ')}. Aliases: Escape, Return, ArrowUp/UpArrow, ArrowDown/DownArrow, ArrowLeft/LeftArrow, ArrowRight/RightArrow.`;
+export async function sendKeys(b:TerminalBackend,paneId:number,sequence:string[]){
+ const encoded=sequence.map(key=>{
+  const name=key.toUpperCase(),canonical=Object.hasOwn(keyAliases,name)?keyAliases[name]:name;
+  if(!Object.hasOwn(keys,canonical))throw new Error(`Unsupported key: ${key}. ${keyDescription}`);
+  return keys[canonical];
+ });
+ for(const input of encoded)await b.sendText(paneId,input,true);
+}
 export async function submit(b:TerminalBackend,paneId:number,text:string){await b.sendText(paneId,text);await new Promise(r=>setTimeout(r,100));await sendKeys(b,paneId,['ENTER']);}

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp,readFile,rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { execute,sendKeys,WezTermBackend } from '../src/backend.js';
+import { execute,keys,sendKeys,WezTermBackend } from '../src/backend.js';
 import { adapters } from '../src/adapters.js';
 
 test('subprocess decoding preserves prompt markers split across UTF-8 chunks',async()=>{
@@ -27,6 +27,18 @@ test('inherited property names are rejected before any keys are sent',async()=>{
  const backend=new WezTermBackend(async(_args,input)=>{inputs.push(input);return '';});
  for(const key of ['toString','constructor','__proto__'])await assert.rejects(sendKeys(backend,7,['ENTER',key]),/Unsupported key/);
  assert.deepEqual(inputs,[]);
+});
+
+test('named keys accept case variants and navigation aliases through raw stdin',async()=>{
+ const calls:{args:string[];input?:string}[]=[];
+ const backend=new WezTermBackend(async(args,input)=>{calls.push({args,input});return '';});
+ const aliases:Record<string,string>={Down:'\x1b[B',down:'\x1b[B',DownArrow:'\x1b[B',ArrowDown:'\x1b[B',Escape:'\x1b',Tab:'\t',Return:'\r',ArrowUp:'\x1b[A',UpArrow:'\x1b[A',ArrowLeft:'\x1b[D',LeftArrow:'\x1b[D',ArrowRight:'\x1b[C',RightArrow:'\x1b[C'};
+ const cases=[...Object.entries(keys),...Object.entries(keys).map(([key,value])=>[key.toLowerCase(),value]),...Object.entries(aliases)];
+ await sendKeys(backend,7,cases.map(([key])=>key));
+ assert.deepEqual(calls,cases.map(([,input])=>({args:['send-text','--pane-id','7','--no-paste'],input})));
+ calls.length=0;
+ await assert.rejects(sendKeys(backend,7,['ArrowDown','Bogus']),/Unsupported key: Bogus.*DOWN.*Escape/);
+ assert.deepEqual(calls,[]);
 });
 
 test('subprocess output limit counts UTF-8 bytes rather than characters',async()=>{

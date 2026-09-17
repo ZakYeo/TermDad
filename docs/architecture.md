@@ -121,6 +121,46 @@ compaction, and overflow fails rather than wrapping. Waiters, list output, event
 fields, journal size, operation backlog and timeouts all have fixed bounds.
 
 
+## Worker-pushed events
+
+`src/ingress.ts` exports `PushIngress` (authentication and the event contract),
+`PushSocket` (transport) and `pushSocketPath`. `src/push-workers.ts` exports
+`WorkerPushRegistry`, the `WorkerPush` surface `Agents` depends on, so worker code
+never sees the transport. `src/worker-hooks.ts` builds the launch arguments and
+`src/term-dad-notify.ts` is the executable a worker hook runs.
+
+Delivery is opt-in per pane and starts disabled. `agent.spawn` mints a token,
+injects `--settings` hooks for a Claude worker or a `-c notify=` program for a
+Codex worker, and binds the registration to the pane once the spawn returns; a
+shell worker is launched unmodified. Hooks therefore exist from launch but stay
+inert, so `push.set` needs no relaunch. A push against a disabled registration is
+answered `{ok:true,delivered:false}` and records nothing.
+
+Transport is a Unix socket per server process (`push.<pid>.sock`, mode 0600) in
+the state directory, so servers under different MCP clients never contend; there
+is no network listener. Listening is best effort: a server that cannot bind still
+polls. `listen` sweeps `push.<pid>.sock` files that no longer answer, replaces a
+stale socket at its own path, and refuses to replace a non-socket file. The server
+handle is unref'ed, so the ingress never keeps a process alive; the transport owns
+that lifetime. Connections are half-open so a reply survives a slow sink, and are
+bounded at 64 concurrent, 4,096 bytes per request and a 5-second idle timeout.
+
+Requests carry only `{token,kind}`. Tokens are 256-bit, per worker, in memory
+only, and released with the worker. Kinds are limited to `input_required`, `ready`
+and `session_ended`; summaries are authored by the server, so a worker cannot
+inject event text, and the metadata bound is the same one watches obey. Unknown
+or revoked tokens yield `PUSH_UNAUTHORIZED`; a failed sink yields
+`PUSH_DELIVERY_FAILED` without leaking its cause. `MCP` still exposes no arbitrary
+event injection: `push.status` and `push.set` only toggle authenticated local
+delivery.
+
+An accepted push publishes the event and then calls `WatchManager.confirm`, which
+samples the pane through the same guarded path as polling, so the recorded status
+is the terminal's, not the worker's claim. Watches derive their due time from the
+last poll and select `pushPollMs` over `pollMs` while the worker's registration is
+enabled, so enabling or disabling push takes effect on the next pass rather than
+after an already-scheduled interval elapses.
+
 ## Background watches and desktop delivery
 
 `WatchManager` in `src/watches.ts` owns up to 64 explicit watches. It takes injected
@@ -254,6 +294,33 @@ legacy awaitingInput remains compatible. Unknown output retains uncertainty;
 sending input does not resolve a request. Turn waits return explicit reasons and
 retain permission precedence, the stale-prompt guard, and verified disappearance.
 Binding changes, supersession and uncertain delivery cannot yield turn completion.
+
+
+## Task-focused attention snapshots
+
+`AttentionService` derives `orchestrator.attention` from one `TaskBoard.snapshot`
+read and a refreshed `Agents.snapshot`. The former includes the complete graph
+and archived records for change detection; the latter preserves existing identity,
+permission, input uncertainty, and stale-prompt guards. Observations timestamp
+successful acquisition separately from output activity. Projection and comparison
+live in separate modules; neither writes task state nor retains terminal text.
+
+Entries may occupy multiple action categories. Eligibility follows `taskView`;
+worker readiness and occupancy are advisory dispatch constraints. Only matching
+current attempt references permit task-specific ready-without-report signals.
+Assignment-only context explicitly carries uncertainty. Terminal activity never
+becomes result evidence. Independent source failures yield partial views and
+suppress comparisons for the unavailable source, without fabricating removals.
+
+The service retains up to 16 compact snapshots, each expiring 15 minutes after
+collection. Fingerprints omit observation IDs and advancing ages but include task
+revisions, derived attention, binding/turn references, and output hashes. Frozen
+pagination covers both entries and changes using a shared offset and limit of at
+most 100. Scope changes and unknown cursors explicitly reset comparison; expired
+page requests fail. Retention is bounded by existing task/worker limits, and only
+one refresh is admitted at a time. Close rejects new calls, drains collection,
+and clears snapshots before task/worker shutdown. No persistent schema changes,
+background observers, acknowledgments, or task-change events are introduced.
 
 ## GUI selection boundary
 

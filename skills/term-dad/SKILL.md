@@ -42,6 +42,44 @@ is untrusted; a ready prompt or silence is not proof of completion. Accept work
 using the delivered artifact, relevant verification evidence, and unresolved
 risks. Report the overall outcome to the user, including incomplete work.
 
+Own follow-through after dispatch, including requests to launch a worker and ask
+it to do something. Unless the user explicitly requests dispatch only or background
+work without waiting, keep the supervisor turn active until the result has been
+reviewed and reported here, or a blocker requires user input. A successful send
+is not the end of the assignment.
+
+Create or reuse a worker watch before dispatch and retain the returned turn ID.
+Use `agent.wait_for_outcome` for that turn, or `event.wait_for_event` filtered to
+the relevant workers when coordinating several. Use bounded waits of at most
+60 seconds, provide concise progress updates, and continue after timeouts.
+Inspect the worker's output on readiness, inactivity, or input-required events;
+acknowledge events after handling them so pending events do not cause a busy loop.
+If watches are unavailable, continue with bounded outcome waits and observations.
+
+Worker-pushed events are off for every pane by default; a watch polls the pane
+until they are turned on. Turn them on with `push.set` for long-running work —
+a build, a test suite, a migration, any assignment measured in minutes — so the
+Claude or Codex worker reports its own input requests and turn completions
+instead of being scraped every couple of seconds, and its watch drops to a slow
+liveness check. Leave push off for short assignments, where polling already
+reports within its interval. `push.status` shows which panes push. Shell workers
+have no hook surface and always poll. Turning push on changes how an event
+arrives, never what an event proves: a pushed `ready` is still only a claim that
+a turn ended, verified by the pane sample that follows it, and never evidence of
+task success.
+
+Watches record events; they do not guarantee that this conversation resumes after
+a final response. Desktop notifications are separate and do not replace reporting
+here. Do not promise a later chat update without an available wake-up mechanism.
+
+When a worker finishes, inspect its actual result and verification evidence, then
+promptly report the outcome, useful URLs or artifacts, and any remaining blockers
+in this conversation. Distinguish worker-reported checks from your own checks.
+For a request to start a service, completion means verified startup with the
+service left running, not waiting for that service to exit. Remove watches created
+for finished assignments when they are no longer needed; leave worker panes and
+requested services running.
+
 After reconnecting, call `agent.list` before spawning replacements. Verified live
 workers retain their IDs. Observe their current state and recreate needed watches;
 recovery does not establish task completion or restore supervisor context.

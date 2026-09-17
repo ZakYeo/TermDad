@@ -9,13 +9,13 @@ import type { NotificationProvider } from './notifications.js';
 
 export interface WatchEventInput {kind:string;paneId:number;watchId?:string;agentId?:string;occurredAt:string;summary:string;}
 export type WatchEventSink=(input:WatchEventInput)=>Promise<unknown>;
-export const watchShape={paneId:id.optional(),agentId:z.string().min(1).max(100).optional(),adapter:z.enum(['claude','codex','shell']).optional(),pollMs:z.number().int().min(500).max(60000).default(2000),inactivityMs:z.number().int().min(1000).max(3600000).default(60000),cooldownMs:z.number().int().min(0).max(3600000).default(10000),notify:z.boolean().default(false)};
+export const watchShape={paneId:id.optional(),agentId:z.string().min(1).max(100).optional(),adapter:z.enum(['claude','codex','shell']).optional(),pollMs:z.number().int().min(500).max(60000).default(2000),pushPollMs:z.number().int().min(1000).max(3600000).default(30000),inactivityMs:z.number().int().min(1000).max(3600000).default(60000),cooldownMs:z.number().int().min(0).max(3600000).default(10000),notify:z.boolean().default(false)};
 const schema=z.object(watchShape).refine(o=>(o.paneId!==undefined)!==(o.agentId!==undefined),'Choose exactly one paneId or agentId');
 type Config=z.infer<typeof schema>;
 type Pending={event:WatchEventInput;sinkDone:boolean;notificationDone:boolean};
-type Watch=Config & {agentBinding?:WorkerRecord;watchId:string;paneId:number;agentId?:string;hash?:string;status?:Status;changedAt:number;quiet:boolean;disappeared:boolean;nextPoll:number;lastDelivery?:number;pending:Map<string,Pending>;backendError?:string;deliveryError?:string;lastEvent?:WatchEventInput;};
+type Watch=Config & {agentBinding?:WorkerRecord;watchId:string;paneId:number;agentId?:string;hash?:string;status?:Status;changedAt:number;quiet:boolean;disappeared:boolean;lastPoll:number;lastDelivery?:number;pending:Map<string,Pending>;backendError?:string;deliveryError?:string;lastEvent?:WatchEventInput;};
 const summaries:Record<string,string>={input_required:'Pane requires user input.',ready:'Pane returned to a recognized prompt; task success is not established.',inactive:'Pane text is unchanged; task success is not established.',pane_disappeared:'Pane is no longer present.'};
-export interface WatchOptions {sink?:WatchEventSink;notifications?:NotificationProvider;now?:()=>number;automatic?:boolean;}
+export interface WatchOptions {sink?:WatchEventSink;notifications?:NotificationProvider;now?:()=>number;automatic?:boolean;pushEnabled?:(agentId?:string)=>boolean;}
 export class WatchManager {
  private records=new Map<string,Watch>();
  private timer?:ReturnType<typeof setTimeout>;
@@ -36,26 +36,41 @@ export class WatchManager {
   if(this.records.size>=64)throw new Error('Maximum of 64 watches reached');
   if(agent?.paneId===null)throw new Error('Worker spawn reservation needs explicit recovery');
   if(!agent&&!config.adapter)throw new Error('An unmanaged pane requires an explicit adapter');
-  const w:Watch={...config,agentBinding:agent,agentId:agent?.agentId,paneId:agent?.paneId??config.paneId!,watchId:randomUUID(),changedAt:this.now(),quiet:false,disappeared:false,nextPoll:Infinity,pending:new Map()};
+  const w:Watch={...config,agentBinding:agent,agentId:agent?.agentId,paneId:agent?.paneId??config.paneId!,watchId:randomUUID(),changedAt:this.now(),quiet:false,disappeared:false,lastPoll:Infinity,pending:new Map()};
   this.records.set(w.watchId,w);
   try{await this.sample(w,true);if(w.disappeared)throw new Error('Pane not found');}catch{this.records.delete(w.watchId);throw new Error('Cannot observe target pane. Check that it exists and backend connectivity is available.');}
   if(this.disposed||!this.records.has(w.watchId))throw new Error('Watch removed during creation');
-  w.nextPoll=this.now()+w.pollMs;this.schedule();return this.view(w);
+  w.lastPoll=this.now();this.schedule();return this.view(w);
  }
  list(){return [...this.records.values()].map(w=>this.view(w));}
  assertSwitchable(){if(this.records.size||this.creations.size||this.running)throw new Error('TERMINAL_BUSY: remove watches and let polling finish before switching GUI');}
- private view(w:Watch){return {watchId:w.watchId,paneId:w.paneId,agentId:w.agentId,adapter:w.adapter,pollMs:w.pollMs,inactivityMs:w.inactivityMs,cooldownMs:w.cooldownMs,notify:w.notify,status:w.status,disappeared:w.disappeared,pendingEvents:w.pending.size,lastEvent:w.lastEvent,backendError:w.backendError,deliveryError:w.deliveryError};}
+ private view(w:Watch){return {watchId:w.watchId,paneId:w.paneId,agentId:w.agentId,adapter:w.adapter,pollMs:w.pollMs,pushPollMs:w.pushPollMs,pushBacked:this.pushed(w),inactivityMs:w.inactivityMs,cooldownMs:w.cooldownMs,notify:w.notify,status:w.status,disappeared:w.disappeared,pendingEvents:w.pending.size,lastEvent:w.lastEvent,backendError:w.backendError,deliveryError:w.deliveryError};}
  remove(watchId:string){const removed=this.records.delete(watchId);if(!this.records.size&&this.timer){clearTimeout(this.timer);this.timer=undefined;}return {removed};}
  async dispose(){this.disposed=true;if(this.timer)clearTimeout(this.timer);this.timer=undefined;this.records.clear();await Promise.allSettled([...this.creations,...(this.running?[this.running]:[])]);}
  private active(w:Watch){return !this.disposed&&this.records.get(w.watchId)===w;}
+ /** A pane whose worker pushes its own events only needs a slow liveness backstop. */
+ private pushed(w:Watch){return this.options.pushEnabled?.(w.agentId)===true;}
+ private interval(w:Watch){return this.pushed(w)?w.pushPollMs:w.pollMs;}
+ /**
+  * Verifies a pushed event against the pane itself: the worker reports that something
+  * happened, the sample decides what the pane's state actually is.
+  */
+ async confirm(paneId:number){
+  for(const w of [...this.records.values()]){
+   if(w.paneId!==paneId||!this.active(w)||w.disappeared)continue;
+   if(!w.disappeared){try{await this.sample(w,false);w.backendError=undefined;}catch{w.backendError='Observation failed; retrying on the next poll.';}}
+   if(this.active(w))await this.deliver(w);
+   w.lastPoll=this.now();
+  }
+ }
  private schedule(){if(this.disposed||this.options.automatic===false||this.timer||!this.records.size)return;this.timer=setTimeout(()=>{this.timer=undefined;void this.poll().finally(()=>this.schedule());},500);this.timer.unref();}
  // Public for deterministic schedulers/tests. Concurrent callers share one pass.
  poll():Promise<void>{if(this.running)return this.running;if(this.disposed)return Promise.resolve();this.running=this.pass().finally(()=>{this.running=undefined;});return this.running;}
  private async pass(){for(const w of this.records.values()){
-  if(!this.active(w)||this.now()<w.nextPoll)continue;
+  if(!this.active(w)||this.now()-w.lastPoll<this.interval(w))continue;
   if(!w.disappeared){try{await this.sample(w,false);w.backendError=undefined;}catch{w.backendError='Observation failed; retrying on the next poll.';}}
   if(this.active(w))await this.deliver(w);
-  w.nextPoll=this.now()+w.pollMs;
+  w.lastPoll=this.now();
  }}
  private enqueue(w:Watch,kind:string){if(!this.active(w)||w.pending.has(kind))return;w.pending.set(kind,{event:{kind,paneId:w.paneId,watchId:w.watchId,...(w.agentId?{agentId:w.agentId}:{}),occurredAt:new Date(this.now()).toISOString(),summary:summaries[kind]},sinkDone:!this.options.sink,notificationDone:!w.notify});w.lastEvent={...w.pending.get(kind)!.event};}
  private async sample(w:Watch,baseline:boolean){
