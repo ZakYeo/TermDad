@@ -80,12 +80,12 @@ export function createServer(backend:TerminalBackend=new WezTermBackend(),screen
  for(const kind of ['terminal','agent'])server.registerTool(`${kind}.screenshot`,{description:'Capture on demand through the configured platform screenshot provider.',inputSchema:kind==='terminal'?pane:agent},async(a:any)=>{try{return {content:[await (kind==='terminal'?screenshots.capture(a.paneId,await backend.instance?.()):agents.withPane(a.agentId,(paneId,instance)=>screenshots.capture(paneId,instance)))]};}catch(e){return {isError:true,content:[{type:'text' as const,text:String(e)}]};}});
  const events:EventQueue=watchOptions instanceof EventQueue?watchOptions:eventQueue??new EventQueue();
  const options=watchOptions instanceof EventQueue?{}:watchOptions;
- const watches:WatchManager=new WatchManager(backend,agents,{notifications:CommandNotificationProvider.fromEnvironment(),pushEnabled:agentId=>push.enabled(agentId),...options,sink:options.sink??(input=>events.publish(input))});
+ const watches:WatchManager=new WatchManager(backend,agents,{notifications:CommandNotificationProvider.fromEnvironment(),pushDeliverable:agentId=>push.deliverable(agentId),...options,sink:options.sink??(input=>events.publish(input))});
  // Register the event close handler first so watch disposal drains its sink before queue close.
  const previousClose=server.server.onclose;
  server.server.onclose=async()=>{await pushSocket.close();await agents.close();await previousClose?.();};
  // Listening is best effort: a server that cannot bind still polls, it just cannot be pushed to.
- const pushReady=pushSocket.listen().catch(e=>{console.error(`[term-dad] push socket: ${e instanceof Error?e.message:e}`);return undefined;});
+ const pushReady=pushSocket.listen().then(path=>{push.attach({listening:true});return path;}).catch(e=>{const message=e instanceof Error?e.message:String(e);push.attach({listening:false,bindError:message});console.error(`[term-dad] push socket: ${message}`);return undefined;});
  registerTaskTools(server,tasks,()=>agents.list());
  const attention=new AttentionService(()=>tasks.snapshot(),()=>agents.snapshot());
  registerAttentionTools(server,attention);

@@ -14,6 +14,7 @@ function fixture(){
  },async()=>null);
  const ingress=new PushIngress({sink:async()=>{}});
  const push=new WorkerPushRegistry(ingress,'/run/term-dad/push.sock',['/usr/bin/node','/opt/notify.js']);
+ push.attach({listening:true});
  return {agents:new Agents(backend,undefined,push),ingress,push,spawns};
 }
 test('a spawned worker carries inert push plumbing and stays disabled until it is turned on',async()=>{
@@ -41,4 +42,18 @@ test('a shell worker is launched unmodified and cannot be enabled for push',asyn
  const {agentId}=await f.agents.spawn({name:'sh',cli:'shell'} as any);
  assert.ok(!f.spawns[0].join(' ').includes('push.sock'));
  assert.throws(()=>f.push.setEnabled(agentId,true),/PUSH_UNSUPPORTED_WORKER/);
+});
+test('a channel is only deliverable once the socket this server owns has actually bound',async()=>{
+ const f=fixture();
+ const {agentId}=await f.agents.spawn({name:'w',cli:'claude'} as any);
+ assert.equal(f.push.deliverable(agentId),false,'delivery needs an explicit enable');
+ f.push.setEnabled(agentId,true);
+ assert.equal(f.push.deliverable(agentId),true);
+ assert.deepEqual(f.push.socket(),{path:'/run/term-dad/push.sock',listening:true,bindError:undefined});
+ // A server that could not bind still reports enabled intent, but nothing can reach it.
+ f.push.attach({listening:false,bindError:'PUSH_SOCKET_PATH_OCCUPIED: refusing to replace a non-socket file'});
+ assert.equal(f.push.status(agentId).enabled,true,'the worker-side intent is unchanged');
+ assert.equal(f.push.deliverable(agentId),false,'an unbound socket is not deliverable');
+ assert.match(f.push.socket().bindError!,/PUSH_SOCKET_PATH_OCCUPIED/);
+ assert.equal(f.push.deliverable('absent'),false,'an unknown worker is never deliverable');
 });

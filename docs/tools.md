@@ -196,7 +196,10 @@ An accepted push publishes the event and then samples the pane, so the recorded
 status comes from the terminal rather than from the worker's claim. A watch on a
 push-backed pane polls on `pushPollMs` instead of `pollMs`, keeping a liveness
 backstop for a pane that is killed without ever running a hook; disabling push
-restores the normal interval immediately. A pushed `ready` still means only that
+restores the normal interval immediately. That back-off follows *deliverability*,
+not intent: a registration that is enabled while this server's socket did not
+bind keeps the normal `pollMs`, so a channel that cannot deliver never costs the
+pane its polling backstop too. A pushed `ready` still means only that
 a turn ended, never that a task succeeded.
 
 ## Background watches
@@ -205,7 +208,8 @@ a turn ended, never that a task succeeded.
   Unmanaged panes require `adapter`: `claude`, `codex`, or `shell`. A pane already
   mapped to a managed worker automatically uses its guarded observations.
   `pollMs`: 500–60,000 (default 2,000); `pushPollMs`: 1,000–3,600,000
-  (default 30,000), used only while the watched worker pushes its own events;
+  (default 30,000), used only while the watched worker can actually deliver its
+  own events (registered, enabled, and this server's socket bound);
   `inactivityMs`: 1,000–3,600,000 (default 60,000); `cooldownMs`: 0–3,600,000
   (default 10,000).
   `notify`: default false; true requires a configured desktop provider.

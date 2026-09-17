@@ -157,9 +157,12 @@ delivery.
 An accepted push publishes the event and then calls `WatchManager.confirm`, which
 samples the pane through the same guarded path as polling, so the recorded status
 is the terminal's, not the worker's claim. Watches derive their due time from the
-last poll and select `pushPollMs` over `pollMs` while the worker's registration is
-enabled, so enabling or disabling push takes effect on the next pass rather than
-after an already-scheduled interval elapses.
+last poll and select `pushPollMs` over `pollMs` only while the worker's push is
+*deliverable* — registered, enabled, and backed by a socket this process actually
+bound — so enabling or disabling push takes effect on the next pass rather than
+after an already-scheduled interval elapses. Deliberately not mere intent: an
+enabled registration on a server that failed to bind would otherwise leave the
+pane neither pushed nor polled at its normal rate.
 
 ## Background watches and desktop delivery
 

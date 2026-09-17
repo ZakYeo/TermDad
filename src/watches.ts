@@ -15,7 +15,7 @@ type Config=z.infer<typeof schema>;
 type Pending={event:WatchEventInput;sinkDone:boolean;notificationDone:boolean};
 type Watch=Config & {agentBinding?:WorkerRecord;watchId:string;paneId:number;agentId?:string;hash?:string;status?:Status;changedAt:number;quiet:boolean;disappeared:boolean;lastPoll:number;lastDelivery?:number;pending:Map<string,Pending>;backendError?:string;deliveryError?:string;lastEvent?:WatchEventInput;};
 const summaries:Record<string,string>={input_required:'Pane requires user input.',ready:'Pane returned to a recognized prompt; task success is not established.',inactive:'Pane text is unchanged; task success is not established.',pane_disappeared:'Pane is no longer present.'};
-export interface WatchOptions {sink?:WatchEventSink;notifications?:NotificationProvider;now?:()=>number;automatic?:boolean;pushEnabled?:(agentId?:string)=>boolean;}
+export interface WatchOptions {sink?:WatchEventSink;notifications?:NotificationProvider;now?:()=>number;automatic?:boolean;pushDeliverable?:(agentId?:string)=>boolean;}
 export class WatchManager {
  private records=new Map<string,Watch>();
  private timer?:ReturnType<typeof setTimeout>;
@@ -48,8 +48,8 @@ export class WatchManager {
  remove(watchId:string){const removed=this.records.delete(watchId);if(!this.records.size&&this.timer){clearTimeout(this.timer);this.timer=undefined;}return {removed};}
  async dispose(){this.disposed=true;if(this.timer)clearTimeout(this.timer);this.timer=undefined;this.records.clear();await Promise.allSettled([...this.creations,...(this.running?[this.running]:[])]);}
  private active(w:Watch){return !this.disposed&&this.records.get(w.watchId)===w;}
- /** A pane whose worker pushes its own events only needs a slow liveness backstop. */
- private pushed(w:Watch){return this.options.pushEnabled?.(w.agentId)===true;}
+ /** A pane whose worker can really deliver its own events only needs a slow liveness backstop. */
+ private pushed(w:Watch){return this.options.pushDeliverable?.(w.agentId)===true;}
  private interval(w:Watch){return this.pushed(w)?w.pushPollMs:w.pollMs;}
  /**
   * Verifies a pushed event against the pane itself: the worker reports that something

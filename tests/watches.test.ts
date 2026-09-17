@@ -86,7 +86,7 @@ test('MCP watch tools create, list, remove and close without closing panes',asyn
 });
 test('push-backed watches back off to a liveness interval and verify pushed events by sampling',async()=>{
  let enabled=true;
- const f=fixture({pushEnabled:()=>enabled});
+ const f=fixture({pushDeliverable:()=>enabled});
  await f.watches.create({...config,pollMs:500,pushPollMs:30000});
  const baseline=f.calls.length;
  await f.tick(500);await f.tick(500);
@@ -102,8 +102,23 @@ test('push-backed watches back off to a liveness interval and verify pushed even
  assert.equal(f.events.at(-1)?.kind,'ready','disabling push restores the normal polling interval');
  await f.watches.dispose();
 });
+test('a watch keeps its fast interval while push is enabled but not deliverable',async()=>{
+ let deliverable=false;
+ const f=fixture({pushDeliverable:()=>deliverable});
+ await f.watches.create({...config,pollMs:500,pushPollMs:30000});
+ const baseline=f.calls.length;
+ await f.tick(500);
+ assert.ok(f.calls.length>baseline,'an undeliverable channel must not stretch the polling backstop');
+ assert.equal(f.watches.list()[0].pushBacked,false);
+ deliverable=true;
+ const backedOff=f.calls.length;
+ await f.tick(500);
+ assert.equal(f.calls.length,backedOff,'a deliverable channel backs off to the liveness interval');
+ assert.equal(f.watches.list()[0].pushBacked,true);
+ await f.watches.dispose();
+});
 test('a push for an unwatched or disappeared pane never fabricates an event',async()=>{
- const f=fixture({pushEnabled:()=>true});
+ const f=fixture({pushDeliverable:()=>true});
  await f.watches.confirm(7);
  assert.deepEqual(f.events,[]);
  await f.watches.create({...config,pushPollMs:30000});
