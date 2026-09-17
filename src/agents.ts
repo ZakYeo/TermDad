@@ -84,15 +84,25 @@ export class Agents {
   // The binding is set before the record is inserted, so it is durable from the first write.
   const launched=await this.push?.launch(w.agentId,o.cli,command);
   if(launched?.push)w.push=launched.push;
-  const options=spawnSchema.parse({...o,command:launched?launched.command:command});
-  let paneId:number|undefined;
-  await this.storage.exclusive(w.agentId,async()=>{
-   await this.insert(w);
-   try{paneId=await this.backend.spawn(options);}
-   catch{throw new Error(`WORKER_SPAWN_UNCERTAIN: launch response was lost or rejected; reservation ${w.agentId} retained. Inspect terminal.list before forgetting the reservation and adopting any surviving pane. Do not repeat spawn blindly.`);}
-   try{await this.change(w.agentId,a=>{a.paneId=paneId!;});this.push?.bind(w.agentId,paneId);}
-   catch{throw new Error(`WORKER_STORAGE_FAILED: pane ${paneId} is alive but mapping was not saved; inspect it, forget reservation ${w.agentId}, and agent.adopt it. No prompt sent.`);}
-  });
+  let paneId:number|undefined,launchedPane=false;
+  try{
+   const options=spawnSchema.parse({...o,command:launched?launched.command:command});
+   await this.storage.exclusive(w.agentId,async()=>{
+    await this.insert(w);
+    try{paneId=await this.backend.spawn(options);launchedPane=true;}
+    catch{throw new Error(`WORKER_SPAWN_UNCERTAIN: launch response was lost or rejected; reservation ${w.agentId} retained. Inspect terminal.list before forgetting the reservation and adopting any surviving pane. Do not repeat spawn blindly.`);}
+    try{await this.change(w.agentId,a=>{a.paneId=paneId!;});this.push?.bind(w.agentId,paneId);}
+    catch{throw new Error(`WORKER_STORAGE_FAILED: pane ${paneId} is alive but mapping was not saved; inspect it, forget reservation ${w.agentId}, and agent.adopt it. No prompt sent.`);}
+   });
+  }catch(e){
+   // `launch` already minted a token and wrote a credential file. Release them unless a pane
+   // actually started: those two paths deliberately retain a reservation for explicit
+   // recovery, and its credential belongs to it until it is forgotten. Without this, a
+   // retried name collision or the worker cap leaks a live token per attempt and eventually
+   // exhausts the registration limit, permanently breaking spawn for the whole process.
+   if(!launchedPane)await this.push?.release(w.agentId);
+   throw e;
+  }
   if(o.prompt!==undefined){
    try{await this.wait(w.agentId,obs=>obs.status==='READY_FOR_PROMPT',o.timeoutMs??30000);}
    catch(e){throw new Error(`Agent ${w.agentId}, pane ${paneId} retained for diagnosis; prompt NOT sent: ${e instanceof Error?e.message:e}`);}

@@ -178,3 +178,50 @@ automatically testable here.
 - **The waiter reads the journal unlocked**, so it can observe the previous
   committed version and report an event up to one poll interval late. Accepted:
   it is what makes a killed waiter unable to wedge `events.lock`.
+
+## 4. Review findings accepted but not fixed
+
+A self-review of the delivered commits found these. They are real but were left
+alone when the work was wrapped up; none can lose an event, leak a token or
+deadlock.
+
+- **`restorePush` gives up permanently on a `WORKER_BUSY` race.**
+  `src/agents.ts` catches and logs, and restore runs exactly once from
+  `createServer`. `FileWorkerStorage.exclusive` fails instantly rather than
+  waiting, so any in-flight operation on that worker — or a stale lock from a
+  crash — means it is never re-keyed for the life of the server: its credential
+  keeps the dead previous token and the only signal is one stderr line. Wants a
+  bounded retry, or a re-key affordance on `push.set`. Note the lock is arguably
+  unnecessary: `rekey` mutates no storage.
+- **`credential:'ok'` is inferred from the durable record, not from a credential
+  that exists.** `src/push-workers.ts`'s helper reports `ok` for any worker with a
+  persisted binding, including one whose file holds a revoked token or was removed
+  out of band. `deliverable:false` and the `reason` keep it from misleading in
+  practice, but the field asserts evidence it does not have — the same
+  anti-pattern the honest-reporting commit exists to remove. Verifying would mean
+  reading the credential server-side, which the write-only store deliberately
+  forbids; reporting `recorded` rather than `ok` would be the honest fix.
+- **`push.status` reaches into worker storage outside `Agents.run()`.**
+  `createServer` wires `attachWorkers` to `agents.resolveOptional`, which does a
+  journal read and prunes the observation cache, with no operation-limit
+  accounting and no closed check. Polling `push.status` can therefore surface
+  `WORKER_STORAGE_BUSY`.
+- **A surviving worker that was not re-keyed is told to respawn.** `setEnabled`
+  resolves the hook surface from the in-process map only, so if the socket failed
+  to bind or restore lost a lock race, `push.set` throws `PUSH_NOT_WIRED` advising
+  `agent.spawn` — which kills the very context the re-key work exists to save. It
+  should consult the durable record like `status` does, advise `agent.reattach`,
+  and check the socket before the wiring so a bind failure reports
+  `PUSH_SOCKET_UNAVAILABLE` instead.
+- **A waiter armed on an absent journal uses record timestamps as a tiebreaker.**
+  When a journal appears after being absent it is impossible to tell a brand-new
+  one from one restored with history, so that one case falls back to `occurredAt`
+  against the waiter's start. A cooldown-delayed event published after arming but
+  stamped earlier would be skipped. Bounded and rare, but it is the one place
+  freshness is not purely sequence-based.
+- **Smaller ones:** `parseWaitArgs` lets a repeated flag silently last-win; the
+  wait loop does not read once more after its final sleep, so an event published
+  in that window reports as a timeout; `PushCredentialStore.prepare`'s ownership
+  message is discarded as `(unknown error)`, hiding the most likely real cause of
+  a credential failure; and `tests/workers.test.ts`'s "fail before reservation or
+  launch" case only exercises `cli:'shell'`, which returns from `launch` early.

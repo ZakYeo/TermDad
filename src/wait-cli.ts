@@ -59,7 +59,10 @@ async function read(path:string){
   const stat=await file.stat();
   if(!stat.isFile()||stat.size>4_000_000)throw new Error('journal is not a bounded regular file');
   if((stat.mode&0o077)!==0||(process.getuid&&stat.uid!==process.getuid()))throw new Error('journal must be owner-only; check the state directory mode (chmod 700) and re-run');
-  return eventStateSchema.parse(JSON.parse(await file.readFile('utf8')));
+  const text=await file.readFile('utf8');
+  // A parse failure is unambiguous corruption, not a mid-rename read, so mark it terminal.
+  try{return eventStateSchema.parse(JSON.parse(text));}
+  catch(e){throw Object.assign(new Error(`journal is not valid event state: ${e instanceof Error?e.message.split('\n')[0]:String(e)}`),{terminal:true});}
  }finally{await file.close();}
 }
 
@@ -67,27 +70,36 @@ async function read(path:string){
 export async function waitForEvent(args:WaitArgs,deps:WaitDeps={}):Promise<{code:number;output:string}>{
  // Not unref'ed: waiting is this process's entire purpose, unlike the server's background timers.
  const now=deps.now??Date.now,sleep=deps.sleep??((ms:number)=>new Promise<void>(resolve=>{setTimeout(resolve,ms);}));
- const path=join(args.stateDir,'events.json'),deadline=now()+args.timeoutSeconds*1000;
- let filter=args.filter,armed=!args.fresh,failure:string|undefined;
- do {
+ const path=join(args.stateDir,'events.json'),started=now(),deadline=started+args.timeoutSeconds*1000;
+ // `provisional` records that the baseline came from an absent journal rather than a real
+ // sequence, so a journal that later appears with history is re-baselined instead of matching
+ // it. Latching `armed` there would fire on exactly the backlog freshness exists to skip.
+ let filter=args.filter,armed=!args.fresh,provisional=false,corrupt:string|undefined;
+ for(;;){
   let state;
-  try{state=await read(path);failure=undefined;}
+  try{state=await read(path);}
   catch(e){
-   // A missing journal is simply nothing yet; anything else may be a mid-rename read, so retry.
-   failure=(e as {code?:string}).code==='ENOENT'?undefined:`EVENT_STATE_UNREADABLE: ${e instanceof Error?e.message:String(e)}`;
+   if((e as {terminal?:boolean}).terminal)corrupt=e instanceof Error?e.message:String(e);
+   // Anything else is a missing journal or a mid-rename read: nothing yet, so retry.
   }
-  // An absent journal arms at zero: nothing has been published, so everything later is fresh.
-  // Arming only on a successful read would silently exclude the very first event.
-  if(!state&&!failure&&!armed){filter={...filter,afterSequence:0};armed=true;}
+  if(corrupt)break;
+  if(!state&&!armed){filter={...filter,afterSequence:0};armed=true;provisional=true;}
   if(state){
-   if(!armed){filter={...filter,afterSequence:state.nextSequence-1};armed=true;}
+   // A journal that appears after being absent may be brand new, or may have been restored
+   // from a backup with history in it. Those are indistinguishable by sequence alone, so this
+   // one case falls back to the records' own timestamps: skip what predates this waiter and
+   // keep what does not, so neither the first ever event nor a restored backlog misfires.
+   if(provisional){filter={...filter,afterSequence:state.events.reduce((highest,e)=>Date.parse(e.occurredAt)<started?Math.max(highest,e.sequence):highest,0)};provisional=false;}
+   else if(!armed){filter={...filter,afterSequence:state.nextSequence-1};armed=true;}
    const found=state.events.find((e:QueueEvent)=>e.acknowledgedAt===null&&matches(e,filter,now()));
    if(found)return {code:0,output:JSON.stringify({status:'event',event:found})};
   }
   if(now()>=deadline)break;
   await sleep(args.pollMs);
- } while(now()<deadline);
- if(failure)return {code:4,output:''};
+ }
+ // A transient read on the final poll is a timeout, not a corruption: only a parse failure,
+ // which cannot be transient, sends an operator to recover the journal.
+ if(corrupt)return {code:4,output:''};
  return {code:0,output:'{"status":"timeout"}'};
 }
 

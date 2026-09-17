@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync,rmSync } from 'node:fs';
+import { mkdtempSync,readdirSync,rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Agents } from '../src/agents.js';
@@ -102,4 +102,21 @@ test('push status reports a managed worker with no registration instead of throw
  assert.equal(live.hookSurface,'claude_hooks');
  assert.equal(live.socket.listening,true);
  assert.ok(!JSON.stringify(live).includes('token'),'no status result carries a token');
+});
+test('a spawn that fails after launch leaks no token and no credential file',async()=>{
+ const f=fixture();
+ const credentials=()=>readdirSync(join(stateDir,'push-credentials')).filter(n=>n.endsWith('.json')).length;
+ await f.agents.spawn({name:'w',cli:'claude'} as any);
+ assert.equal(f.push.list().length,1);
+ const baseline=credentials();
+ // A duplicate name throws from insert, after launch has already minted a token and written a file.
+ for(let i=0;i<5;i++)await assert.rejects(f.agents.spawn({name:'w',cli:'claude'} as any),/already exists/);
+ assert.equal(f.push.list().length,1,'a failed spawn releases its registration');
+ assert.equal(credentials(),baseline,'a failed spawn leaves no credential file behind');
+ // The 64-registration cap must never be reachable by retrying failures. Before this was
+ // released, attempt 63 failed with PUSH_REGISTRATION_LIMIT and spawning stayed broken for
+ // the life of the process.
+ for(let i=0;i<70;i++)await assert.rejects(f.agents.spawn({name:'w',cli:'claude'} as any),/already exists/);
+ assert.equal(f.push.list().length,1,'retried failures never accumulate registrations');
+ assert.equal(credentials(),baseline);
 });

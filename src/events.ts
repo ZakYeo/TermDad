@@ -60,7 +60,9 @@ export class EventQueue {
    const swept=stale.size?s.events.map(e=>stale.has(e.id)?{...e,acknowledgedAt:stamp}:e):s.events;
    if(swept.filter(e=>e.acknowledgedAt===null).length>=this.capacity)throw new Error('EVENT_QUEUE_FULL: acknowledge pending events and retry; no pending event was discarded');
    if(s.nextSequence>=Number.MAX_SAFE_INTEGER)throw new Error('EVENT_SEQUENCE_EXHAUSTED');
-   const events=[...swept];while(events.length>=this.capacity){const index=events.findIndex(e=>e.acknowledgedAt!==null);if(index<0)throw new Error('EVENT_QUEUE_FULL');events.splice(index,1);}
+   // Never evict a record this transaction just acknowledged: a pending event must become
+   // observable as acknowledged rather than disappearing unseen inside one publish.
+   const events=[...swept];while(events.length>=this.capacity){const index=events.findIndex(e=>e.acknowledgedAt!==null&&!stale.has(e.id));if(index<0)throw new Error('EVENT_QUEUE_FULL: acknowledge pending events and retry; no pending event was discarded');events.splice(index,1);}
    const event:QueueEvent={...parsed.data,id:randomUUID(),sequence:s.nextSequence,acknowledgedAt:null};
    return {state:{version:1,nextSequence:s.nextSequence+1,events:[...events,event]},result:event};
   }));
@@ -78,7 +80,7 @@ export class EventQueue {
  }
  /** Unref'ed and bounded: the journal drains while a supervisor sleeps, without holding the process open. */
  startSweeper(){
-  if(this.sweeping||!this.autoAcknowledgeMs)return ()=>{};
+  if(this.closed||this.sweeping||!this.autoAcknowledgeMs)return ()=>{};
   const timer=setInterval(()=>{void this.sweep().catch(()=>{});},Math.max(this.autoAcknowledgeMs/2,60000));
   timer.unref();this.sweeping=timer;
   return ()=>{clearInterval(timer);if(this.sweeping===timer)this.sweeping=undefined;};
@@ -91,7 +93,7 @@ export class EventQueue {
  async acknowledge(ids:string[]){
   if(ids.length<1||ids.length>100||ids.some(id=>!z.uuid().safeParse(id).success))throw new Error('Invalid event IDs');
   return this.run(()=>this.storage.transaction(true,s=>{
-   const wanted=new Set(ids),at=new Date().toISOString(),known=new Set(s.events.map(e=>e.id));
+   const wanted=new Set(ids),at=new Date(this.now()).toISOString(),known=new Set(s.events.map(e=>e.id));
    const events=s.events.map(e=>wanted.has(e.id)&&!e.acknowledgedAt?{...e,acknowledgedAt:at}:e);
    return {state:{...s,events},result:{events:events.filter(e=>wanted.has(e.id)),unknownIds:[...wanted].filter(id=>!known.has(id))}};
   }));
@@ -123,7 +125,9 @@ export class EventQueue {
   if(this.checking||!this.waiters.size||this.closed)return;
   this.checking=true;
   try{const now=this.now(),{events}=await this.list({},false,1000);for(const waiter of this.waiters){if(!waiter.armed)continue;const event=events.find(e=>matches(e,waiter.filter,now));if(event)waiter.finish({status:'event',event});}}
-  catch(e){if(!(e instanceof Error&&e.message.startsWith('EVENT_STORAGE_BUSY')))for(const waiter of this.waiters)waiter.fail(e);}
+  // Backpressure and lock contention are transient: the 100ms poll retries them. Failing every
+  // parked waiter on one of them would hand a supervisor an error instead of its event.
+  catch(e){const transient=e instanceof Error&&/^(EVENT_STORAGE_BUSY|EVENT_OPERATION_LIMIT|EVENT_QUEUE_CLOSED)/.test(e.message);if(!transient)for(const waiter of this.waiters)waiter.fail(e);}
   finally{this.checking=false;}
  }
  async close(){this.closed=true;if(this.sweeping){clearInterval(this.sweeping);this.sweeping=undefined;}for(const waiter of this.waiters)waiter.finish({status:'closed'});await this.tail;}

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp,readFile,rm,writeFile,access } from 'node:fs/promises';
+import { mkdtemp,readFile,rename,rm,writeFile,access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseWaitArgs,waitForEvent } from '../src/wait-cli.js';
@@ -61,20 +61,36 @@ test('a persistently unreadable journal fails explicitly while a momentary one i
  const {directory,queue}=await journal(t);
  const path=join(directory,'events.json');
  await writeFile(path,'{ broken',{mode:0o600});
- const broken=await waitForEvent({...parseWaitArgs(['--state-dir',directory]),timeoutSeconds:1,pollMs:250},{sleep:async()=>{}});
+ // Corruption cannot be transient, so it aborts on the first parse failure rather than
+ // retrying for the whole timeout and then sending an operator to recover a healthy file.
+ let sleeps=0;
+ const broken=await waitForEvent({...parseWaitArgs(['--state-dir',directory]),timeoutSeconds:600,pollMs:250},{sleep:async()=>{sleeps++;}});
  assert.equal(broken.code,4);
  assert.equal(broken.output,'','a storage failure writes nothing to stdout');
- // Repair first, then publish, so the event genuinely arrives after the waiter armed.
- let step=0,repaired:string|undefined;
+ assert.equal(sleeps,0,'a corrupt journal is not retried for the whole window');
+ // A momentarily absent journal is nothing yet, and is retried.
+ await rm(path);
+ let published:string|undefined;
  const recovered=await waitForEvent({...parseWaitArgs(['--state-dir',directory]),timeoutSeconds:5},
-  {sleep:async()=>{step++;if(step===1)await rm(path);else if(step===2)repaired=(await queue.publish(input())).id;}});
+  {sleep:async()=>{if(!published)published=(await queue.publish(input())).id;}});
  assert.equal(recovered.code,0);
- assert.equal(JSON.parse(recovered.output).event.id,repaired);
+ assert.equal(JSON.parse(recovered.output).event.id,published);
 });
-test('a waiter armed before the journal exists still receives the first event published',async t=>{
+test('a waiter armed before the journal exists receives the first event, but not a restored backlog',async t=>{
  const {directory,queue}=await journal(t);
  let first:string|undefined;
  const outcome=await waitForEvent({...parseWaitArgs(['--state-dir',directory]),timeoutSeconds:5},
   {sleep:async()=>{if(!first)first=(await queue.publish(input())).id;}});
  assert.equal(JSON.parse(outcome.output).event.id,first,'arming on an empty journal must not exclude sequence 1');
+ // A journal restored from a backup while a waiter is armed must not fire on its history.
+ const restored=await mkdtemp(join(tmpdir(),'term-dad-wait-restored-'));
+ const old=new EventQueue(new FileEventStorage(restored),50,64,()=>Date.parse('2020-01-01T00:00:00.000Z'),0);
+ await old.publish({kind:'ready',paneId:7,watchId:'w',occurredAt:'2020-01-01T00:00:00.000Z',summary:'Worker status changed'});
+ await old.close();
+ const moved=join(restored,'events.json'),aside=join(restored,'aside.json');
+ await rename(moved,aside);
+ const backlog=await waitForEvent({...parseWaitArgs(['--state-dir',restored]),timeoutSeconds:1,pollMs:250},
+  {sleep:async()=>{await rename(aside,moved).catch(()=>{});}});
+ assert.deepEqual(backlog,{code:0,output:'{"status":"timeout"}'},'restored history is not a fresh event');
+ await rm(restored,{recursive:true,force:true});
 });

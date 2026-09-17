@@ -40,8 +40,12 @@ export class WorkerPushRegistry implements WorkerPush {
   if(cli==='shell'||!command)return {command};
   const surface=this.surface(agentId)!;
   const path=credentialPath(this.stateDir,agentId);
-  const {token}=this.ingress.register(agentId,-1);
-  try{await this.store.write({version:1,agentId,socketPath:this.socketPath,token});}
+  // Registering inside the try as well: a registration limit must degrade this worker to
+  // polling, exactly like an unwritable credential, never fail the spawn the user asked for.
+  try{
+   const {token}=this.ingress.register(agentId,-1);
+   await this.store.write({version:1,agentId,socketPath:this.socketPath,token});
+  }
   catch(e){
    this.ingress.revoke(agentId);
    const message=e instanceof Error?e.message:String(e);
