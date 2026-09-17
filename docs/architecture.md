@@ -140,6 +140,38 @@ compaction, and overflow fails rather than wrapping. Waiters, list output, event
 fields, journal size, operation backlog and timeouts all have fixed bounds.
 
 
+## Supervisor wake-up
+
+`src/wait-cli.ts` adds a `wait-for-event` subcommand to the existing binary, and
+`src/index.ts` dispatches to it through a dynamic import so a CLI run never loads
+the server's module graph — that graph reads the bundled worker skill at import
+time and constructs a push socket. The subcommand is not an MCP tool and registers
+none; the tool count is unchanged.
+
+It exists because no MCP mechanism re-invokes an idle client session. A detached
+process that blocks on the journal and exits when a matching event lands turns
+*process exit* into the wake, carrying the event metadata with it. Whether a given
+client resumes a session on that exit is the client's property, not this server's,
+and the supervisor skill keeps its existing rule: do not promise a later update
+without a wake-up mechanism you have confirmed.
+
+The waiter reads `events.json` directly and **never takes `events.lock`**, unlike
+every in-process reader. Correctness comes from the commit protocol rather than
+the lock: a mutation renames a complete file, so an unlocked reader observes
+either the whole previous version or the whole next one, never a torn one. The
+reason is containment — the waiter is long-lived, detached and killable, and
+`FileJournal` deliberately never steals a lock on a timer, so a waiter killed
+mid-transaction would leave `events.lock` behind and fail every later
+`events.publish`, including the push ingress sink. It also cannot contend with a
+publisher. It validates with the same state schema, enforces the same owner-only
+and size bounds, treats an absent journal as "nothing yet", and retries a read
+that fails mid-rename; a journal that stays invalid for the whole timeout is
+reported as a storage failure rather than as a timeout.
+
+Freshness uses the same sequence baseline as the MCP wait. A waiter that arms
+before any journal exists baselines at zero, so the first event ever published
+still wakes it. It acknowledges nothing, writes nothing, and holds no terminal.
+
 ## Worker-pushed events
 
 `src/ingress.ts` exports `PushIngress` (authentication and the event contract),

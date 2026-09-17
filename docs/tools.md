@@ -121,7 +121,7 @@ filesystems, including WSL; disconnect never kills worker panes.
 `event.list`, `event.acknowledge`, and `event.wait_for_event` expose the durable
 local event journal. Background watches publish to this queue by default; there
 is deliberately no MCP publish/injection tool. Internal producers use
-`await events.publish(input)`. The server exposes 47 tools, including the three
+`await events.publish(input)`. The server exposes 52 tools, including the three
 watch tools and three event tools.
 
 | Tool | Arguments | Result |
@@ -185,6 +185,45 @@ is `$XDG_STATE_HOME/term-dad`, or `~/.local/state/term-dad`. The final directory
 be owned by the current user with mode 0700; journal files use 0600. Unrelated
 tools and event reads against an absent directory do not create durable state.
 See [architecture](architecture.md#durable-event-journal) for crash recovery.
+
+## Waking an idle supervisor
+
+`event.wait_for_event` can only finish a call the supervisor is already inside; it
+cannot start one. To be woken while idle, run the bundled subcommand as a detached
+background process and let **its exit** be the wake:
+
+```sh
+term-dad wait-for-event --kinds attention_required,pane_disappeared,session_ended \
+                        --timeout-seconds 900
+```
+
+| Option | Meaning |
+| --- | --- |
+| `--kinds`, `--agents`, `--panes`, `--watches` | comma-separated filters, combined with AND exactly as `event.list` does |
+| `--after-sequence N` | resume from a known sequence; this is also the deliberate history drain (`--after-sequence 0`) |
+| `--max-age-seconds N` | ignore events older than this window |
+| `--timeout-seconds N` | 1–86400, default 1800 |
+| `--poll-ms N` | 250–60000, default 2000 |
+| `--state-dir PATH` | defaults to the usual state directory |
+
+It writes exactly one JSON line to stdout — `{"status":"event","event":{…}}` or
+`{"status":"timeout"}` — and every diagnostic to stderr. Exit codes are `0` for
+both of those outcomes, `2` for a usage error and `4` for an unreadable journal:
+a timeout is a successful outcome of a bounded wait, not a failed job, and it
+means *re-arm*, not that nothing happened. Read `status`, not the exit code.
+
+Like every other reader it is **fresh by default** and never fires on a backlog,
+and it **acknowledges nothing** — handle the event, then `event.acknowledge` it.
+It needs no running server, starts none, and creates nothing: it reads
+`events.json` directly and, deliberately, without taking `events.lock`. That is
+safe because a journal mutation commits by renaming a complete file, so an
+unlocked reader sees either the whole old version or the whole new one. It matters
+because this process is detached and killable while `FileJournal` has no
+stale-lock recovery — a waiter that held the lock and was killed would stop the
+server publishing at all.
+
+Whether a client actually resumes a session when a background process exits is a
+property of that client, not of Term Dad. Confirm it before relying on it.
 
 ## Worker-pushed events
 

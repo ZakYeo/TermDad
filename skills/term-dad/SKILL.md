@@ -52,8 +52,10 @@ Create or reuse a worker watch before dispatch and retain the returned turn ID.
 Use `agent.wait_for_outcome` for that turn, or `event.wait_for_event` filtered to
 the relevant workers when coordinating several. Use bounded waits of at most
 60 seconds, provide concise progress updates, and continue after timeouts.
-Inspect the worker's output on readiness, inactivity, or input-required events;
-acknowledge events after handling them so pending events do not cause a busy loop.
+Inspect the worker's output on readiness, inactivity, or input-required events.
+Waits are fresh by default, so a pending backlog can no longer satisfy one and
+acknowledging is no longer how you keep waits usable: acknowledge because you have
+handled something. Pass `freshOnly:false` only to read history deliberately.
 If watches are unavailable, continue with bounded outcome waits and observations.
 
 Worker-pushed events are off for every pane by default; a watch polls the pane
@@ -68,9 +70,26 @@ arrives, never what an event proves: a pushed `ready` is still only a claim that
 a turn ended, verified by the pane sample that follows it, and never evidence of
 task success.
 
-Watches record events; they do not guarantee that this conversation resumes after
-a final response. Desktop notifications are separate and do not replace reporting
-here. Do not promise a later chat update without an available wake-up mechanism.
+Watches record events; recording one does not by itself resume this conversation.
+To be woken while idle, launch the bundled waiter as a detached background process
+before ending a turn with work outstanding, and let its exit be the wake:
+
+```sh
+term-dad wait-for-event --kinds attention_required,pane_disappeared,session_ended \
+                        --timeout-seconds 900
+```
+
+It prints one JSON line and exits: `{"status":"event","event":{…}}` carries the
+event that woke you, and `{"status":"timeout"}` means **re-arm**, not that nothing
+happened. Read `status`, never the exit code. On waking, inspect the worker,
+handle the outcome, `event.acknowledge` what you handled, and arm the next waiter.
+Filter to the kinds that need a person; subscribing to `ready` or `inactive` wakes
+you at every turn end and throughout every long test run.
+
+Whether a client resumes a session when a background process exits is a property
+of that client. Confirm it in your own environment before promising a later
+update, and keep reporting in this conversation rather than relying on desktop
+notifications, which are separate.
 
 When a worker finishes, inspect its actual result and verification evidence, then
 promptly report the outcome, useful URLs or artifacts, and any remaining blockers

@@ -301,3 +301,50 @@ Full orchestration/recovery suites were not run for this configuration-only fix.
   two and nine panes respectively, and restored its original selection. No terminal
   input was sent and no panes were opened or closed. New selection tools require
   existing clients to restart/reconnect to the rebuilt server.
+
+## Supervisor wake-up, deliverability and event staleness (2026-09-17)
+
+`npm run check` on Node 22.14.0: TypeScript build plus **192 tests**, up from 172
+at the start of this work. New deterministic coverage:
+
+- Watch back-off follows deliverability, not intent: an enabled registration on a
+  server whose socket did not bind keeps `pollMs` and reports `pushBacked:false`.
+- Event time filters (`notBefore`, `maxAgeMs`) select by instant, combine with the
+  other filters, and reject unusable bounds.
+- Fresh waits skip a pending backlog and settle on a later publication, while the
+  library `EventQueue.wait` still replays for embedders. A dedicated case pins that
+  freshness follows publication order rather than the producing clock, by publishing
+  an event stamped 1970 after the wait armed.
+- The auto-acknowledge sweep expires only aged `ready` and `inactive` records,
+  never `attention_required`, `input_required`, `pane_disappeared`, `session_ended`
+  or an unknown kind; it acknowledges rather than discards, is a no-op twice, runs
+  inside publication, and neither throws nor creates a directory when absent.
+- `wait-for-event` argument parsing rejects unknown options, out-of-charset kinds
+  and out-of-range bounds before touching the filesystem.
+- The waiter ignores a backlog, returns the first fresh match, acknowledges
+  nothing, leaves no `events.lock`, reports a timeout as exit 0, never creates an
+  absent state directory, retries a momentarily unreadable journal, fails a
+  persistently invalid one as exit 4, and — a bug this test found — still receives
+  the first event ever published when it armed before the journal existed.
+- Over a real spawned `node dist/index.js`: the subcommand completes without
+  starting an MCP server, creates no journal, lock or socket, writes exactly one
+  JSON line to stdout, reports usage on stderr with exit 2, and a detached waiter
+  exits carrying the event that woke it without acknowledging it.
+
+Two test files that previously built real servers against the developer's own
+state directory (`tests/watches.test.ts`, `tests/watch-events.test.ts`) are now
+pinned to injected storage and a private `TERM_DAD_STATE_DIR`. They had been
+creating and sweeping push sockets there; a run was observed removing a socket
+belonging to a real earlier session. Verified afterwards that a run of both files
+leaves the real state directory untouched.
+
+The client-side wake was confirmed by observation in this environment, not by an
+automated test: a detached background process was launched, the session's turn was
+ended, the process exited, and the session was re-invoked with the process's single
+JSON line available. That is a property of the MCP client, so it is recorded as an
+observation and the skill still tells a supervisor to confirm it locally.
+
+No live checks were run for this work: no WezTerm GUI round trip, no real Claude or
+Codex worker, and no `npm run test:recovery`. The credential re-key and
+`attention_required` sections of the plan are not yet implemented, so the live
+push script they require does not exist.
