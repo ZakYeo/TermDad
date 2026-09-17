@@ -31,6 +31,8 @@ export function createServer(backend:TerminalBackend=new WezTermBackend(),screen
  const pushSocket=new PushSocket(ingress,socketPath);
  const push=new WorkerPushRegistry(ingress,socketPath,notifyCommand());
  const agents=new Agents(backend,workerStorage,push);
+ // Push can then report on a managed worker it holds no registration for, rather than failing.
+ push.attachWorkers(async agentId=>(await agents.resolveOptional(agentId))?.cli);
  guardTerminalSelection(server);
  const register=(name:string,description:string,shape:z.ZodRawShape,fn:(a:any)=>Promise<unknown>)=>server.registerTool(name,{description,inputSchema:shape},async a=>{try{const result=await fn(a);return {content:[{type:'text' as const,text:JSON.stringify(result??{ok:true})}]};}catch(e){const message=e instanceof Error?e.message:String(e);console.error(`[term-dad] ${name}: ${message}`);return {isError:true,content:[{type:'text' as const,text:message}]};}});
  const pane={paneId:id},agent={agentId:z.string().min(1)},text={text:z.string().max(100000)},wait={timeoutMs:z.number().int().min(1).max(120000).default(30000)};
@@ -90,7 +92,7 @@ export function createServer(backend:TerminalBackend=new WezTermBackend(),screen
  const attention=new AttentionService(()=>tasks.snapshot(),()=>agents.snapshot());
  registerAttentionTools(server,attention);
  registerEventTools(server,events);
- registerPushTools(server,push,socketPath);
+ registerPushTools(server,push);
  registerWatchTools(server,watches);
  return {server,agents,watches,events,tasks,attention,push,ingress,pushSocket,pushReady};
 }

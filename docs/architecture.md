@@ -205,6 +205,22 @@ or revoked tokens yield `PUSH_UNAUTHORIZED`; a failed sink yields
 event injection: `push.status` and `push.set` only toggle authenticated local
 delivery.
 
+Push reports independent facts rather than one flag, because the previous success
+value described worker-side wiring intent and was read as deliverability.
+`enabled` is intent; `registered` is a live token in this process; `hookSurface`
+is whether this server launched the pane with hooks at all; `deliveries` counts
+only pushes the sink accepted; `proven` is an observed hook and is the sole
+evidence the channel works; `deliverable` is the conjunction of everything the
+server can see. Nothing inspectable establishes that a worker's CLI accepted its
+injected configuration, that the notifier is executable there, or that the
+worker's process can reach the socket, so `deliverable` deliberately stops short
+of a promise. Enabling a channel that cannot deliver fails explicitly
+(`PUSH_NOT_WIRED`, `PUSH_SOCKET_UNAVAILABLE`, `PUSH_UNSUPPORTED_WORKER`) rather
+than succeeding; disabling always succeeds, since the safe direction must not be
+blocked by the reasons a channel is broken. The bind outcome is carried into the
+registry instead of being logged and discarded, so no surface can report an
+intended socket path as a bound one.
+
 An accepted push publishes the event and then calls `WatchManager.confirm`, which
 samples the pane through the same guarded path as polling, so the recorded status
 is the terminal's, not the worker's claim. Watches derive their due time from the

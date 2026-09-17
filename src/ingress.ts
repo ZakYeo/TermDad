@@ -15,7 +15,7 @@ export interface PushIngressOptions {sink:PushSink;now?:()=>number;}
 export interface PushResult {ok?:true;delivered?:boolean;error?:string;}
 // Only the token and the kind are trusted from a hook; any other field is ignored.
 const messageSchema=z.object({token:z.string().min(1).max(200),kind:z.enum(pushKinds)}).passthrough();
-type Registration={agentId:string;paneId:number;token:string;enabled:boolean};
+type Registration={agentId:string;paneId:number;token:string;enabled:boolean;deliveries:number;lastDeliveryAt:number|null;lastKind:PushKind|null};
 
 /** Authenticates local worker hooks and turns them into bounded metadata events. */
 export class PushIngress {
@@ -27,7 +27,7 @@ export class PushIngress {
  register(agentId:string,paneId:number){
   this.revoke(agentId);
   if(this.byAgent.size>=64)throw new Error('PUSH_REGISTRATION_LIMIT: too many push registrations');
-  const registration:Registration={agentId,paneId,token:randomBytes(32).toString('base64url'),enabled:false};
+  const registration:Registration={agentId,paneId,token:randomBytes(32).toString('base64url'),enabled:false,deliveries:0,lastDeliveryAt:null,lastKind:null};
   this.byAgent.set(agentId,registration);this.byToken.set(registration.token,registration);
   return {token:registration.token,agentId,paneId,enabled:false};
  }
@@ -37,8 +37,15 @@ export class PushIngress {
  setEnabled(agentId:string,enabled:boolean){const found=this.require(agentId);found.enabled=enabled;return this.view(found);}
  status(agentId:string){return this.view(this.require(agentId));}
  list(){return [...this.byAgent.values()].map(r=>this.view(r));}
+ /** Whether this process holds no registration, so callers can report rather than throw. */
+ revoked(agentId:string){return !this.byAgent.has(agentId);}
  private require(agentId:string){const found=this.byAgent.get(agentId);if(!found)throw new Error(`PUSH_UNKNOWN_WORKER: no push registration for ${agentId}`);return found;}
- private view(r:Registration){return {agentId:r.agentId,paneId:r.paneId,enabled:r.enabled};}
+ /**
+  * `enabled` is worker-side intent. `proven` is the only field that means a hook has actually
+  * fired: nothing the server can inspect establishes that the worker's CLI accepted its
+  * injected configuration, so an observed delivery is the sole evidence.
+  */
+ private view(r:Registration){return {agentId:r.agentId,paneId:r.paneId,enabled:r.enabled,deliveries:{count:r.deliveries,lastAt:r.lastDeliveryAt===null?null:new Date(r.lastDeliveryAt).toISOString(),lastKind:r.lastKind},proven:r.deliveries>0};}
  /** Handles one newline-delimited request line. Never throws; the hook sees a bounded reply. */
  async handle(line:string):Promise<PushResult>{
   if(line.length>4096)return {error:'PUSH_INPUT_INVALID: request exceeds 4096 bytes'};
@@ -51,6 +58,8 @@ export class PushIngress {
   const event:PushEvent={kind:message.kind,paneId:registration.paneId,agentId:registration.agentId,occurredAt:new Date(this.now()).toISOString(),summary:summaries[message.kind]};
   try{await this.options.sink(event);}
   catch{return {error:'PUSH_DELIVERY_FAILED: the event was not recorded; retry or fall back to polling'};}
+  // Counted only once the sink has accepted it, so `proven` never overstates.
+  registration.deliveries++;registration.lastDeliveryAt=this.now();registration.lastKind=message.kind;
   return {ok:true,delivered:true};
  }
 }

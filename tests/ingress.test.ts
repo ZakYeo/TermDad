@@ -119,3 +119,28 @@ test('concurrent servers use distinct sockets and sweep the sockets of crashed p
  assert.ok(!remaining.includes('push.333.sock'),'a dead peer socket is removed');
  assert.equal(remaining.filter(f=>f.endsWith('.sock')).length,2,'live sockets are never swept');
 });
+test('a registration counts only the pushes its sink actually accepted',async()=>{
+ let fail=false;const delivered:string[]=[];
+ const clock={ms:Date.parse('2026-09-17T12:00:00.000Z')};
+ const ingress=new PushIngress({sink:async e=>{if(fail)throw new Error('private sink failure');delivered.push(e.kind);},now:()=>clock.ms});
+ const {token}=ingress.register('worker-1',7);
+ assert.deepEqual(ingress.status('worker-1').deliveries,{count:0,lastAt:null,lastKind:null},'nothing is claimed before a hook fires');
+ assert.equal(ingress.status('worker-1').proven,false);
+ // A push against a disabled registration is a successful no-op and proves nothing.
+ assert.deepEqual(await ingress.handle(JSON.stringify({token,kind:'ready'})),{ok:true,delivered:false});
+ assert.equal(ingress.status('worker-1').deliveries.count,0,'a dropped push is not a delivery');
+ ingress.setEnabled('worker-1',true);
+ fail=true;
+ assert.match((await ingress.handle(JSON.stringify({token,kind:'ready'}))).error!,/PUSH_DELIVERY_FAILED/);
+ assert.equal(ingress.status('worker-1').deliveries.count,0,'a failed sink is not a delivery');
+ fail=false;
+ clock.ms+=1000;
+ assert.deepEqual(await ingress.handle(JSON.stringify({token,kind:'input_required'})),{ok:true,delivered:true});
+ const view=ingress.status('worker-1');
+ assert.equal(view.deliveries.count,1);
+ assert.equal(view.deliveries.lastKind,'input_required');
+ assert.equal(view.deliveries.lastAt,new Date(clock.ms).toISOString());
+ assert.equal(view.proven,true,'an observed worker push is the only thing that proves delivery');
+ assert.deepEqual(delivered,['input_required']);
+ assert.ok(!JSON.stringify(view).includes(token),'no view ever carries a token');
+});

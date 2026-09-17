@@ -28,7 +28,10 @@ test('an enabled worker push becomes a durable event and releases a waiting supe
  const token=(term.ingress as any).byAgent.get(agentId).token;
  await term.watches.create({agentId,pushPollMs:30000,cooldownMs:0});
  const waiting=events.wait({agentIds:[agentId]},5000);
- term.push.setEnabled(agentId,true);
+ await term.pushReady;
+ const enabled=term.push.setEnabled(agentId,true);
+ assert.equal(enabled.proven,false,'enabling claims nothing about delivery');
+ assert.equal(enabled.deliverable,true,'every link this server can see is live');
  assert.deepEqual(await sendPush(socketPath,JSON.stringify({token,kind:'input_required'})),{ok:true,delivered:true});
  const woken:any=await waiting;
  assert.equal(woken.status,'event');
@@ -37,4 +40,10 @@ test('an enabled worker push becomes a durable event and releases a waiting supe
  assert.ok(kinds.includes('input_required'));
  // The pushed event is corroborated by a sample of the pane, not trusted on the worker's word.
  assert.ok(inputKind(term.watches.list()[0].status!)!==null,`sampled status was ${term.watches.list()[0].status}`);
+ // Only an observed worker push establishes that the channel works end to end.
+ const proved=await term.push.status(agentId);
+ assert.equal(proved.proven,true);
+ assert.equal(proved.deliveries.count,1);
+ assert.equal(proved.deliveries.lastKind,'input_required');
+ assert.ok(!JSON.stringify(proved).includes(token),'no push result carries a token');
 });

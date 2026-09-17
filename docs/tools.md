@@ -30,7 +30,7 @@ Tool names use dots. All arguments are JSON objects. Omitted arguments below use
 | agent.status | Same as observe |
 | agent.interrupt | `agentId` → Ctrl+C |
 | agent.stop | `agentId` → kill pane and remove mapping; releases its push registration |
-| push.status | `agentId?` → push socket path and registrations (`enabled` is false until turned on) |
+| push.status | `agentId?` → socket bind state and per-pane delivery facts (`enabled` is intent, `deliverable` is reachability, `proven` is an observed hook) |
 | push.set | `agentId, enabled` → turn worker-pushed events on or off for one pane |
 | agent.screenshot | `agentId` → provider image |
 | agent.wait_for_text | `agentId, text, timeoutMs?` → wait for literal substring in recent output |
@@ -232,8 +232,37 @@ assignments so a worker reports its own state instead of being scraped.
 
 | Tool | Arguments | Result |
 | --- | --- | --- |
-| `push.status` | `agentId?` | Socket path plus one registration, or all of them: `{agentId,paneId,enabled}` |
+| `push.status` | `agentId?` | `socket:{path,listening,bindError}` plus one worker or all of them |
 | `push.set` | `agentId`, `enabled` | Turns worker-pushed events on or off for that pane |
+
+A worker entry reports independent facts rather than one flag:
+
+| Field | Means |
+| --- | --- |
+| `registered` | this server process holds a live registration and token |
+| `hookSurface` | `claude_hooks`, `codex_notify`, or `null` when this server did not launch the pane with hooks |
+| `enabled` | **worker-side intent only** — that this server would accept a push for the pane |
+| `deliveries` | `{count,lastAt,lastKind}`, counted only once the sink accepted a push |
+| `proven` | `deliveries.count > 0` — **the only field that means a hook has actually fired** |
+| `deliverable` | every link this server can see is live: registered, wired, enabled, socket bound |
+
+`deliverable` is not a promise of delivery. Nothing the server can inspect
+establishes that the worker's CLI accepted its injected `--settings` or `notify`
+program, that the notifier is executable in the worker's environment, or that the
+worker's process can reach the socket path. Only `proven` establishes that, so
+read `deliverable` as "nothing visible is broken" and `proven` as "it works".
+Delivery counts are per server process; `push.status` is honest about that by
+reporting `registered:false` rather than `count:0` when a registration is absent.
+
+Enabling fails instead of returning a success value that overstates what is
+known: `PUSH_NOT_WIRED` when the pane has no hook surface in this server (it was
+adopted rather than spawned, or this process was restarted), `PUSH_SOCKET_UNAVAILABLE`
+when the socket did not bind, and `PUSH_UNSUPPORTED_WORKER` for a shell worker.
+Disabling always succeeds and is idempotent, including when no registration
+exists: the safe direction is never blocked by the reasons a channel is broken.
+`push.status` likewise reports a managed worker it holds no registration for
+rather than failing, and reserves `PUSH_UNKNOWN_WORKER` for an ID that is not a
+managed worker at all.
 
 `agent.spawn` injects the plumbing at launch — `--settings` hooks for a Claude
 worker, a `notify` program for a Codex worker — so enabling push never needs a
