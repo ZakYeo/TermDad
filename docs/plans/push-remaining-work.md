@@ -18,6 +18,15 @@ every turn end, and `inactive` fires constantly during long test runs. There is
 still no subscribable signal for "blocked on a person", which cost one lane about
 eleven idle minutes.
 
+Evidence from later sessions confirms the priority. In the 18 Sep supervisor
+session (Claude Code session `6354bb4a-586a-42d9-8ad3-004944c89580`) push was
+`proven:true` and 26 wakes arrived, yet at 09:54 a waiter filtered to
+`input_required` sat armed while the pane waited on a prose plan question that
+emitted `ready`, until the user intervened at 09:59. The 17 Sep session
+(`c31d6539-4044-4279-af72-d43285ca4ed8`) hit the same gap at 11:12. Both, plus
+the re-arm failures that this kind does not fix, are analysed in
+`supervisor-session-review-2026-09.md`.
+
 Until this lands, the documented wake filters use `input_required`, which covers
 only recognised permission, login and menu prompts. When `attention_required`
 exists, update the example in `docs/tools.md` and in `skills/term-dad/SKILL.md`
@@ -185,6 +194,12 @@ A self-review of the delivered commits found these. They are real but were left
 alone when the work was wrapped up; none can lose an event, leak a token or
 deadlock.
 
+- **`WORKER_BUSY` surfaces to callers instead of being retried.** Across the
+  17–18 Sep supervisor sessions, 30 calls failed with `WORKER_BUSY` or
+  `WORKER_STORAGE_BUSY`, including 7 of 11 `agent.wait_for_outcome` calls on
+  18 Sep, each retry re-sending a full `agent.send` body or re-pulling a full
+  observation. A bounded internal retry is item 4 in
+  `supervisor-session-review-2026-09.md`.
 - **`restorePush` gives up permanently on a `WORKER_BUSY` race.**
   `src/agents.ts` catches and logs, and restore runs exactly once from
   `createServer`. `FileWorkerStorage.exclusive` fails instantly rather than

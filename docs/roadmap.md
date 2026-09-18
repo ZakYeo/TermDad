@@ -8,3 +8,4 @@
 - Add another TerminalBackend (tmux) without changing agent management.
 - Richer pane reparenting and user-defined adapters. Background subscriptions now exist for an idle supervisor through the `wait-for-event` subcommand; in-process observation subscriptions are still open.
 - Add optional access policy for shared machines; the current server is intended for one trusted local user.
+- Act on the September 2026 supervisor session review (`docs/plans/supervisor-session-review-2026-09.md`): re-arm discipline and `attention_required` in the skill and server, trimmed and delta-capable observation payloads, a status-report budget, and parameter-name consistency across tools.
