@@ -4,6 +4,7 @@ import { StringDecoder } from 'node:string_decoder';
 import { z } from 'zod';
 import { windowsInstance, type GuiInstance } from './terminal-instance.js';
 import type { TerminalInstance } from './worker-storage.js';
+import { CodedError } from './errors.js';
 
 export const id = z.number().int().nonnegative().safe();
 const string = z
@@ -64,6 +65,21 @@ export const spawnSchema = z.object({
   domain: string.optional(),
 });
 export type SpawnOptions = z.infer<typeof spawnSchema>;
+export type SpawnArguments = Omit<SpawnOptions, 'command'> & { command?: string[] };
+const argvSchema = z.array(string).min(1).max(100);
+/**
+ * The one place spawn options are validated: the schema, the window-target conflict, and the
+ * command split into argv. Every launch path calls this once, so no caller re-validates.
+ */
+export function spawnArguments(o: SpawnOptions): SpawnArguments {
+  const parsed = spawnSchema.parse(o);
+  if (parsed.newWindow && parsed.windowId !== undefined)
+    throw new CodedError('ARGUMENT_CONFLICT', 'newWindow and windowId are mutually exclusive; supply one of them');
+  return {
+    ...parsed,
+    command: parsed.command === undefined ? undefined : argvSchema.parse(splitCommand(parsed.command)),
+  };
+}
 const paneSchema = z
   .object({
     pane_id: id,
@@ -186,8 +202,7 @@ export class WezTermBackend implements TerminalBackend {
   async list() {
     return parsePanes(await this.run(['list', '--format', 'json']));
   }
-  private options(o: SpawnOptions) {
-    spawnSchema.parse(o);
+  private options(o: SpawnArguments) {
     const a: string[] = [];
     if (o.paneId !== undefined) a.push('--pane-id', String(o.paneId));
     if (o.cwd) a.push('--cwd', o.cwd);
@@ -198,20 +213,22 @@ export class WezTermBackend implements TerminalBackend {
     if (!/^\d+$/.test(text.trim())) throw new Error('WezTerm returned an invalid pane ID');
     return id.parse(n);
   }
-  async spawn(o: SpawnOptions) {
-    const a = ['spawn', ...this.options(o)];
-    if (o.newWindow && o.windowId !== undefined) throw new Error('newWindow and windowId are mutually exclusive');
+  async spawn(options: SpawnOptions) {
+    const o = spawnArguments(options),
+      a = ['spawn', ...this.options(o)];
     if (o.newWindow) a.push('--new-window');
     if (o.windowId !== undefined) a.push('--window-id', String(o.windowId));
     if (o.domain) a.push('--domain-name', o.domain);
-    if (o.command) a.push('--', ...z.array(string).min(1).max(100).parse(splitCommand(o.command)));
+    if (o.command) a.push('--', ...o.command);
     return this.paneId(await this.run(a));
   }
-  async split(o: SpawnOptions & { paneId: number; direction?: 'right' | 'bottom'; percent?: number }) {
-    id.parse(o.paneId);
-    const a = ['split-pane', ...this.options(o), o.direction === 'right' ? '--right' : '--bottom'];
-    if (o.percent !== undefined) a.push('--percent', String(z.number().int().min(1).max(99).parse(o.percent)));
-    if (o.command) a.push('--', ...z.array(string).min(1).max(100).parse(splitCommand(o.command)));
+  async split(options: SpawnOptions & { paneId: number; direction?: 'right' | 'bottom'; percent?: number }) {
+    const o = spawnArguments(options);
+    id.parse(options.paneId);
+    const a = ['split-pane', ...this.options(o), options.direction === 'right' ? '--right' : '--bottom'];
+    if (options.percent !== undefined)
+      a.push('--percent', String(z.number().int().min(1).max(99).parse(options.percent)));
+    if (o.command) a.push('--', ...o.command);
     return this.paneId(await this.run(a));
   }
   async read(paneId: number, lines = 100) {

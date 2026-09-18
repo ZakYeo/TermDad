@@ -159,7 +159,7 @@ test('Codex gets the bundled worker skill with its initial task only, even with 
   await a.send('worker', 'Report your results.');
   const inputs = f.calls.filter((c) => c.args[0] === 'send-text' && !c.args.includes('--no-paste')).map((c) => c.input);
   assert.match(inputs[0], /^\$term-dad-worker\n/);
-  assert.match(inputs[0], /Own investigation, design, implementation, and verification/);
+  assert.match(inputs[0], /Own investigation, design, implementation and verification/);
   assert.ok(inputs[0].endsWith('Assignment:\nImplement the feature.'));
   assert.equal(inputs[1], 'Report your results.');
 });
@@ -215,4 +215,16 @@ test('Claude and shell task text stays literal', async () => {
     await a.send('worker', 'literal task');
     assert.equal(f.calls.find((c) => c.args[0] === 'send-text').input, 'literal task');
   }
+});
+test('spawn options are validated once, with one coded conflict error, for the backend and for managed workers', async () => {
+  const f = fake();
+  await assert.rejects(f.backend.spawn({ newWindow: true, windowId: 1 }), /ARGUMENT_CONFLICT/);
+  await assert.rejects(f.backend.split({ paneId: 7, newWindow: true, windowId: 1 } as any), /ARGUMENT_CONFLICT/);
+  const agents = new Agents(f.backend);
+  await assert.rejects(agents.spawn({ name: 'w', cli: 'shell', newWindow: true, windowId: 1 }), /ARGUMENT_CONFLICT/);
+  await assert.rejects(agents.spawn({ name: 'w', cli: 'shell', command: '"unterminated' }), /quote/);
+  assert.equal(f.calls.length, 0, 'nothing reaches the terminal before the options are valid');
+  // A one-line command is split exactly once and reaches WezTerm as argv.
+  await agents.spawn({ name: 'w', cli: 'shell', command: `printf '%s' "a b"` });
+  assert.deepEqual(f.calls[0].args.slice(-4), ['--', 'printf', '%s', 'a b']);
 });

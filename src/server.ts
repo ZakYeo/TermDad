@@ -24,6 +24,7 @@ import { notifyCommand } from './worker-hooks.js';
 import { stateDirectory, reapStaleLocks } from './journal.js';
 import { oneOf } from './arguments.js';
 import { toolCall, toolError } from './tool-result.js';
+import { CodedError } from './errors.js';
 export function createServer(
   backend: TerminalBackend = new WezTermBackend(),
   screenshots: ScreenshotProvider = new CommandScreenshotProvider(),
@@ -196,7 +197,8 @@ export function createServer(
     'Move pane into a new tab, optionally in a new or specified window.',
     { ...pane, newWindow: z.boolean().optional(), windowId: id.optional() },
     (a) => {
-      if (a.newWindow && a.windowId !== undefined) throw new Error('Choose newWindow or windowId');
+      if (a.newWindow && a.windowId !== undefined)
+        throw new CodedError('ARGUMENT_CONFLICT', 'newWindow and windowId are mutually exclusive; supply one of them');
       return backend.move(a.paneId, a.newWindow, a.windowId);
     },
   );
