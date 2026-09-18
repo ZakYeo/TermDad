@@ -43,7 +43,21 @@ export function windowsInstance(binary: string, run: typeof execute): InstanceRe
       if (selecting) throw new Error('TERMINAL_BUSY: GUI selection in progress; retry');
       if (resolving) return resolving;
       resolving = (async () => {
-        const identity = instanceSchema.parse(await request('resolve'));
+        let identity: TerminalInstance;
+        try {
+          identity = instanceSchema.parse(await request('resolve'));
+        } catch (e) {
+          // An inherited WEZTERM_UNIX_SOCKET outlives the GUI that created it: a restarted GUI
+          // leaves every new supervisor pointed at a dead socket. Before anything is pinned,
+          // discover a live GUI instead of erroring until someone selects one by hand. Once an
+          // identity is pinned, a dead endpoint stays an error, so a replacement GUI is never
+          // adopted silently.
+          const dead = e instanceof Error && /endpoint is not alive/.test(e.message);
+          if (firstKey !== undefined || !endpoint || !dead) throw e;
+          console.error(`[term-dad] inherited WEZTERM_UNIX_SOCKET ${endpoint} is not alive; discovering a live GUI`);
+          endpoint = undefined;
+          identity = instanceSchema.parse(await request('resolve'));
+        }
         if (firstKey !== undefined && firstKey !== identity.key)
           throw new Error('WezTerm GUI identity changed; list GUI instances and select one explicitly');
         firstKey = identity.key;

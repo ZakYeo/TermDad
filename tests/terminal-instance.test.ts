@@ -171,3 +171,34 @@ test('native GUI discovery and selection explain explicit configuration fallback
   await assert.rejects(identity.list(), /unsupported.*WEZTERM_UNIX_SOCKET/);
   await assert.rejects(identity.select('key'), /unsupported.*WEZTERM_UNIX_SOCKET/);
 });
+test('a dead inherited socket falls back to discovery before anything is pinned, then stays pinned', async () => {
+  const old = process.env.WEZTERM_UNIX_SOCKET;
+  process.env.WEZTERM_UNIX_SOCKET = 'C:\\dead\\gui-sock-46848';
+  try {
+    const requests: any[] = [];
+    let liveKey = 'host:27640:started';
+    const run: typeof execute = async (file, _args, input) => {
+      if (file === 'wslpath') return 'C:\\test';
+      const request = JSON.parse(input!);
+      requests.push(request);
+      if (request.endpoint?.includes('46848') || liveKey === '')
+        throw new Error(
+          'powershell.exe -NoProfile failed (1): WezTerm identity unavailable: Configured WezTerm GUI endpoint is not alive. List GUI instances and select one explicitly.',
+        );
+      return JSON.stringify({ endpoint: 'C:\\live\\gui-sock-27640', key: liveKey });
+    };
+    const identity = windowsInstance(binary, run);
+    assert.equal((await identity())?.endpoint, 'C:\\live\\gui-sock-27640');
+    assert.equal(requests[0].endpoint, 'C:\\dead\\gui-sock-46848');
+    assert.equal(requests[1].endpoint, undefined);
+    // The discovered endpoint is now the pinned one, and its later death is an error, not another discovery.
+    await identity();
+    assert.equal(requests[2].endpoint, 'C:\\live\\gui-sock-27640');
+    liveKey = '';
+    await assert.rejects(identity(), /not alive/);
+    assert.equal(requests.length, 4);
+  } finally {
+    if (old === undefined) delete process.env.WEZTERM_UNIX_SOCKET;
+    else process.env.WEZTERM_UNIX_SOCKET = old;
+  }
+});

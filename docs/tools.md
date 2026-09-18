@@ -695,7 +695,9 @@ not a cross-journal transaction. Inspect and reread task revisions before acting
 
 ## Selecting a WezTerm GUI
 
-On Windows/WSL, the inherited `WEZTERM_UNIX_SOCKET` wins. Without it, the server
+On Windows/WSL, the inherited `WEZTERM_UNIX_SOCKET` wins while its GUI is alive;
+a dead inherited socket at startup falls back to discovery, since a restarted GUI
+leaves every new pane pointing at the old one. Without a socket, the server
 selects the sole live GUI, otherwise the foreground WezTerm GUI, otherwise the
 most recently started GUI (PID breaks start-time ties). It pins the endpoint and
 process start identity; focus changes never redirect operations. An exited or

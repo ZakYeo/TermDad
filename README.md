@@ -125,8 +125,8 @@ Check in the new shell with `printenv WEZTERM_UNIX_SOCKET WEZTERM_PANE`, then us
 
 ## Selecting and switching GUIs
 
-Without an inherited socket, Term Dad selects a running GUI automatically: the
-only live GUI, the foreground WezTerm GUI, or the most recently started GUI if
+Without an inherited socket, or when the inherited socket belongs to a GUI that
+has exited, Term Dad selects a running GUI automatically: the only live GUI, the foreground WezTerm GUI, or the most recently started GUI if
 another application is foreground. The selected process stays pinned even when
 focus changes or the GUI exits. Pane IDs alone do not identify a GUI.
 
