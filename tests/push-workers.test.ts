@@ -73,7 +73,7 @@ test('enabling push fails for a channel that cannot deliver, rather than reporti
  f.push.attach({listening:false,bindError:'PUSH_SOCKET_PATH_OCCUPIED: refusing to replace a non-socket file'});
  await assert.rejects(f.push.setEnabled(agentId,true),/PUSH_SOCKET_UNAVAILABLE/);
  f.push.attach({listening:true});
- const enabled=await await f.push.setEnabled(agentId,true);
+ const enabled=await f.push.setEnabled(agentId,true);
  assert.equal(enabled.enabled,true);
  assert.equal(enabled.proven,false,'enabling never claims a delivery it has not observed');
  assert.match(enabled.note!,/not proven/);

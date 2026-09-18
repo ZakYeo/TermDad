@@ -18,7 +18,8 @@ test('startup reclaims a journal lock left by a dead server so writes work again
  await writeFile(join(directory,'workers.lock'),String(await deadPid()),{mode:0o600});
  const wez=new WezTermBackend(async args=>args[0]==='list'?'[]':'' ,async()=>null);
  const events=new EventQueue(new FileEventStorage(directory),50,64,Date.now,0);
- process.env.TERM_DAD_STATE_DIR=directory;
+ const previous=process.env.TERM_DAD_STATE_DIR;process.env.TERM_DAD_STATE_DIR=directory;
+ t.after(()=>{if(previous===undefined)delete process.env.TERM_DAD_STATE_DIR;else process.env.TERM_DAD_STATE_DIR=previous;});
  const term=createServer(wez,undefined,{automatic:false},events,new FileWorkerStorage(directory),new FileTaskStorage(directory));
  t.after(async()=>{await term.pushSocket.close();await term.watches.dispose();await term.agents.close();await events.close();});
  await term.pushReady;await term.pushRestored;
@@ -46,7 +47,7 @@ test('the stdio server exits when its parent process dies even while something e
  const directory=await mkdtemp(join(tmpdir(),'term-dad-orphan-'));
  t.after(()=>rm(directory,{recursive:true,force:true}));
  // The shell parent exits at once; `sleep` keeps the server's stdin pipe open, so only the parent check can end it.
- const parent=spawn('/bin/sh',['-c',`sleep 20 | "${process.execPath}" dist/index.js >/dev/null 2>&1 & sleep 1; exit 0`],{env:{...env(directory),TERM_DAD_PARENT_CHECK_MS:'200'}});
+ const parent=spawn('/bin/sh',['-c',`sleep 20 | "${process.execPath}" dist/index.js >/dev/null 2>&1 & for i in $(seq 1 100); do ls "${directory}"/push.*.sock >/dev/null 2>&1 && break; sleep 0.05; done; exit 0`],{env:{...env(directory),TERM_DAD_PARENT_CHECK_MS:'200'}});
  await new Promise(r=>parent.on('exit',r));
  let socket:string|undefined;
  for(let i=0;i<100&&!socket;i++){socket=(await readdir(directory).catch(()=>[] as string[])).find(n=>/^push\.\d+\.sock$/.test(n));if(!socket)await new Promise(r=>setTimeout(r,50));}

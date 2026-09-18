@@ -114,9 +114,13 @@ unsure whether publication completed; this API does not promise exactly-once
 production across that crash window.
 
 A crash during a transaction can leave `events.lock` or an orphan `events.*.tmp`.
-Every lock records its holder's pid. On the next acquisition, and in a sweep at
-server startup, a lock whose holder has exited is reclaimed and temporaries older
-than a minute are removed; a pid-less lock from an older build counts as abandoned
+Every lock records its holder's pid; a lock whose pid could not be written is
+released and the acquisition fails, so no live holder ever sits behind a pid-less
+lock. On the next acquisition, and in a sweep at server startup, a lock whose
+holder has exited is reclaimed and temporaries older than a minute are removed.
+Reclaims are serialised through a short-lived `reclaim.lock` and re-check the
+target under it, so two processes that both judged the same dead lock stale cannot
+remove each other's fresh replacement; a pid-less lock from an older build counts as abandoned
 once it is older than the five-second write window. Locks are still never stolen
 on a timer from a live holder: a slow live writer never loses exclusivity, and a
 persistent `*_STORAGE_BUSY` means a live process holds the lock. Pending committed

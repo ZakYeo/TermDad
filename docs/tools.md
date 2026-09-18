@@ -31,7 +31,7 @@ Tool names use dots. All arguments are JSON objects. Omitted arguments below use
 | agent.interrupt | `agentId` → Ctrl+C |
 | agent.stop | `agentId` → kill pane and remove mapping; releases its push registration and removes its credential file |
 | push.status | `agentId?` (UUID or worker name) → socket bind state and per-pane delivery facts (`enabled` is intent, `deliverable` is reachability, `proven` is an observed hook) |
-| push.set | `agentId` (UUID or name), `enabled` → turn worker-pushed events on or off for one pane; returns the `push.status` facts plus `note` |
+| push.set | `agentId` (UUID or name), `enabled` → turn worker-pushed events on or off for one pane; enabling returns the `push.status` facts plus `note`, disabling returns `{agentId,enabled,registered}` |
 | agent.screenshot | `agentId` → provider image |
 | agent.wait_for_text | `agentId, text, timeoutMs?` → wait for literal substring in recent output |
 | agent.wait_for_outcome | `agentId, turnId, timeoutMs?, quietMs?, since?, lines?` → input required, heuristic turn finished, optional quiet output, disappearance, or timeout; `lastObservation` is the change since `since`, capped to `lines` |
@@ -301,9 +301,10 @@ socket did not bind, and `PUSH_NOT_WIRED` when the pane was launched without hoo
 startup re-key skipped it (its lock was held at the time), `push.set` re-keys it
 under its lock and enables it, and a survivor this server is not attached to is
 told to `agent.reattach`, never to respawn. Both push tools accept the worker's
-UUID or its unique name, like every other worker tool. `push.set` returns the same
+UUID or its unique name, like every other worker tool. Enabling returns the same
 facts as `push.status` (`deliverable`, `proven`, `reason`) plus a `note`, so the
-result reports deliverability rather than wiring intent. `credential` is
+result reports deliverability rather than wiring intent; disabling returns only
+`{agentId,enabled,registered}`. `credential` is
 `recorded` (a binding exists), `absent` or `unwritable`; it never asserts that the
 file on disk is intact.
 Disabling always succeeds and is idempotent, including when no registration

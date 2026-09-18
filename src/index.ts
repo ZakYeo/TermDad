@@ -2,6 +2,8 @@
 // Both branches import lazily: the server's module graph reads the bundled worker skill at
 // import time and constructs a push socket, so a CLI subcommand must never load it.
 const [subcommand,...rest]=process.argv.slice(2);
+// Captured before the imports below, which can take longer than a short-lived parent survives.
+const launchedBy=process.ppid;
 if(subcommand==='wait-for-event'){
  const {runWaitForEvent}=await import('./wait-cli.js');
  process.exit(await runWaitForEvent(rest));
@@ -21,12 +23,13 @@ const shutdown=async(reason:string)=>{
  if(closing)return;closing=true;
  console.error(`[term-dad] shutting down: ${reason}`);
  const cap=new Promise<void>(resolve=>setTimeout(resolve,5000).unref());
- await Promise.race([dispose().catch(()=>{}),cap]);
- await Promise.race([server.close().catch(()=>{}),cap]);
+ const report=(step:string)=>(e:unknown)=>console.error(`[term-dad] ${step} during shutdown: ${e instanceof Error?e.message:e}`);
+ await Promise.race([dispose().catch(report('dispose failed')),cap]);
+ await Promise.race([server.close().catch(report('close failed')),cap]);
  process.exit(0);
 };
 process.stdin.once('end',()=>void shutdown('client closed stdin'));
 process.stdin.once('close',()=>void shutdown('client closed stdin'));
-const launchedBy=process.ppid,parentCheckMs=Number(process.env.TERM_DAD_PARENT_CHECK_MS)||5000;
+const parentCheckMs=Number(process.env.TERM_DAD_PARENT_CHECK_MS)||5000;
 setInterval(()=>{if(process.ppid!==launchedBy)void shutdown(`parent process ${launchedBy} exited`);},parentCheckMs).unref();
 await server.connect(transport);

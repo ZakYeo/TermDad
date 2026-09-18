@@ -146,9 +146,10 @@ same. One line per wake unless the user must decide something:
 only when a row changed since you last drew it; otherwise name the changed row in
 that one line. No TLDR, summary, or header stack in a message under about 1,500
 characters. Once the user has granted autopilot, never end with "Want me to…?" or
-any other offer: act, or arm the waiter. Approving a prompt is one key
-(`terminal.submit` with no text, or `terminal.send_key` `y`) reported in the one
-line, with no rationale paragraph. A retraction is two sentences: what was wrong,
+any other offer: act, or arm the waiter. Approving a prompt the user has
+authorized you to approve is one call (`terminal.submit` with no text for Enter, or
+`terminal.submit` with `y`) reported in the one line, with no rationale paragraph;
+a prompt outside that authorization is a decision for the user. A retraction is two sentences: what was wrong,
 and what is true. Do not mirror the wrong message back with corrections.
 
 ## Stay at acceptance-criteria level

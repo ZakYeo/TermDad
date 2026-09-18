@@ -429,12 +429,12 @@ No live checks were run for this work.
 
 ## Argument aliases, lock reclaim, explicit exit and push by name (2026-09-18)
 
-`npm run check`: **261 tests** on Node 22.14.0. New deterministic coverage: a held
+`npm run check`: **262 tests** on Node 22.14.0. New deterministic coverage: a held
 lock names its holder pid; a lock whose holder is dead is reclaimed and the
 transaction proceeds; a lock held by a live pid is honoured; a pid-less lock is
 honoured while fresh and reclaimed once older than the write window; a worker
 lock left by a dead process no longer blocks the worker; startup reaping removes
-dead-holder locks and old orphan temporaries only. Over real stdio: a server
+dead-holder locks and old orphan temporaries only; eight concurrent acquirers over one dead lock end with exactly one holder. Over real stdio: a server
 exits with code 0 and no socket file when its client closes stdin, and exits when
 its parent dies while `sleep` still holds its stdin pipe open. Push tools accept
 the worker name; a survivor whose startup re-key was skipped by a held lock is

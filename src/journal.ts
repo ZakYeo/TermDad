@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { lstat, mkdir, open, readdir, readFile, rename, stat, unlink } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 export const stateDirectory=()=>process.env.TERM_DAD_STATE_DIR || join(process.env.XDG_STATE_HOME || join(homedir(),'.local','state'),'term-dad');
 const code=(e:unknown)=>e instanceof Error && 'code' in e ? e.code : undefined;
 /** How long a freshly created lock may sit without its holder pid before it counts as abandoned by a pre-pid build. */
@@ -24,14 +24,48 @@ export async function lockIsStale(path:string){
   return Date.now()-info.mtimeMs>PIDLESS_LOCK_GRACE_MS;
  }catch(e){return code(e)==='ENOENT';}
 }
-/** Creates the lock atomically and records the holder; reclaims a stale one and retries once. */
+/** How long the reclaim lock may exist before it too counts as abandoned; a live reclaimer holds it for milliseconds. */
+const RECLAIM_LOCK_MAX_AGE_MS=30000;
+/**
+ * Removes `path` only if it is still stale, and only one reclaimer at a time: without the
+ * serialisation two processes that both judged the same dead lock stale could unlink each
+ * other's freshly created replacement. Returns whether anything was removed.
+ */
+async function reclaimStale(path:string){
+ const guard=join(dirname(path),'reclaim.lock');
+ let lease:Awaited<ReturnType<typeof open>>|undefined;
+ for(let attempt=0;!lease&&attempt<2;attempt++){
+  try{lease=await open(guard,'wx',0o600);}
+  catch(e){
+   if(code(e)!=='EEXIST')return false;
+   const info=await stat(guard).catch(()=>undefined);
+   const abandoned=info!==undefined&&(await lockIsStale(guard)||Date.now()-info.mtimeMs>RECLAIM_LOCK_MAX_AGE_MS);
+   if(!abandoned||attempt>0)return false;
+   await unlink(guard).catch(()=>{});
+  }
+ }
+ if(!lease)return false;
+ try{
+  await lease.writeFile(String(process.pid)).catch(()=>{});
+  if(!await lockIsStale(path))return false;
+  await unlink(path);return true;
+ }catch{return false;}
+ finally{await lease.close().catch(()=>{});await unlink(guard).catch(()=>{});}
+}
+/**
+ * Creates the lock atomically and records the holder. A lock without its holder's pid could be
+ * reclaimed from under a live process, so a failed pid write releases the lock and fails.
+ */
 export async function acquireLock(path:string){
  for(let reclaimed=false;;reclaimed=true){
-  try{const lease=await open(path,'wx',0o600);try{await lease.writeFile(String(process.pid));}catch{}return lease;}
+  let lease;
+  try{lease=await open(path,'wx',0o600);}
   catch(e){
-   if(code(e)!=='EEXIST'||reclaimed||!await lockIsStale(path))throw e;
-   await unlink(path).catch(()=>{});
+   if(code(e)!=='EEXIST'||reclaimed||!await reclaimStale(path))throw e;
+   continue;
   }
+  try{await lease.writeFile(String(process.pid));return lease;}
+  catch(e){await lease.close().catch(()=>{});await unlink(path).catch(()=>{});throw new Error(`lock ${path} could not record its holder: ${e instanceof Error?e.message:e}`);}
  }
 }
 /** Startup sweep of locks whose holder is dead and of orphan temporaries; returns what it removed. */
@@ -40,9 +74,10 @@ export async function reapStaleLocks(directory:string){
  for(const name of await readdir(directory).catch(()=>[] as string[])){
   const path=join(directory,name);
   let stale=false;
-  if(lockName.test(name))stale=await lockIsStale(path);
-  else if(temporaryName.test(name))stale=await stat(path).then(s=>Date.now()-s.mtimeMs>ORPHAN_TEMPORARY_AGE_MS).catch(()=>false);
-  if(stale){try{await unlink(path);removed.push(name);}catch{}}
+  if(name==='reclaim.lock')continue;
+  else if(lockName.test(name))stale=await reclaimStale(path);
+  else if(temporaryName.test(name)&&await stat(path).then(s=>Date.now()-s.mtimeMs>ORPHAN_TEMPORARY_AGE_MS).catch(()=>false)){try{await unlink(path);stale=true;}catch{}}
+  if(stale)removed.push(name);
  }
  return removed;
 }

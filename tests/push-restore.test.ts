@@ -177,7 +177,7 @@ test('a surviving worker that startup could not re-key is re-keyed by push.set i
  assert.deepEqual(await readCredential(path),before,'restore left the busy worker alone');
  assert.equal((await second.term.push.status(agentId)).registered,false);
  await rm(lock);
- const enabled=await await second.term.push.setEnabled(agentId,true);
+ const enabled=await second.term.push.setEnabled(agentId,true);
  assert.equal(enabled.enabled,true);
  assert.equal(enabled.registered,true);
  const after=await readCredential(path);
