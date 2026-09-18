@@ -40,19 +40,27 @@ test('delta recognises a scrolled screen and returns only the new lines',()=>{
  assert.deepEqual(delta('a\nb\nc','b\nc\nd'),{mode:'append',text:'d'});
  assert.deepEqual(delta('a\nb','a\nb\nc'),{mode:'append',text:'\nc'});
  assert.equal(delta('a\nb\nc','x\ny\nz').mode,'replace');
+ // A cleared screen that happens to start with the prompt marker is a redraw, not a scroll.
+ assert.equal(delta('out1\nout2\n›','›\nWorking (1s)').mode,'replace');
+ assert.equal(delta('out1\nout2\n› what next?','› what next?\nWorking (1s)').mode,'append');
  assert.equal(delta('a\nb','a\nb').mode,'unchanged');
 });
 test('wait_for_outcome reports the change since a pinned observation even after history eviction',async()=>{
  const f=fake('› ');const a=new Agents(f.backend);await a.spawn({name:'w',cli:'codex'});
  const base=await a.observe('w');const sent=await a.send('w','task');
- // Fill the history so the wait's own polling evicts the baseline while it runs.
- for(let i=0;i<14;i++)await a.observe('w');
- f.setText('› \nWorking (1s • esc to interrupt)');
- setTimeout(()=>f.setText('ran the task\nchecked it\ndone line\n› '),400);
- a.get('w').lastInputAt=Date.now()-5000;
+ // Fill the history to its cap so the wait's first poll evicts the baseline.
+ for(let i=0;i<15;i++)await a.observe('w');
+ f.setText('ran the task\nchecked it\ndone line\n› ');
  const outcome=await a.waitForOutcome('w',sent.turnId,20000,undefined,undefined,{since:base.observationId,lines:2});
  assert.equal(outcome.reason,'turn_finished');
  assert.ok(a.get('w').history.length>=16&&!a.get('w').history.some(h=>h.id===base.observationId),'history should have evicted the base');
  assert.equal(outcome.lastObservation!.outputMode,'replace');assert.equal(outcome.lastObservation!.recentText,'done line\n›');assert.equal(outcome.lastObservation!.linesOmitted,2);
  assert.equal(outcome.lastObservation!.previousObservationId,base.observationId);assert.equal(outcome.lastObservation!.deltaReset,false);
+});
+test('polling the board does not push a worker observation out of its history',async()=>{
+ const f=fake('› ');const a=new Agents(f.backend);await a.spawn({name:'w',cli:'codex'});
+ const base=await a.observe('w');
+ for(let i=0;i<20;i++)await a.summaries();
+ f.setText('› \nmore');const next=await a.observe('w',base.observationId);
+ assert.equal(next.deltaReset,false);assert.equal(next.outputMode,'append');
 });

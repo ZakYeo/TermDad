@@ -18,7 +18,8 @@ export function delta(previous:string,current:string){
  if(current.startsWith(previous))return {mode:'append',text:current.slice(previous.length)};
  const before=previous.split('\n'),after=current.split('\n');
  for(let overlap=Math.min(before.length,after.length);overlap>0;overlap--)
-  if(before.slice(before.length-overlap).join('\n')===after.slice(0,overlap).join('\n'))return {mode:'append',text:after.slice(overlap).join('\n')};
+  // A single short line such as a bare prompt marker is a coincidence, not evidence the old screen is still above.
+  if((overlap>1||before[before.length-1].trim().length>2)&&before.slice(before.length-overlap).join('\n')===after.slice(0,overlap).join('\n'))return {mode:'append',text:after.slice(overlap).join('\n')};
  return {mode:'replace',text:current};
 }
 type Observation={id:string;text:string;status:Status};
@@ -196,7 +197,7 @@ export class Agents {
   return result;
  });}
  private async screen(paneId:number){return normalizeScreen((await this.backend.read(paneId,150)).slice(-24000));}
- private async sample(w:WorkerRecord){
+ private async sample(w:WorkerRecord,record=true){
   const {a,pane}=await this.checked(w);
   const text=await this.screen(a.paneId),hash=hashOutput(text),changed=hash!==a.outputHash;
   if(changed)a.lastOutputAt=Date.now();a.outputHash=hash;a.recentText=text;a.status=adapters[a.cli].classify(text);
@@ -205,7 +206,7 @@ export class Agents {
   // A guarded stale prompt is not observed progress and must not resolve input requests.
   const interaction=observeInteraction(a,a.status==='WORKING'&&classifiedStatus==='READY_FOR_PROMPT'?'UNKNOWN':a.status,text,a.turn?.id??null);
   const observationId=randomUUID(),history=[...a.history];
-  a.history.push({id:observationId,text,status:a.status});if(a.history.length>16)a.history.shift();
+  if(record){a.history.push({id:observationId,text,status:a.status});if(a.history.length>16)a.history.shift();}
   const observation={agentId:a.agentId,name:a.name,paneId:a.paneId,observedAt:new Date().toISOString(),bindingRevision:a.revision,observationId,...interaction,turnId:a.turn?.id??null,attempt:a.turn?.attempt??null,status:a.status,activity:changed?'changed':'unchanged',lastActivitySecondsAgo:(Date.now()-a.lastOutputAt)/1000,lastInputAt:a.lastInputAt,lastOutputAt:a.lastOutputAt,outputHash:hash,cwd:pane.cwd,process:pane.foreground_process_name??null,awaitingInput:['READY_FOR_PROMPT','WAITING_FOR_PERMISSION','WAITING_FOR_QUESTION','WAITING_FOR_AUTHENTICATION'].includes(a.status),permissionPrompt:a.status==='WAITING_FOR_PERMISSION',deliveryPending:a.deliveryPending,screenshotAvailable:!!process.env.TERM_DAD_SCREENSHOT_COMMAND};
   return {observation,text,history};
  }
@@ -251,7 +252,7 @@ export class Agents {
  }
  async requireAttachment(agentId:string){const w=await this.lookup(agentId);if(!this.attached(w,await this.identity()))throw new Error('WORKER_DETACHED');return w;}
  async reconcileClosed(paneId:number){const w=await this.findByPane(paneId);if(w)await this.run(()=>this.locked(w.agentId,async current=>{await this.checked(current);})).catch(e=>{if(!(e instanceof Error&&e.message.includes('disappeared')))throw e;});}
- wait(agentId:string,predicate:(o:Awaited<ReturnType<Agents['observe']>>)=>boolean,timeoutMs=30000){return this.run(async()=>{const deadline=Date.now()+timeoutMs;let last;do{const sample=await this.locked(agentId,w=>this.sample(w));last=this.present(sample,undefined,150);if(predicate(last))return this.present(sample,undefined,linesSchema.parse(undefined));if(Date.now()>=deadline)break;await new Promise(r=>setTimeout(r,Math.min(250,deadline-Date.now())));}while(Date.now()<=deadline);throw new Error(`Timed out waiting for ${agentId}; last status ${last?.status}`);});}
+ wait(agentId:string,predicate:(o:Awaited<ReturnType<Agents['observe']>>)=>boolean,timeoutMs=30000){return this.run(async()=>{const deadline=Date.now()+timeoutMs;let last;do{const sample=await this.retrying(()=>this.locked(agentId,w=>this.sample(w)));last=this.present(sample,undefined,150);if(predicate(last))return this.present(sample,undefined,linesSchema.parse(undefined));if(Date.now()>=deadline)break;await new Promise(r=>setTimeout(r,Math.min(250,deadline-Date.now())));}while(Date.now()<=deadline);throw new Error(`Timed out waiting for ${agentId}; last status ${last?.status}`);});}
  waitForOutcome(agentId:string,turnId:string,timeoutMs=30000,quietMs?:number,signal?:AbortSignal,view:{since?:string;lines?:number}={}){return this.run(async()=>{
   z.uuid().parse(turnId);const lines=linesSchema.parse(view.lines);z.number().int().min(1).max(120000).parse(timeoutMs);
   if(quietMs!==undefined)z.number().int().min(1000).max(3600000).parse(quietMs);
@@ -266,12 +267,14 @@ export class Agents {
   const base=view.since?this.records.get(binding.agentId)?.history.find(h=>h.id===view.since)?.text:undefined;
   let last:Sample|undefined;const shown=()=>last?this.present(last,view.since,lines,base):null;
   const pause=()=>new Promise(r=>setTimeout(r,Math.min(250,Math.max(0,deadline-Date.now()))));
+  // A held worker or journal lock is contention, not an outcome: poll again until the deadline.
+  const contended=(e:unknown)=>Agents.busy(e)&&Date.now()<deadline;
   do{
    if(signal?.aborted)throw new Error('WORKER_WAIT_CANCELLED');
    if(this.closed)throw new Error('WORKER_CLOSED');
    let current:WorkerRecord|undefined;
    try{current=await this.resolveOptional(binding.agentId);}
-   catch(e){if(Agents.busy(e)&&Date.now()<deadline){await pause();continue;}throw e;}
+   catch(e){if(contended(e)){await pause();continue;}throw e;}
    if(!current){
     if(!await this.bindingPaneExists(binding))return {reason:'worker_disappeared',lastObservation:shown()};
     throw new Error('WORKER_NO_LONGER_MANAGED');
@@ -279,13 +282,15 @@ export class Agents {
    assertTurn(current);
    try{last=await this.locked(binding.agentId,w=>this.sample(w));}
    catch(e){
-    // A lock held by a send or a watch poll is contention, not an outcome: poll again until the deadline.
-    if(Agents.busy(e)&&Date.now()<deadline){await pause();continue;}
+    if(contended(e)){await pause();continue;}
     if(e instanceof Error&&e.message.includes('disappeared')&&!await this.bindingPaneExists(binding))return {reason:'worker_disappeared',lastObservation:shown()};
     throw e;
    }
    // Input and reattachment can interleave between observations; do not answer for a newer turn.
-   const after=await this.resolveOptional(binding.agentId);if(after)assertTurn(after);else continue;
+   let after:WorkerRecord|undefined;
+   try{after=await this.resolveOptional(binding.agentId);}
+   catch(e){if(contended(e)){await pause();continue;}throw e;}
+   if(after)assertTurn(after);else continue;
    const o=last.observation;
    if(o.turnId!==turnId)throw new Error('WORKER_TURN_SUPERSEDED');
    if(o.inputRequired)return {reason:'input_required',lastObservation:shown()};
@@ -297,6 +302,9 @@ export class Agents {
   return {reason:'timeout',lastObservation:shown()};
  });}
  /** Board view: every observation field except the screen text, so polling all workers stays cheap. */
- async summaries(){return (await this.snapshot()).map(entry=>{if(!('recentText' in entry))return entry;const {recentText,outputMode,linesOmitted,...summary}=entry;return summary;});}
+ async summaries(){
+  const workers=await this.list();
+  return Promise.all(workers.map(async w=>{if(w.attachment==='detached')return w;try{const {observation}=await this.run(()=>this.retrying(()=>this.locked(w.agentId,x=>this.sample(x,false))));return observation;}catch(e){return {...w,error:String(e)};}}));
+ }
  async snapshot(){const workers=await this.list();return Promise.all(workers.map(async w=>{if(w.attachment==='detached')return w;try{return await this.observe(w.agentId);}catch(e){return {...w,error:String(e)};}}));}
 }

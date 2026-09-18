@@ -208,7 +208,25 @@ test('wait_for_outcome keeps polling through a transient WORKER_BUSY',async()=>{
  const f=fixture();const adopted=await f.agents.adopt({name:'worker',cli:'codex',paneId:7});
  const sent=await f.agents.send('worker','task');f.text('OpenAI Codex\n› done');
  let release!:()=>void;const gate=new Promise<void>(r=>{release=r;});const held=f.storage.exclusive(adopted.agentId,()=>gate);setTimeout(release,300);
+ // No per-read retry: the wait's own loop must absorb the lock.
  const next=new Agents(f.backend,f.storage);next.busyRetryMs=[];
  const outcome=await next.waitForOutcome('worker',sent.turnId,3000);
  assert.equal(outcome.reason,'turn_finished');await held;
+});
+test('wait_for_outcome absorbs a journal-busy read between sampling and the turn check',async()=>{
+ const memory=new MemoryWorkerStorage();let armed=false,injected=0;
+ const storage:WorkerStorage={exclusive:(id,fn)=>memory.exclusive(id,fn),transaction:(write,fn)=>{if(!write&&armed&&injected===0){armed=false;injected++;return Promise.reject(new Error('WORKER_STORAGE_BUSY: transaction lock exists; retry'));}return memory.transaction(write,fn);}};
+ const f=fixture(storage);await f.agents.adopt({name:'worker',cli:'codex',paneId:7});
+ const sent=await f.agents.send('worker','task');f.text('OpenAI Codex\n› done');
+ const read=f.backend.read.bind(f.backend);f.backend.read=async(...args)=>{const text=await read(...args);armed=true;return text;};
+ const outcome=await f.agents.waitForOutcome('worker',sent.turnId,3000);
+ assert.equal(outcome.reason,'turn_finished');assert.ok(injected>0);
+});
+test('wait_for_text and wait_until_idle retry through a briefly held worker lock',async()=>{
+ const f=fixture();await f.agents.adopt({name:'worker',cli:'codex',paneId:7});
+ const next=new Agents(f.backend,f.storage);let release!:()=>void,entered!:()=>void;const gate=new Promise<void>(r=>{release=r;}),ready=new Promise<void>(r=>{entered=r;});
+ const send=f.backend.sendText.bind(f.backend);f.backend.sendText=async(...args)=>{entered();await gate;return send(...args);};
+ const first=f.agents.send('worker','first');await ready;
+ const waiting=next.wait('worker',o=>o.recentText.includes('Codex'),2000);setTimeout(release,100);
+ assert.equal((await waiting).name,'worker');await first;
 });
