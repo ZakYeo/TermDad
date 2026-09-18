@@ -40,27 +40,31 @@ test('MCP watch events reach filtered waiters, acknowledge and replay after rest
  const first=(await app.call('event.list')).events[0];assert.equal(first.kind,'ready');
  app.setText('private permission details\nDo you want to proceed?\n› Yes');await app.tick();
  const delivered=await waiting;assert.equal(delivered.status,'event');assert.equal(delivered.event.kind,'input_required');assert.equal(delivered.event.watchId,watch.watchId);
+ await app.tick();// one stable poll turns the prompt into a request for a person
  const ack=await app.call('event.acknowledge',{ids:[first.id]});assert.deepEqual(await app.call('event.acknowledge',{ids:[first.id]}),ack);
  const journal=await readFile(join(path,'events.json'),'utf8');assert.ok(!journal.includes('private'));
  await app.close();assert.ok(!app.calls.includes('kill-pane'));
  const restarted=await connect(new EventQueue(new FileEventStorage(path)));t.after(()=>restarted.close());
  assert.deepEqual(await restarted.call('watch.list'),[]);
- assert.deepEqual((await restarted.call('event.list',{watchIds:[watch.watchId]})).events,[delivered.event]);
+ assert.deepEqual((await restarted.call('event.list',{watchIds:[watch.watchId],kinds:['input_required']})).events,[delivered.event]);
  assert.deepEqual(await restarted.call('event.acknowledge',{ids:[first.id]}),ack);
- await restarted.call('event.acknowledge',{ids:[delivered.event.id]});assert.equal((await restarted.call('event.list')).pendingCount,0);
+ await restarted.call('event.acknowledge',{ids:[delivered.event.id]});
+ const remaining=(await restarted.call('event.list')).events;assert.deepEqual(remaining.map((e:any)=>e.kind),['attention_required'],'the recognised prompt also asked for a person, and that request never expires on its own');
+ await restarted.call('event.acknowledge',{ids:[remaining[0].id]});assert.equal((await restarted.call('event.list')).pendingCount,0);
 });
 
 test('MCP queue full surfaces watch delivery failure and retries once capacity is acknowledged',async t=>{
- const path=await directory(t),queue=new EventQueue(new FileEventStorage(path),1);const app=await connect(queue);t.after(()=>app.close());
+ // Capacity two: the blocker plus the request for a person fill it, so the input request is what fails.
+ const path=await directory(t),queue=new EventQueue(new FileEventStorage(path),2);const app=await connect(queue);t.after(()=>app.close());
  const blocker=await queue.publish({kind:'occupied',paneId:9,occurredAt:new Date(0).toISOString(),summary:'Existing event'});
  app.setText('Do you want to proceed?');const watch=await app.call('watch.create',config);await app.tick();
  const failed=(await app.call('watch.list'))[0];assert.equal(failed.pendingEvents,1);assert.match(failed.deliveryError,/retrying/);
  assert.equal((await app.call('event.list')).events[0].id,blocker.id);
  await app.call('event.acknowledge',{ids:[blocker.id]});
  const waiting=app.call('event.wait_for_event',{watchIds:[watch.watchId],kinds:['input_required'],timeoutMs:2000});await app.tick();const delivered=await waiting;
- assert.equal(delivered.event.occurredAt,new Date(0).toISOString());assert.equal(delivered.event.sequence,2);
+ assert.equal(delivered.event.occurredAt,new Date(0).toISOString());assert.equal(delivered.event.sequence,3);
  const recovered=(await app.call('watch.list'))[0];assert.equal(recovered.pendingEvents,0);assert.equal(recovered.deliveryError,undefined);
- await app.tick();assert.equal((await app.call('event.list')).pendingCount,1);
+ await app.tick();assert.equal((await app.call('event.list')).pendingCount,2);
 });
 
 test('MCP disconnect drains default watch sink before closing queue and settles waits without killing panes',async t=>{
@@ -71,12 +75,12 @@ test('MCP disconnect drains default watch sink before closing queue and settles 
  app.setText('Do you want to proceed?');await app.call('watch.create',config);const waiting=queue.wait({kinds:['never']});const pass=app.tick();await entered.promise;
  await app.client.close();await new Promise(resolve=>setImmediate(resolve));assert.equal(closing,false);assert.deepEqual(app.watches.list(),[]);
  release.resolve();await pass;await closed.promise;assert.deepEqual(await waiting,{status:'closed'});assert.ok(!app.calls.includes('kill-pane'));
- const replay=new EventQueue(new FileEventStorage(path));t.after(()=>replay.close());assert.equal((await replay.list()).events[0].kind,'input_required');
+ const replay=new EventQueue(new FileEventStorage(path));t.after(()=>replay.close());assert.equal((await replay.list()).events[0].kind,'attention_required','the request for a person is drained first');
 });
 
 test('createServer retains queue-only injection and explicit watch sink override',async t=>{
  const path=await directory(t),queue=new EventQueue(new FileEventStorage(path));
  const original=createServer(backendStub(),undefined,queue,undefined,new MemoryWorkerStorage(),new MemoryTaskStorage());assert.equal(original.events,queue);await original.watches.dispose();await original.events.close();
  let delivered=0;const overrideQueue=new EventQueue(new FileEventStorage(path));const app=await connect(overrideQueue,{sink:async()=>{delivered++;}});t.after(()=>app.close());
- app.setText('Do you want to proceed?');await app.call('watch.create',config);await app.tick();assert.equal(delivered,1);assert.equal((await app.call('event.list')).pendingCount,0);
+ app.setText('Do you want to proceed?');await app.call('watch.create',config);await app.tick();assert.equal(delivered,2,'both the request for a person and the input request use the override sink');assert.equal((await app.call('event.list')).pendingCount,0);
 });

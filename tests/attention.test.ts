@@ -7,7 +7,7 @@ import { MemoryTaskStorage } from '../src/task-storage.js';
 import { Agents } from '../src/agents.js';
 import { WezTermBackend } from '../src/backend.js';
 import { completeTask,resultReport } from './task-support.js';
-import type { WorkerSnapshot } from '../src/attention-model.js';
+import { stalledAtPromptMs,type WorkerSnapshot } from '../src/attention-model.js';
 
 const input={boardId:'repo',title:'Task',goal:'Goal'};
 async function setup(){
@@ -193,4 +193,22 @@ test('unavailable workers leave decision counts unknown even with an empty task 
  const result=await attention.status();
  assert.equal(result.counts.needs_decision,null);assert.equal(result.counts.ready_to_dispatch,0);
  assert.equal(result.counts.awaiting_verification,0);assert.equal(result.sources.workers,false);
+});
+
+test('a worker left at a ready prompt with unchanged output needs a decision; a working pane past the threshold does not',async()=>{
+ const f=await setup();
+ assert.equal((await f.attention.status()).entries.length,0,'a fresh ready prompt is not yet a stall');
+ f.advance(stalledAtPromptMs+1000);
+ const stalled=(await f.attention.status()).entries[0];
+ assert.equal(stalled?.kind,'worker');
+ assert.ok(stalled.reasons.includes('worker_stalled_at_prompt'));
+ assert.ok(stalled.categories.includes('needs_decision'));
+ assert.ok(stalled.nextActions.includes('inspect_worker_and_record_result'));
+ const task=await f.board.create({...input,assignedAgentId:f.worker.agentId});
+ const entry=(await f.attention.status()).entries.find(e=>e.id===task.id)!;
+ assert.ok(entry.categories.includes('ready_to_dispatch'));
+ assert.ok(!entry.dispatchConstraints.includes('worker_stalled_at_prompt'),'an idle worker is the ideal dispatch target, not a constraint');
+ assert.ok(entry.reasons.includes('worker_stalled_at_prompt'),'but the stall itself still needs a decision');
+ f.setOutput('Working (1s • esc to interrupt)');f.advance(stalledAtPromptMs+1000);
+ assert.equal((await f.attention.status()).entries.filter(e=>e.kind==='worker').length,0,'working output is never a stall, however old');
 });

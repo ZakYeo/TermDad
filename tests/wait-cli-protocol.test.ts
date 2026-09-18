@@ -44,3 +44,30 @@ test('a bad invocation reports usage on stderr and exits 2',async()=>{
  assert.equal(bad.stdout,'','a usage error writes nothing to stdout');
  assert.match(bad.stderr,/WAIT_ARGS_INVALID/);
 });
+test('the server names its own waiter: the reported command runs, and the example targets the server journal',async t=>{
+ const {Client}=await import('@modelcontextprotocol/sdk/client/index.js');
+ const {StdioClientTransport}=await import('@modelcontextprotocol/sdk/client/stdio.js');
+ const directory=await mkdtemp(join(tmpdir(),'term-dad-wake-command-'));
+ t.after(()=>rm(directory,{recursive:true,force:true}));
+ const transport=new StdioClientTransport({command:process.execPath,args:['dist/index.js'],env:{...process.env,TERM_DAD_WEZTERM:'/nonexistent/wezterm',TERM_DAD_STATE_DIR:directory} as Record<string,string>,stderr:'inherit'});
+ const client=new Client({name:'test',version:'1'});
+ await client.connect(transport);
+ try{
+  const reply=await client.callTool({name:'event.wake_command',arguments:{}});
+  assert.notEqual(reply.isError,true,JSON.stringify(reply));
+  const wake=JSON.parse((reply.content as {text:string}[])[0].text);
+  assert.equal(wake.command[0],process.execPath,'the runtime that serves MCP is the one that runs the waiter');
+  assert.match(wake.command[1],/dist\/index\.js$/,'the only entry point is the dispatcher, never wait-cli.js');
+  await access(wake.command[1]);
+  assert.equal(wake.warning,undefined,'a built server reports a runnable entry point without caveats');
+  assert.equal(wake.command[2],'wait-for-event');
+  assert.equal(wake.stateDir,directory,'the waiter must read the journal this server writes, not the caller\'s default');
+  assert.ok(wake.example.includes('--until-event'),'the canonical command re-arms itself');
+  assert.ok(wake.example.includes(`--state-dir ${directory}`));
+  assert.ok(wake.example.includes('attention_required'));
+  assert.ok(!wake.example.includes('ready,') || wake.example.includes('attention_required'));
+  const ran=await new Promise<{code:number;stdout:string}>(resolve=>execFile(wake.command[0],[...wake.command.slice(1),'--timeout-seconds','1','--poll-ms','250','--state-dir',wake.stateDir],{timeout:30000},(error,stdout)=>resolve({code:(error as {code?:number}|null)?.code??0,stdout})));
+  assert.equal(ran.code,0);
+  assert.equal(ran.stdout,'{"status":"timeout"}\n','the reported command is runnable as given');
+ }finally{await client.close();}
+});

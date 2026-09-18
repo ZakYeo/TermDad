@@ -349,6 +349,61 @@ Codex worker, and no `npm run test:recovery`. The credential re-key and
 `attention_required` sections of the plan are not yet implemented, so the live
 push script they require does not exist.
 
+## Wake discipline: `attention_required`, `--until-event`, `event.wake_command` (2026-09-18)
+
+`npm run check` on Node 22: **224 tests**, up from 213. Every new case was written
+first and seen to fail for the missing behaviour before the code existed, except
+the final-read regression test noted below. New deterministic coverage:
+
+- A recognised prompt yields exactly one `attention_required` across repeated
+  polls alongside its `input_required`; a changed prompt replaces the undelivered
+  request (pending count stays one, timestamp advances); working and then
+  prompting again re-fires.
+- A pane left at a ready prompt with unchanged output asks for a person once at
+  `attentionMs`, distinctly from `inactive` at `inactivityMs`; a working pane past
+  `attentionMs` never does. `attentionMs` is bounded to 1,000–3,600,000.
+- With a non-zero cooldown and a just-delivered `ready`, `attention_required` is
+  delivered on the same pass while `input_required` waits out the cooldown.
+- Existing exact-kind assertions in the watch and MCP watch-event tests were
+  updated for the additional kind; capacity in the queue-full case rose from one
+  to two so the input request is still the one that fails.
+- `orchestrator.attention` reports a worker at a ready prompt with unchanged
+  output past two minutes as `needs_decision` with `worker_stalled_at_prompt` and
+  `inspect_worker_and_record_result`, and never reports working output as stalled.
+- `--until-event` parses as a value-less switch, fixes the cap at 86,400 seconds,
+  and is refused together with `--timeout-seconds`.
+- An event published during the final poll interval is returned rather than
+  reported as a timeout. This test passed on first run: the plan doc's §4 claim
+  that the waiter skipped a final read was wrong, and the test now pins the
+  behaviour.
+- Over a real spawned `node dist/index.js` MCP server: `event.wake_command`
+  returns the server's own `process.execPath`, an existing `dist/index.js`, the
+  `wait-for-event` subcommand, the server's state directory, and an `example`
+  containing `--until-event`, `--state-dir <that directory>` and
+  `attention_required`; the reported argv actually runs and reports a timeout as
+  exit 0 with one JSON line. Tool count assertions moved from 52 to 53.
+
+A same-day review with an independent agent then found that a prompt-classified
+screen whose output was still changing asked for a person on every poll, because
+the prompt regexes take precedence over the working ones; both sources now require
+one poll of unchanged output, and a regression test streams four redraws under a
+question and expects one request. The same review found `--kinds --until-event`
+being accepted with `--until-event` as the kind, and `worker_stalled_at_prompt`
+leaking into `dispatchConstraints`; both are fixed with tests. Its smoke tests, run
+against the built server over stdio with a private state directory, showed the
+`event.wake_command` example string running end to end through `sh -c`, including
+a state directory containing a space and a quote, and exiting with the published
+`attention_required`; a `--until-event` waiter printed nothing when killed after
+five idle seconds.
+
+No live checks were run for this work: no WezTerm GUI round trip, no real Claude or
+Codex worker asked a question in prose, and no detached waiter was observed exiting
+on a real `attention_required`. The MCP server attached to the authoring session was
+still the previous build, so exercising the new tool there was not possible without
+a restart. The plan's optional live step (spawn a worker, `watch.create` with a
+short `attentionMs`, arm the reported command, make the worker ask a question in
+prose) remains to be done and recorded here.
+
 ## Credential re-key (2026-09-17)
 
 `npm run check`: **212 tests**. New deterministic coverage: credential files are

@@ -4,10 +4,13 @@ import { join } from 'node:path';
 import { stateDirectory } from './journal.js';
 import { eventFilterSchema,eventStateSchema,matches,type EventFilter,type QueueEvent } from './events.js';
 
-export interface WaitArgs {filter:EventFilter;fresh:boolean;timeoutSeconds:number;pollMs:number;stateDir:string;}
+export interface WaitArgs {filter:EventFilter;fresh:boolean;untilEvent:boolean;timeoutSeconds:number;pollMs:number;stateDir:string;}
 export interface WaitDeps {now?:()=>number;sleep?:(ms:number)=>Promise<void>;}
 const invalid=(detail:string)=>new Error(`WAIT_ARGS_INVALID: ${detail}`);
 const flags=['--kinds','--agents','--panes','--watches','--after-sequence','--max-age-seconds','--timeout-seconds','--poll-ms','--state-dir'] as const;
+/** Flags that take no value. `--until-event` keeps waiting through what would have been timeouts. */
+const switches=['--until-event'] as const;
+const untilEventCapSeconds=86400;
 const list=(value:string)=>value.split(',').map(part=>part.trim()).filter(part=>part.length>0);
 function number(name:string,value:string,min:number,max:number){
  const parsed=Number(value);
@@ -17,13 +20,17 @@ function number(name:string,value:string,min:number,max:number){
 
 /** Pure argument parsing, so an unusable invocation fails before any filesystem access. */
 export function parseWaitArgs(argv:string[]):WaitArgs {
- const raw=new Map<string,string>();
- for(let i=0;i<argv.length;i+=2){
+ const raw=new Map<string,string>(),set=new Set<string>();
+ for(let i=0;i<argv.length;i++){
   const flag=argv[i];
-  if(!(flags as readonly string[]).includes(flag))throw invalid(`unknown option ${flag}; expected one of ${flags.join(', ')}`);
-  if(argv[i+1]===undefined)throw invalid(`${flag} needs a value`);
-  raw.set(flag,argv[i+1]);
+  if((switches as readonly string[]).includes(flag)){set.add(flag);continue;}
+  if(!(flags as readonly string[]).includes(flag))throw invalid(`unknown option ${flag}; expected one of ${[...flags,...switches].join(', ')}`);
+  // An option name in value position is a dropped value, not a value: a kind named `--until-event` can never occur.
+  if(argv[i+1]===undefined||argv[i+1].startsWith('--'))throw invalid(`${flag} needs a value`);
+  raw.set(flag,argv[++i]);
  }
+ const untilEvent=set.has('--until-event');
+ if(untilEvent&&raw.has('--timeout-seconds'))throw invalid('--until-event means no timeout; drop --timeout-seconds');
  const panes=raw.get('--panes')===undefined?undefined:list(raw.get('--panes')!).map(v=>number('--panes',v,0,Number.MAX_SAFE_INTEGER));
  const after=raw.get('--after-sequence')===undefined?undefined:number('--after-sequence',raw.get('--after-sequence')!,0,Number.MAX_SAFE_INTEGER);
  const age=raw.get('--max-age-seconds')===undefined?undefined:number('--max-age-seconds',raw.get('--max-age-seconds')!,1,604800);
@@ -41,7 +48,9 @@ export function parseWaitArgs(argv:string[]):WaitArgs {
   filter:parsed.data,
   // An explicit sequence is the deliberate history drain; otherwise never fire on a backlog.
   fresh:after===undefined,
-  timeoutSeconds:raw.get('--timeout-seconds')===undefined?1800:number('--timeout-seconds',raw.get('--timeout-seconds')!,1,86400),
+  untilEvent,
+  // The cap is not a timeout the supervisor is meant to see: it only stops an orphaned waiter outliving a day.
+  timeoutSeconds:untilEvent?untilEventCapSeconds:raw.get('--timeout-seconds')===undefined?1800:number('--timeout-seconds',raw.get('--timeout-seconds')!,1,86400),
   pollMs:raw.get('--poll-ms')===undefined?2000:number('--poll-ms',raw.get('--poll-ms')!,250,60000),
   stateDir:raw.get('--state-dir')??stateDirectory(),
  };

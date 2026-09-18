@@ -18,7 +18,7 @@ async function connect(directory:string,fixture=false,identity='fixture-instance
 test('production stdio task tools persist across restart and serialize conflicting multi-process edits without a GUI',async t=>{
  const directory=await mkdtemp(join(tmpdir(),'term-dad-task-protocol-'));t.after(()=>rm(directory,{recursive:true,force:true}));
  const first=await connect(directory);t.after(()=>first.client.close());
- assert.equal((await first.client.listTools()).tools.length,52);await assert.rejects(access(join(directory,'tasks.json')));
+ assert.equal((await first.client.listTools()).tools.length,53);await assert.rejects(access(join(directory,'tasks.json')));
  const task=await first.call('task.create',{boardId:'repo',title:'Durable',goal:'Preserve metadata',acceptanceCriteria:[{id:'check',description:'Checked'}]});
  await first.client.close();const second=await connect(directory),third=await connect(directory);t.after(()=>second.client.close());t.after(()=>third.client.close());
  assert.deepEqual(await second.call('task.get',{taskId:task.id}),{...task,assignment:null});

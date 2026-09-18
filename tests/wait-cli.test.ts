@@ -94,3 +94,32 @@ test('a waiter armed before the journal exists receives the first event, but not
  assert.deepEqual(backlog,{code:0,output:'{"status":"timeout"}'},'restored history is not a fresh event');
  await rm(restored,{recursive:true,force:true});
 });
+test('--until-event re-arms itself: no bounded timeout, only the hard cap, and an explicit timeout is refused',()=>{
+ const parsed=parseWaitArgs(['--kinds','attention_required','--until-event']);
+ assert.equal(parsed.untilEvent,true);
+ assert.equal(parsed.timeoutSeconds,86400,'the cap exists so an orphaned waiter cannot outlive a day');
+ assert.equal(parseWaitArgs(['--kinds','ready']).untilEvent,false);
+ assert.throws(()=>parseWaitArgs(['--until-event','--timeout-seconds','5']),/WAIT_ARGS_INVALID/,'the mode means do not time out');
+ assert.throws(()=>parseWaitArgs(['--until-event','yes']),/WAIT_ARGS_INVALID/,'a boolean flag takes no value');
+});
+test('an event published during the final poll interval is returned, not reported as a timeout',async t=>{
+ const {directory,queue}=await journal(t);
+ // The clock crosses the deadline while the waiter sleeps; the event lands in that same sleep.
+ let clock=0,published:string|undefined;
+ const outcome=await waitForEvent({...parseWaitArgs(['--state-dir',directory]),timeoutSeconds:1,pollMs:250},
+  {now:()=>clock,sleep:async()=>{clock=5000;if(!published)published=(await queue.publish(input())).id;}});
+ assert.equal(outcome.code,0);
+ assert.equal(JSON.parse(outcome.output).status,'event','the last read happens after the last sleep');
+ assert.equal(JSON.parse(outcome.output).event.id,published);
+});
+test('a flag followed by another option is a missing value, never a value that happens to spell an option',()=>{
+ assert.throws(()=>parseWaitArgs(['--kinds','--until-event']),/WAIT_ARGS_INVALID: --kinds needs a value/);
+ assert.throws(()=>parseWaitArgs(['--state-dir','--kinds','ready']),/WAIT_ARGS_INVALID: --state-dir needs a value/);
+});
+test('the reported wake command warns when its entry point does not exist beside the running module',async()=>{
+ // Under tsx this module runs from src/, where no index.js exists; the built server has one.
+ const {wakeCommand}=await import('../src/event-tools.js');
+ const wake=wakeCommand('/tmp/state');
+ assert.match(wake.command[1],/index\.js$/);
+ assert.match(wake.warning??'',/entry point/,'a supervisor must not be handed a path that cannot run');
+});

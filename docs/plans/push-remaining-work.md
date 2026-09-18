@@ -1,6 +1,7 @@
 # Push notification: remaining work
 
-Status: four of five planned sections are implemented and committed. This records
+Status: four of five planned sections are implemented and committed, and §1 is now
+delivered for its two sampled sources (see the note at the top of §1). This records
 what is **not** built, why it was planned, and what is known about it, so the work
 can be picked up without re-deriving it.
 
@@ -9,7 +10,19 @@ event staleness and auto-acknowledge; the `wait-for-event` wake subcommand;
 credential-file re-key of surviving workers. Verified at 212 tests under
 `npm run check`. No live checks were run for any of it.
 
-## 1. Not implemented: an event kind meaning "a person is needed"
+## 1. An event kind meaning "a person is needed"
+
+**Delivered (18 Sep 2026):** sources (1) and (2) below, emitted by `WatchManager`
+with the replace-not-drop, cooldown-exempt and `${status}\0${hash}` dedupe
+behaviour listed under traps; the `worker_stalled_at_prompt` reason in
+`orchestrator.attention`; `attentionMs` on `watch.create`; the skill and docs
+updated. Also delivered alongside: `event.wake_command`, so the supervisor never
+guesses the waiter's path again, and the waiter's `--until-event` mode.
+
+**Still not implemented:** source (3), the worker-asserted claim through the bundled
+notifier. Everything below about claims, `claimAttention`, `delivered:false`, the
+disabled-registration path and the `skills/term-dad-worker/SKILL.md` instruction
+remains open. The original problem statement is kept for context.
 
 The original complaint this addresses: `input_required` only covers the three
 regex-detected prompt shapes in `src/adapters.ts:4-6`. A worker asking a question
@@ -234,9 +247,9 @@ deadlock.
   against the waiter's start. A cooldown-delayed event published after arming but
   stamped earlier would be skipped. Bounded and rare, but it is the one place
   freshness is not purely sequence-based.
-- **Smaller ones:** `parseWaitArgs` lets a repeated flag silently last-win; the
-  wait loop does not read once more after its final sleep, so an event published
-  in that window reports as a timeout; `PushCredentialStore.prepare`'s ownership
+- **Smaller ones:** `parseWaitArgs` lets a repeated flag silently last-win; (the
+  claim that the wait loop skipped a final read after its last sleep was checked on
+  18 Sep and is wrong — a regression test now pins the final read); `PushCredentialStore.prepare`'s ownership
   message is discarded as `(unknown error)`, hiding the most likely real cause of
   a credential failure; and `tests/workers.test.ts`'s "fail before reservation or
   launch" case only exercises `cli:'shell'`, which returns from `launch` early.

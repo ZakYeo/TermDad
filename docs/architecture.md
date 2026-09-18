@@ -126,7 +126,7 @@ rejected. No background journal is created merely by starting the MCP server.
 Only acknowledged events are evicted for space; full pending capacity rejects
 publication explicitly. Ageing `ready` and `inactive` records acknowledge
 themselves after a bounded window so an undrained journal does not reach that
-limit; the expirable set is closed and default-deny, so `input_required`,
+limit; the expirable set is closed and default-deny, so `attention_required`, `input_required`,
 `pane_disappeared`, `session_ended` and unknown kinds are never swept. The sweep decides in a read-only pass and escalates to a write only
 when something has actually aged, so a quiet server still creates no journal. It
 runs inside publication and on an unref'ed bounded timer, never on a read, and
@@ -149,10 +149,15 @@ none; the tool count is unchanged.
 
 It exists because no MCP mechanism re-invokes an idle client session. A detached
 process that blocks on the journal and exits when a matching event lands turns
-*process exit* into the wake, carrying the event metadata with it. Whether a given
-client resumes a session on that exit is the client's property, not this server's,
-and the supervisor skill keeps its existing rule: do not promise a later update
-without a wake-up mechanism you have confirmed.
+*process exit* into the wake, carrying the event metadata with it. `event.wake_command`
+(`src/event-tools.ts`) reports the exact argv from the server's own location and
+runtime, with `--state-dir` and `--until-event` filled in, because the two wrong
+invocations tried in the field — bare `term-dad` and `dist/wait-cli.js` — fail
+silently or with exit 127. `--until-event` keeps waiting through what would have
+been timeouts, bounded only by a fixed 24-hour cap. Whether a given
+client resumes a session on that exit is the client's property, not this server's.
+Claude Code does, and the supervisor skill now states that plainly and forbids
+ending a turn with a busy worker and no pending waiter.
 
 The waiter reads `events.json` directly and **never takes `events.lock`**, unlike
 every in-process reader. Correctness comes from the commit protocol rather than
@@ -223,8 +228,8 @@ rather than by liveness probe — a credential cannot be probed the way a socket
 — and never when that journal could not be read. Two servers attached to the same
 verified GUI still race a re-key, last writer wins, and the loser reports
 `enabled:false` and never becomes `proven`; that is observable rather than
-arbitrated. Kinds are limited to `input_required`, `ready`
-and `session_ended`; summaries are authored by the server, so a worker cannot
+arbitrated. Pushed kinds are limited to `input_required`, `ready`
+and `session_ended` (`attention_required` is only ever derived from a pane sample); summaries are authored by the server, so a worker cannot
 inject event text, and the metadata bound is the same one watches obey. Unknown
 or revoked tokens yield `PUSH_UNAUTHORIZED`; a failed sink yields
 `PUSH_DELIVERY_FAILED` without leaking its cause. `MCP` still exposes no arbitrary
@@ -276,8 +281,12 @@ Events contain only `{kind,paneId,watchId?,agentId?,occurredAt,summary}`, where
 `occurredAt` is ISO and summaries are fixed strings. No titles, terminal output,
 paths, secrets, raw backend errors, IDs for the queue, or acknowledgment metadata
 are generated. The server supplies the queue as the default async sink; standalone
-`WatchManager` instances still allow an optional sink and desktop delivery. Four pending
-kinds per watch coalesce repeated undelivered transitions. Successful destinations
+`WatchManager` instances still allow an optional sink and desktop delivery. Five pending
+kinds per watch coalesce repeated undelivered transitions. `attention_required` is the
+exception on both counts: it is keyed on `status` and output hash rather than the
+interaction request (which no longer exists at a ready prompt), a new key replaces a
+pending request rather than being dropped, and delivery drains it first and outside the
+cooldown. Successful destinations
 are tracked independently so one failed destination does not repeat another.
 
 `registerWatchTools` isolates schemas and registration from `server.ts`, returns

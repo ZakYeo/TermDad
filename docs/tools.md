@@ -129,6 +129,7 @@ watch tools and three event tools.
 | `event.list` | Optional filters below; `includeAcknowledged` (default false), `limit` (1–1000, default 100) | `events` in ascending sequence order, `hasMore`, global `pendingCount`, `capacity`, `storageWarning` |
 | `event.acknowledge` | `ids`: 1–100 UUID event IDs | Retained matching `events` with acknowledgment timestamps, plus `unknownIds` |
 | `event.wait_for_event` | Optional filters; `timeoutMs` (1–120000, default 30000); `freshOnly` (default true) | `{status:"event",event}` or `{status:"timeout"}`, `{status:"cancelled"}`, `{status:"closed"}` |
+| `event.wake_command` | none | `command` (argv of the bundled waiter), `stateDir`, `kinds`, and a runnable `example`; read-only |
 
 Filters are `paneIds`, `agentIds`, `watchIds`, `kinds` (each 1–64 values),
 `afterSequence` (exclusive), `notBefore` (ISO, compared against `occurredAt`) and
@@ -161,8 +162,8 @@ that has been evicted is reported in `unknownIds` without modifying the journal.
 
 `ready` and `inactive` entries older than the auto-acknowledge window (default 15
 minutes) acknowledge themselves, so a journal nobody drains does not grow until it
-rejects publication. That set is closed and default-deny: `input_required`,
-`pane_disappeared`, `session_ended` and any unrecognised kind never expire,
+rejects publication. That set is closed and default-deny: `attention_required`,
+`input_required`, `pane_disappeared`, `session_ended` and any unrecognised kind never expire,
 because a request for a person or a lost pane must not vanish on a timer. The set
 is default-deny, so a kind added later is never swept unless it is added to it. Expiry runs inside `event.list`-free write paths — a publication, an
 acknowledgment, or a bounded background pass — never on a read, and an
@@ -190,19 +191,29 @@ See [architecture](architecture.md#durable-event-journal) for crash recovery.
 
 `event.wait_for_event` can only finish a call the supervisor is already inside; it
 cannot start one. To be woken while idle, run the bundled subcommand as a detached
-background process and let **its exit** be the wake:
+background process and let **its exit** be the wake. Ask the server for the exact
+command with `event.wake_command`; its `example` is the canonical form:
 
 ```sh
-term-dad wait-for-event --kinds input_required,pane_disappeared,session_ended \
-                        --timeout-seconds 900
+<node> <install>/dist/index.js wait-for-event --until-event --state-dir <stateDir> \
+    --kinds attention_required,input_required,ready,pane_disappeared,session_ended
 ```
+
+Two invocations seen in the field do not work and must not be used: bare
+`term-dad …` is not on PATH unless the package was installed globally (exit 127),
+and `node dist/wait-cli.js …` loads a module with no entry point and exits at once
+with nothing on stdout. The only entry point is `dist/index.js`. The server reports
+`--state-dir` explicitly because the waiter resolves its default from *its own*
+environment, so a `TERM_DAD_STATE_DIR` set only in the MCP configuration would
+otherwise point the waiter at the wrong journal.
 
 | Option | Meaning |
 | --- | --- |
 | `--kinds`, `--agents`, `--panes`, `--watches` | comma-separated filters, combined with AND exactly as `event.list` does |
 | `--after-sequence N` | resume from a known sequence; this is also the deliberate history drain (`--after-sequence 0`) |
 | `--max-age-seconds N` | ignore events older than this window |
-| `--timeout-seconds N` | 1–86400, default 1800 |
+| `--timeout-seconds N` | 1–86400, default 1800; incompatible with `--until-event` |
+| `--until-event` | re-arm mode: never reports a timeout short of a fixed 24-hour cap, so the process exits only for a matching event, the cap, or an unreadable journal |
 | `--poll-ms N` | 250–60000, default 2000 |
 | `--state-dir PATH` | defaults to the usual state directory |
 
@@ -210,7 +221,11 @@ It writes exactly one JSON line to stdout — `{"status":"event","event":{…}}`
 `{"status":"timeout"}` — and every diagnostic to stderr. Exit codes are `0` for
 both of those outcomes, `2` for a usage error and `4` for an unreadable journal:
 a timeout is a successful outcome of a bounded wait, not a failed job, and it
-means *re-arm*, not that nothing happened. Read `status`, not the exit code.
+means *re-arm*, not that nothing happened. Read `status`, not the exit code. With
+`--until-event` the waiter re-arms itself, so a wake is an actionable event unless
+the 24-hour cap expired; the cap exists only so an orphaned waiter cannot live
+forever. The journal is read once more after the final poll interval, so an event
+landing during that interval is returned rather than reported as a timeout.
 
 Like every other reader it is **fresh by default** and never fires on a backlog,
 and it **acknowledges nothing** — handle the event, then `event.acknowledge` it.
@@ -297,7 +312,7 @@ A hook connects to a per-server Unix socket in the state directory
 (`push.<pid>.sock`, mode 0600, one per server process so servers under different
 MCP clients never contend) and sends one bounded JSON line,
 `{"token":…,"kind":…}`. Only `input_required`, `ready` and `session_ended` are
-accepted, and only the token and kind are trusted: summaries are authored by the
+accepted (`attention_required` is derived from pane samples only, never pushed), and only the token and kind are trusted: summaries are authored by the
 server, so a worker cannot inject event text. An unknown or revoked token is
 rejected with `PUSH_UNAUTHORIZED`. Tokens are per worker, minted at spawn or at a
 re-key, held in memory and in that worker's owner-only credential file, and
@@ -327,8 +342,9 @@ a turn ended, never that a task succeeded.
   `pollMs`: 500–60,000 (default 2,000); `pushPollMs`: 1,000–3,600,000
   (default 30,000), used only while the watched worker can actually deliver its
   own events (registered, enabled, and this server's socket bound);
-  `inactivityMs`: 1,000–3,600,000 (default 60,000); `cooldownMs`: 0–3,600,000
-  (default 10,000).
+  `inactivityMs`: 1,000–3,600,000 (default 60,000); `attentionMs`: 1,000–3,600,000
+  (default 120,000), how long a pane may sit at a ready prompt with unchanged
+  output before it asks for a person; `cooldownMs`: 0–3,600,000 (default 10,000).
   `notify`: default false; true requires a configured desktop provider.
 - `watch.list`: configurations, last classified status, last metadata-only event,
   pending event count, disappearance flag, and safe observation/delivery errors.
@@ -339,13 +355,28 @@ Create validates pane existence and establishes a baseline. Initial prompt readi
 is suppressed; an initial permission/question screen does produce `input_required`.
 `ready` means return to a recognized prompt, **not task success**. `inactive` means
 unchanged bounded text, **not task success**, and fires once per quiet episode,
-reset by changed text. `pane_disappeared` requires a successful pane listing;
+reset by changed text. `attention_required` means **a person is needed**: the pane
+shows a recognised permission, login or menu prompt, or it has sat at a ready
+prompt with unchanged output for `attentionMs` — the prose-question case no prompt
+regex can see. A recognised prompt therefore emits both `input_required` and
+`attention_required`. Both sources require one poll of unchanged output, because
+the prompt classifier wins over the working one and a question still on screen
+while the worker streams would otherwise ask again on every redraw. It fires once
+per stable prompt screen (keyed on status and output hash): a changed screen
+replaces an undelivered request instead of queueing a second, a new stable screen
+at a prompt asks once more, and the key clears when the pane works again. On a
+push-backed watch the pane is sampled only every `pushPollMs`, so the stall is
+noticed within `attentionMs` plus one liveness interval. A worker left at a ready
+prompt with nothing to do asks for a person too: remove the watch of a finished
+worker, or expect that wake. It is never auto-acknowledged. `pane_disappeared` requires a successful pane listing;
 backend errors preserve the watch and retry. Disappeared watches remain listed
 until removed, including pending deliveries. Maximum 64 watches per server.
 
 Cooldown spaces successful event deliveries per watch. Transitions queue while
-cooling down; repeated pending events of the same kind coalesce (maximum four
-pending kinds per watch). Delivery failures remain visible and retry on later
+cooling down; repeated pending events of the same kind coalesce (maximum five
+pending kinds per watch). `attention_required` is exempt: it is delivered ahead of
+the other kinds on the same pass and is never held by the cooldown, because it is
+the one signal that exists to stop a human waiting. Delivery failures remain visible and retry on later
 polls; a successful sink is not called again just because desktop delivery failed.
 An external sink which accepts an event and then rejects can still cause duplicate
 publication on retry; sinks should resolve after acceptance. Removal drops pending
@@ -576,7 +607,7 @@ The response contains:
 
 | Category | Meaning |
 | --- | --- |
-| `needs_decision` | Required or uncertain input, explicit blockers, unsuccessful reports, failed/inconclusive verification, passed verification awaiting completion, assignment/worker problems, or a matching ready turn missing its report |
+| `needs_decision` | Required or uncertain input, a worker stalled at a ready prompt (`worker_stalled_at_prompt`: unchanged output for two minutes, the same threshold as the watch default `attentionMs`), explicit blockers, unsuccessful reports, failed/inconclusive verification, passed verification awaiting completion, assignment/worker problems, or a matching ready turn missing its report |
 | `awaiting_verification` | A current successful report whose verification is unverified or stale |
 | `ready_to_dispatch` | An unarchived, unblocked todo task; worker constraints are separate |
 | `waiting_on_dependencies` | Active work with unfinished dependencies |
@@ -587,7 +618,8 @@ assignment, attempt/report references, verification status, blocker count, and
 unresolved dependency IDs. Fetch `task.get` or `task.history` for full details.
 `dispatchConstraints` exposes unassigned/unavailable workers, input requests,
 uncertain delivery, lack of readiness, and another in-progress task assigned to
-the same worker. These are informational checks, not an atomic reservation.
+the same worker. `worker_stalled_at_prompt` is deliberately excluded: an idle
+worker is the ideal dispatch target, so its stall is a reason, not a constraint. These are informational checks, not an atomic reservation.
 
 Worker summaries include `observedAt`, `observationAgeMs`, `outputInactiveMs`,
 status, input request metadata, turn association, delivery uncertainty, and

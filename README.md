@@ -262,7 +262,7 @@ push.status({})
 `agent.spawn` injects the hook plumbing at launch, so enabling push never needs a
 relaunch, and the hooks record nothing while push is disabled. Hooks reach the
 server over a per-process Unix socket in the state directory (mode 0600, no
-network listener) and may send only a token and one of three event kinds; event
+network listener) and may send only a token and one of three pushed event kinds; event
 text is authored by the server. A worker's argv carries the path of a private
 credential file rather than the credentials, so a supervisor restart re-keys a
 surviving worker instead of orphaning it. Shell workers have no hook surface and always
@@ -271,9 +271,10 @@ poll.
 `push.status` separates intent from evidence: `enabled` is only this server's
 willingness to accept a push, while `proven` means a hook has actually fired.
 Enabling a channel that cannot deliver fails explicitly rather than reporting
-success. To be woken while idle rather than polling, run
-`term-dad wait-for-event` as a detached background process and let its exit be
-the wake. See [worker-pushed events](docs/tools.md#worker-pushed-events) and
+success. To be woken while idle rather than polling, call `event.wake_command`
+and run its `example` as a detached background process; its exit is the wake.
+`attention_required` fires when a worker needs a person, including a question
+asked in prose at a ready prompt. See [worker-pushed events](docs/tools.md#worker-pushed-events) and
 [waking an idle supervisor](docs/tools.md#waking-an-idle-supervisor).
 
 ## Development and tests

@@ -4,6 +4,8 @@ import type { TaskBoard } from './tasks.js';
 export type TaskSnapshot=Awaited<ReturnType<TaskBoard['snapshot']>>;
 export type WorkerSnapshot=Awaited<ReturnType<Agents['snapshot']>>;
 type Task=TaskSnapshot['tasks'][number];
+/** A ready prompt whose output has not changed for this long is a worker waiting on a person, not one ready to dispatch. Matches the watch default `attentionMs`. */
+export const stalledAtPromptMs=120000;
 export const categories=['needs_decision','awaiting_verification','ready_to_dispatch','waiting_on_dependencies','in_progress'] as const;
 export type Category=typeof categories[number];
 export interface WorkerStatus {
@@ -48,6 +50,7 @@ function unavailableWorker(agentId:string,available:boolean):WorkerStatus {
 function workerReasons(worker:WorkerStatus):string[]{
  return [...(worker.availability!=='attached'?[`worker_${worker.availability}`]:[]),
   ...(worker.inputRequired?[`input_${worker.inputRequest?.kind??'required'}`]:[]),
+  ...(worker.readyForPrompt&&worker.outputInactiveMs!==null&&worker.outputInactiveMs>=stalledAtPromptMs?['worker_stalled_at_prompt']:[]),
   ...(worker.inputRequest?.state==='uncertain'?['input_request_uncertain']:[]),
   ...(worker.deliveryPending?['delivery_uncertain']:[]),
   ...(worker.status==='UNKNOWN'?['worker_state_unknown']:[]),...(worker.status==='ERROR'?['worker_error']:[])];
@@ -59,7 +62,7 @@ function actions(reasons:string[]):string[]{
   if(reason==='verification_passed')return 'complete_task';
   if(reason==='report_needs_verification')return 'verify_report';
   if(reason.startsWith('report_')||reason.startsWith('verification_'))return 'review_result';
-  if(reason==='ready_without_report')return 'inspect_worker_and_record_result';
+  if(reason==='ready_without_report'||reason==='worker_stalled_at_prompt')return 'inspect_worker_and_record_result';
   if(reason.startsWith('input_'))return 'inspect_input_request';
   return 'inspect_worker';
  }))];
@@ -83,7 +86,8 @@ export function projectAttention(tasks:TaskSnapshot|null,workers:WorkerStatus[]|
   if(task.ready)groups.push('ready_to_dispatch');
   if(task.unresolvedDependencyIds.length)groups.push('waiting_on_dependencies');
   if(task.status==='in_progress')groups.push('in_progress');
-  const constraints=[...(!worker?['unassigned']:workerReasons(worker)),
+  // An idle worker is the ideal dispatch target: its stall needs a decision but never blocks dispatch.
+  const constraints=[...(!worker?['unassigned']:workerReasons(worker).filter(r=>r!=='worker_stalled_at_prompt')),
    ...(worker&&!worker.readyForPrompt?['worker_not_ready']:[]),
    ...(worker&&active.some(t=>t.id!==task.id&&t.assignedAgentId===worker.agentId&&t.status==='in_progress')?['worker_has_active_task']:[])];
   return {kind:'task',id:task.id,boardId:task.boardId,title:task.title,revision:task.revision,priority:task.priority,createdAt:task.createdAt,

@@ -48,11 +48,26 @@ work without waiting, keep the supervisor turn active until the result has been
 reviewed and reported here, or a blocker requires user input. A successful send
 is not the end of the assignment.
 
+Before ending any turn, check every worker. If any worker is not idle with its
+result reviewed and reported, a waiter must be pending when the turn ends. Never
+end a turn with a busy worker and no pending waiter. Never write "ping me", "nudge
+me", "I'll go quiet", "I'll check back", or any promise of a later update unless a
+waiter is pending; the pending waiter is the only valid form of that promise. A
+waiter that has exited is not pending: on every wake, handle the event,
+`event.acknowledge` it, and arm the next waiter before writing the report. A wait
+you are inside — `agent.wait_for_outcome` or `event.wait_for_event` — counts only
+until it returns; if you are about to end the turn, the detached waiter is what
+counts.
+
 Create or reuse a worker watch before dispatch and retain the returned turn ID.
-Use `agent.wait_for_outcome` for that turn, or `event.wait_for_event` filtered to
-the relevant workers when coordinating several. Use bounded waits of at most
-60 seconds, provide concise progress updates, and continue after timeouts.
-Inspect the worker's output on readiness, inactivity, or input-required events.
+The watch is the only surface that samples the pane, so an unwatched worker can
+never wake you. Use `agent.wait_for_outcome` for that turn, or
+`event.wait_for_event` filtered to the relevant workers when coordinating several.
+Use bounded waits of at most 60 seconds, provide concise progress updates, and
+continue after timeouts. Inspect the worker's output on readiness, inactivity,
+input-required or attention-required events. `watch.create` accepts `attentionMs`
+(default two minutes): how long a worker may sit at a ready prompt with unchanged
+output before the watch asks for a person.
 Waits are fresh by default, so a pending backlog can no longer satisfy one and
 acknowledging is no longer how you keep waits usable: acknowledge because you have
 handled something. Pass `freshOnly:false` only to read history deliberately.
@@ -85,26 +100,37 @@ worker or losing its context. Do not kill a surviving worker to restore push.
 
 Watches record events; recording one does not by itself resume this conversation.
 To be woken while idle, launch the bundled waiter as a detached background process
-before ending a turn with work outstanding, and let its exit be the wake:
+before ending the turn, and let its exit be the wake. There is exactly one entry
+point, and the server names it: call `event.wake_command` once per session and run
+its `example` verbatim as a background command. The `--kinds` list is the only part
+you may edit; do not retype or shorten the path or drop `--state-dir`.
+Bare `term-dad` is not on PATH and exits 127; `dist/wait-cli.js` is a module, not
+an entry point, and exits at once with nothing on stdout. A waiter that exits with
+no JSON line, or with a non-zero code, is a broken arm, not a wake: fix it before
+doing anything else.
 
-```sh
-term-dad wait-for-event --kinds input_required,pane_disappeared,session_ended \
-                        --timeout-seconds 900
-```
+The waiter prints one JSON line and exits. `{"status":"event","event":{…}}`
+carries the event that woke you; `{"status":"timeout"}` means **re-arm**, not that
+nothing happened. Read `status`, never the exit code. The reported command uses
+`--until-event`, so the waiter re-arms itself through what would have been
+timeouts and a wake is an actionable event unless its 24-hour cap expired. On
+waking, read the waiter's output, inspect the worker, handle the outcome,
+`event.acknowledge` what you handled, and arm the next waiter before you report.
 
-It prints one JSON line and exits: `{"status":"event","event":{…}}` carries the
-event that woke you, and `{"status":"timeout"}` means **re-arm**, not that nothing
-happened. Read `status`, never the exit code. On waking, inspect the worker,
-handle the outcome, `event.acknowledge` what you handled, and arm the next waiter.
-Filter to the kinds that need a person; subscribing to `ready` or `inactive` wakes
-you at every turn end and throughout every long test run. `input_required` is
-currently the closest signal for "a person is needed", and it covers only
-recognised permission, login and menu prompts — a worker asking a question in
-prose still emits `ready`, so waking on a prose question is not yet available.
+`attention_required` means a person is needed. It fires for a recognised
+permission, login or menu prompt, and for a worker left at a ready prompt with
+unchanged output for `attentionMs`, which is how a question asked in prose or a
+plan awaiting approval reaches you. It is never auto-acknowledged. A worker whose
+result you have accepted but whose watch you left in place also asks for a person
+once it has sat idle for `attentionMs`, so remove the watch when you accept the
+result. Keep `ready` in the filter while you are waiting for a turn to finish; drop
+it only for a long unattended run, where it wakes you at every turn end. `inactive`
+fires throughout every long test run and belongs in no wake filter.
 
-Whether a client resumes a session when a background process exits is a property
-of that client. Confirm it in your own environment before promising a later
-update, and keep reporting in this conversation rather than relying on desktop
+Claude Code resumes this session when a background command exits; that exit is the
+wake. Do not claim to be unable to wake yourself. If a client does not resume on
+exit, say so plainly and ask the user how they want updates rather than promising
+one. Keep reporting in this conversation rather than relying on desktop
 notifications, which are separate.
 
 When a worker finishes, inspect its actual result and verification evidence, then
