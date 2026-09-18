@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { connect } from 'node:net';
+import { pathToFileURL } from 'node:url';
 import { pushKinds, type PushKind } from './ingress.js';
 import { readCredential } from './push-credentials.js';
 
@@ -94,7 +95,8 @@ export function sendPush(socketPath: string, line: string, timeoutMs = 5000) {
   });
 }
 
-if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
+// pathToFileURL, not string concatenation: a path with a space or a percent sign must still match.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const stdin = process.stdin.isTTY
     ? ''
     : await new Promise<string>((resolve) => {

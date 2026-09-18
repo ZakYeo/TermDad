@@ -176,8 +176,8 @@ mid-transaction would leave `events.lock` behind and fail every later
 `events.publish`, including the push ingress sink. It also cannot contend with a
 publisher. It validates with the same state schema, enforces the same owner-only
 and size bounds, treats an absent journal as "nothing yet", and retries a read
-that fails mid-rename; a journal that stays invalid for the whole timeout is
-reported as a storage failure rather than as a timeout.
+that fails mid-rename; a journal that fails to parse cannot be a torn read, so it
+is reported at once as a storage failure (exit 4) rather than waited out.
 
 Freshness uses the same sequence baseline as the MCP wait. A waiter that arms
 before any journal exists baselines at zero, so the first event ever published

@@ -101,3 +101,24 @@ test('an unreadable credential fails explicitly and leaves the worker unaffected
   const request = notifyRequest(['--credential', absent, '--kind', 'ready'], '')!;
   await assert.rejects(resolveRequest(request), /PUSH_CREDENTIAL_UNREADABLE/);
 });
+test('the built notifier runs its entry point from an install path containing a space and a percent sign', async (t) => {
+  // Requires a current dist/ build, like the protocol tests. The main-module guard compares
+  // URLs, and a path with characters that need percent-encoding must still match.
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const { cp, symlink } = await import('node:fs/promises');
+  const { fileURLToPath } = await import('node:url');
+  const root = await mkdtemp(join(tmpdir(), 'term-dad-notify-entry-')),
+    install = join(root, 'odd dir %20');
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const repo = fileURLToPath(new URL('..', import.meta.url));
+  await cp(join(repo, 'dist'), join(install, 'dist'), { recursive: true });
+  await symlink(join(repo, 'node_modules'), join(install, 'node_modules'));
+  const { stdout, stderr } = await promisify(execFile)(
+    process.execPath,
+    [join(install, 'dist', 'term-dad-notify.js'), '--credential', join(root, 'missing.json'), '--kind', 'ready'],
+    { timeout: 10000 },
+  );
+  assert.equal(stdout, '');
+  assert.match(stderr, /PUSH_CREDENTIAL_UNREADABLE/);
+});
