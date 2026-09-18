@@ -12,7 +12,15 @@ export const hashOutput=(text:string)=>createHash('sha256').update(text).digest(
 export function normalizeScreen(text:string){return text.split('\n').map(l=>l.trimEnd()).join('\n').replace(/\n{3,}/g,'\n\n').trimEnd();}
 export function tail(text:string,lines:number){const all=text.split('\n');return {text:all.slice(-lines).join('\n'),linesOmitted:Math.max(0,all.length-lines)};}
 const linesSchema=z.number().int().min(1).max(150).default(20);
-export function delta(previous:string,current:string){if(previous===current)return {mode:'unchanged',text:''};if(current.startsWith(previous))return {mode:'append',text:current.slice(previous.length)};return {mode:'replace',text:current};}
+/** A terminal scrolls: the new screen starts with the tail of the old one. Only the lines after that overlap are new. */
+export function delta(previous:string,current:string){
+ if(previous===current)return {mode:'unchanged',text:''};
+ if(current.startsWith(previous))return {mode:'append',text:current.slice(previous.length)};
+ const before=previous.split('\n'),after=current.split('\n');
+ for(let overlap=Math.min(before.length,after.length);overlap>0;overlap--)
+  if(before.slice(before.length-overlap).join('\n')===after.slice(0,overlap).join('\n'))return {mode:'append',text:after.slice(overlap).join('\n')};
+ return {mode:'replace',text:current};
+}
 type Observation={id:string;text:string;status:Status};
 type Sample=Awaited<ReturnType<Agents['sample']>>;
 export interface Agent extends Omit<WorkerRecord,'paneId'>,InteractionState {paneId:number;lastOutputAt:number;outputHash:string;recentText:string;status:Status;history:Observation[];}
@@ -235,8 +243,8 @@ export class Agents {
  async requireAttachment(agentId:string){const w=await this.lookup(agentId);if(!this.attached(w,await this.identity()))throw new Error('WORKER_DETACHED');return w;}
  async reconcileClosed(paneId:number){const w=await this.findByPane(paneId);if(w)await this.run(()=>this.locked(w.agentId,async current=>{await this.checked(current);})).catch(e=>{if(!(e instanceof Error&&e.message.includes('disappeared')))throw e;});}
  wait(agentId:string,predicate:(o:Awaited<ReturnType<Agents['observe']>>)=>boolean,timeoutMs=30000){return this.run(async()=>{const deadline=Date.now()+timeoutMs;let last;do{const sample=await this.locked(agentId,w=>this.sample(w));last=this.present(sample,undefined,150);if(predicate(last))return this.present(sample,undefined,linesSchema.parse(undefined));if(Date.now()>=deadline)break;await new Promise(r=>setTimeout(r,Math.min(250,deadline-Date.now())));}while(Date.now()<=deadline);throw new Error(`Timed out waiting for ${agentId}; last status ${last?.status}`);});}
- waitForOutcome(agentId:string,turnId:string,timeoutMs=30000,quietMs?:number,signal?:AbortSignal){return this.run(async()=>{
-  z.uuid().parse(turnId);z.number().int().min(1).max(120000).parse(timeoutMs);
+ waitForOutcome(agentId:string,turnId:string,timeoutMs=30000,quietMs?:number,signal?:AbortSignal,view:{since?:string;lines?:number}={}){return this.run(async()=>{
+  z.uuid().parse(turnId);const lines=linesSchema.parse(view.lines);z.number().int().min(1).max(120000).parse(timeoutMs);
   if(quietMs!==undefined)z.number().int().min(1000).max(3600000).parse(quietMs);
   const binding=await this.lookup(agentId),deadline=Date.now()+timeoutMs;
   const assertTurn=(w:WorkerRecord)=>{
@@ -245,31 +253,34 @@ export class Agents {
    if(w.deliveryPending)throw new Error('WORKER_DELIVERY_UNCERTAIN');
   };
   assertTurn(binding);
-  let last:Awaited<ReturnType<Agents['observe']>>|undefined;
+  // Pin the caller's baseline now: polling pushes more than 16 observations through the history.
+  const base=view.since?this.records.get(binding.agentId)?.history.find(h=>h.id===view.since)?.text:undefined;
+  let last:Sample|undefined;const shown=()=>last?this.present(last,view.since,lines,base):null;
   do{
    if(signal?.aborted)throw new Error('WORKER_WAIT_CANCELLED');
    if(this.closed)throw new Error('WORKER_CLOSED');
    const current=await this.resolveOptional(binding.agentId);
    if(!current){
-    if(!await this.bindingPaneExists(binding))return {reason:'worker_disappeared',lastObservation:last??null};
+    if(!await this.bindingPaneExists(binding))return {reason:'worker_disappeared',lastObservation:shown()};
     throw new Error('WORKER_NO_LONGER_MANAGED');
    }
    assertTurn(current);
-   try{last=await this.observe(binding.agentId);}
+   try{last=await this.locked(binding.agentId,w=>this.sample(w));}
    catch(e){
-    if(e instanceof Error&&e.message.includes('disappeared')&&!await this.bindingPaneExists(binding))return {reason:'worker_disappeared',lastObservation:last??null};
+    if(e instanceof Error&&e.message.includes('disappeared')&&!await this.bindingPaneExists(binding))return {reason:'worker_disappeared',lastObservation:shown()};
     throw e;
    }
    // Input and reattachment can interleave between observations; do not answer for a newer turn.
    const after=await this.resolveOptional(binding.agentId);if(after)assertTurn(after);else continue;
-   if(last.turnId!==turnId)throw new Error('WORKER_TURN_SUPERSEDED');
-   if(last.inputRequired)return {reason:'input_required',lastObservation:last};
-   if(last.readyForPrompt)return {reason:'turn_finished',provenance:'heuristic',lastObservation:last};
-   if(quietMs!==undefined&&Date.now()-Math.max(last.lastOutputAt,last.lastInputAt??0)>=quietMs)return {reason:'output_quiet',lastObservation:last};
+   const o=last.observation;
+   if(o.turnId!==turnId)throw new Error('WORKER_TURN_SUPERSEDED');
+   if(o.inputRequired)return {reason:'input_required',lastObservation:shown()};
+   if(o.readyForPrompt)return {reason:'turn_finished',provenance:'heuristic',lastObservation:shown()};
+   if(quietMs!==undefined&&Date.now()-Math.max(o.lastOutputAt,o.lastInputAt??0)>=quietMs)return {reason:'output_quiet',lastObservation:shown()};
    if(Date.now()>=deadline)break;
    await new Promise(r=>setTimeout(r,Math.min(250,Math.max(0,deadline-Date.now()))));
   }while(Date.now()<=deadline);
-  return {reason:'timeout',lastObservation:last??null};
+  return {reason:'timeout',lastObservation:shown()};
  });}
  /** Board view: every observation field except the screen text, so polling all workers stays cheap. */
  async summaries(){return (await this.snapshot()).map(entry=>{if(!('recentText' in entry))return entry;const {recentText,outputMode,linesOmitted,...summary}=entry;return summary;});}

@@ -101,3 +101,10 @@ test('orchestrator.status summarises attached workers without screen text',async
  for(const key of ['recentText','outputMode','linesOmitted'])assert.ok(!(key in summary),`${key} should be absent`);
  assert.ok('recentText' in (await f.call('agent.collect_results'))[0]);
 });
+test('agent.wait_for_outcome accepts since and lines',async t=>{
+ const directory=await mkdtemp(join(tmpdir(),'term-dad-wait-since-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+ const f=await connect(directory,true);t.after(()=>f.client.close());
+ const worker=await f.call('agent.spawn',{name:'worker',cli:'codex'}),base=await f.call('agent.observe',{agentId:'worker'}),sent=await f.call('agent.send',{agentId:'worker',text:'task'});
+ const outcome=await f.call('agent.wait_for_outcome',{agentId:worker.agentId,turnId:sent.turnId,timeoutMs:1,since:base.observationId,lines:1});
+ assert.equal(outcome.reason,'timeout');assert.equal(outcome.lastObservation.previousObservationId,base.observationId);assert.equal(outcome.lastObservation.outputMode,'unchanged');assert.equal(outcome.lastObservation.linesOmitted,0);
+});

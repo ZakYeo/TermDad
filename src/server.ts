@@ -71,8 +71,8 @@ export function createServer(backend:TerminalBackend=new WezTermBackend(),screen
  for(const name of ['observe','status'])register(`agent.${name}`,'Observe state, activity and the tail of normalized output (20 lines by default). Pass since to get only the change since that observation; raise lines only when a screen is actually needed.',{...agent,since:z.string().optional(),lines:z.number().int().min(1).max(150).default(20)},a=>agents.observe(a.agentId,a.since,a.lines));
  register('agent.interrupt','Send Ctrl+C to worker.',agent,a=>agents.interrupt(a.agentId));
  register('agent.stop','Close worker pane and remove mapping.',agent,a=>agents.stop(a.agentId));
- server.registerTool('agent.wait_for_outcome',{description:'Wait for required input, heuristic turn completion, optional quiet output, disappearance or timeout. Never verifies task success.',inputSchema:{...agent,turnId:z.uuid(),...wait,quietMs:z.number().int().min(1000).max(3600000).optional()}},async(a,extra)=>{
-  try{return {content:[{type:'text' as const,text:JSON.stringify(await agents.waitForOutcome(a.agentId,a.turnId,a.timeoutMs,a.quietMs,extra.signal))}]};}
+ server.registerTool('agent.wait_for_outcome',{description:'Wait for required input, heuristic turn completion, optional quiet output, disappearance or timeout. Never verifies task success. lastObservation carries the change since `since` when given, capped to `lines`.',inputSchema:{...agent,turnId:z.uuid(),...wait,quietMs:z.number().int().min(1000).max(3600000).optional(),since:z.string().optional(),lines:z.number().int().min(1).max(150).default(20)}},async(a,extra)=>{
+  try{return {content:[{type:'text' as const,text:JSON.stringify(await agents.waitForOutcome(a.agentId,a.turnId,a.timeoutMs,a.quietMs,extra.signal,{since:a.since,lines:a.lines}))}]};}
   catch(e){return {isError:true,content:[{type:'text' as const,text:e instanceof Error?e.message:'Worker wait failed'}]};}
  });
  register('agent.wait_for_text','Wait for literal text in recent output.',{...agent,text:z.string().min(1),...wait},a=>agents.wait(a.agentId,o=>o.recentText.includes(a.text),a.timeoutMs));
