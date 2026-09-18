@@ -194,3 +194,8 @@ test('a prompt whose screen is still changing asks for a person once it is stabl
  await f.tick();await f.tick();assert.equal(f.events.filter(e=>e.kind==='attention_required').length,2);
  await f.watches.dispose();
 });
+test('an unmanaged pane whose padding changes is not activity, so its quiet episode still fires',async()=>{
+ const f=fixture();f.setText('secret output\n› ');await f.watches.create(config);await f.tick();
+ f.setText('secret output     \n›   ');await f.tick();await f.tick();
+ assert.deepEqual(f.events.map(e=>e.kind),['inactive']);
+});

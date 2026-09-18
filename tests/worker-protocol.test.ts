@@ -32,3 +32,10 @@ test('separate MCP processes recover, share conflicts and input guards, and expo
  assert.equal((await other.raw('agent.stop',{agentId:'worker'})).isError,true);
  await second.call('agent.forget',{agentId:'worker'});assert.deepEqual(await third.call('agent.list'),[]);
 });
+test('agent.observe and agent.status accept a lines cap and report omitted lines',async t=>{
+ const dir=await mkdtemp(join(tmpdir(),'term-dad-worker-lines-'));t.after(()=>rm(dir,{recursive:true,force:true}));
+ const f=await connect(dir);t.after(()=>f.client.close());
+ await f.call('agent.spawn',{name:'worker',cli:'codex'});
+ const one=await f.call('agent.status',{agentId:'worker',lines:1});assert.equal(one.recentText,'› Explain this codebase');assert.equal(one.linesOmitted,1);
+ assert.equal((await f.raw('agent.observe',{agentId:'worker',lines:0})).isError,true);
+});

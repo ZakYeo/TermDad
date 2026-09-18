@@ -8,8 +8,13 @@ import { type TerminalBackend,type SpawnOptions,spawnSchema,submit,sendKeys,id }
 import type { WorkerPush } from './push-workers.js';
 import { MemoryWorkerStorage,newWorker,workerSchema,type WorkerStorage,type WorkerRecord,type TerminalInstance } from './worker-storage.js';
 export const hashOutput=(text:string)=>createHash('sha256').update(text).digest('hex');
+/** Screen text as the caller should see it: no per-line padding to the pane width, no runs of blank lines. */
+export function normalizeScreen(text:string){return text.split('\n').map(l=>l.trimEnd()).join('\n').replace(/\n{3,}/g,'\n\n').trimEnd();}
+export function tail(text:string,lines:number){const all=text.split('\n');return {text:all.slice(-lines).join('\n'),linesOmitted:Math.max(0,all.length-lines)};}
+const linesSchema=z.number().int().min(1).max(150).default(20);
 export function delta(previous:string,current:string){if(previous===current)return {mode:'unchanged',text:''};if(current.startsWith(previous))return {mode:'append',text:current.slice(previous.length)};return {mode:'replace',text:current};}
 type Observation={id:string;text:string;status:Status};
+type Sample=Awaited<ReturnType<Agents['sample']>>;
 export interface Agent extends Omit<WorkerRecord,'paneId'>,InteractionState {paneId:number;lastOutputAt:number;outputHash:string;recentText:string;status:Status;history:Observation[];}
 const sameInstance=(a:TerminalInstance|null,b:TerminalInstance|null)=>a!==null&&b!==null&&a.key===b.key&&a.endpoint===b.endpoint;
 export const adoptionSchema=z.object({name:workerSchema.shape.name,paneId:id,cli:workerSchema.shape.cli,workerSkillInitialized:z.boolean().optional()}).strict();
@@ -173,18 +178,28 @@ export class Agents {
   }
   return result;
  });}
- observe(agentId:string,since?:string){return this.run(()=>this.locked(agentId,async w=>{
+ private async screen(paneId:number){return normalizeScreen((await this.backend.read(paneId,150)).slice(-24000));}
+ private async sample(w:WorkerRecord){
   const {a,pane}=await this.checked(w);
-  const text=(await this.backend.read(a.paneId,150)).slice(-24000),hash=hashOutput(text),changed=hash!==a.outputHash;
+  const text=await this.screen(a.paneId),hash=hashOutput(text),changed=hash!==a.outputHash;
   if(changed)a.lastOutputAt=Date.now();a.outputHash=hash;a.recentText=text;a.status=adapters[a.cli].classify(text);
   const classifiedStatus=a.status;
   if((a.deliveryPending||(a.lastInputAt&&(Date.now()-a.lastInputAt<750||hash===a.inputOutputHash)))&&a.status==='READY_FOR_PROMPT')a.status='WORKING';
   // A guarded stale prompt is not observed progress and must not resolve input requests.
   const interaction=observeInteraction(a,a.status==='WORKING'&&classifiedStatus==='READY_FOR_PROMPT'?'UNKNOWN':a.status,text,a.turn?.id??null);
-  const previous=since?a.history.find(h=>h.id===since):undefined,observationId=randomUUID(),output=previous?delta(previous.text,text):{mode:'replace',text};
+  const observationId=randomUUID(),history=[...a.history];
   a.history.push({id:observationId,text,status:a.status});if(a.history.length>16)a.history.shift();
-  return {agentId:a.agentId,name:a.name,paneId:a.paneId,observedAt:new Date().toISOString(),bindingRevision:a.revision,observationId,...interaction,turnId:a.turn?.id??null,attempt:a.turn?.attempt??null,previousObservationId:since,deltaReset:!!since&&!previous,status:a.status,activity:changed?'changed':'unchanged',lastActivitySecondsAgo:(Date.now()-a.lastOutputAt)/1000,lastInputAt:a.lastInputAt,lastOutputAt:a.lastOutputAt,outputHash:hash,cwd:pane.cwd,process:pane.foreground_process_name??null,awaitingInput:['READY_FOR_PROMPT','WAITING_FOR_PERMISSION','WAITING_FOR_QUESTION','WAITING_FOR_AUTHENTICATION'].includes(a.status),permissionPrompt:a.status==='WAITING_FOR_PERMISSION',deliveryPending:a.deliveryPending,recentText:output.text,outputMode:output.mode,screenshotAvailable:!!process.env.TERM_DAD_SCREENSHOT_COMMAND};
- }));}
+  const observation={agentId:a.agentId,name:a.name,paneId:a.paneId,observedAt:new Date().toISOString(),bindingRevision:a.revision,observationId,...interaction,turnId:a.turn?.id??null,attempt:a.turn?.attempt??null,status:a.status,activity:changed?'changed':'unchanged',lastActivitySecondsAgo:(Date.now()-a.lastOutputAt)/1000,lastInputAt:a.lastInputAt,lastOutputAt:a.lastOutputAt,outputHash:hash,cwd:pane.cwd,process:pane.foreground_process_name??null,awaitingInput:['READY_FOR_PROMPT','WAITING_FOR_PERMISSION','WAITING_FOR_QUESTION','WAITING_FOR_AUTHENTICATION'].includes(a.status),permissionPrompt:a.status==='WAITING_FOR_PERMISSION',deliveryPending:a.deliveryPending,screenshotAvailable:!!process.env.TERM_DAD_SCREENSHOT_COMMAND};
+  return {observation,text,history};
+ }
+ /** Presentation only: the delta against `since` (or against `base` text when the caller pinned it) and the line cap. */
+ private present({observation,text,history}:Sample,since:string|undefined,lines:number,base?:string){
+  const previous=base??(since?history.find(h=>h.id===since)?.text:undefined);
+  const output=previous!==undefined?delta(previous,text):{mode:'replace',text};
+  const capped=tail(output.text,lines);
+  return {...observation,previousObservationId:since,deltaReset:!!since&&previous===undefined,recentText:capped.text,outputMode:output.mode,linesOmitted:capped.linesOmitted};
+ }
+ observe(agentId:string,since?:string,lines?:number){return this.run(async()=>{const n=linesSchema.parse(lines);return this.locked(agentId,async w=>this.present(await this.sample(w),since,n));});}
  send(agentId:string,text:string,attempt?:z.infer<typeof attemptReferenceSchema>){return this.run(()=>this.locked(agentId,async w=>{
   z.string().max(100000).parse(text);
   if(attempt)attemptReferenceSchema.parse(attempt);
@@ -192,7 +207,7 @@ export class Agents {
   if(a.deliveryPending)throw new Error('WORKER_DELIVERY_UNCERTAIN: inspect and agent.reattach before further input');
   const initialize=a.cli==='codex'&&!a.workerSkillSent,prompt=initialize?initialWorkerPrompt(text):text;
   z.string().max(100000).parse(prompt);
-  const hash=hashOutput((await this.backend.read(a.paneId,150)).slice(-24000));
+  const hash=hashOutput(await this.screen(a.paneId));
   await this.change(a.agentId,w=>{w.inputOutputHash=hash;w.lastInputAt=Date.now();w.deliveryPending=true;w.turn={id:randomUUID(),bindingRevision:w.revision,...(attempt?{attempt}: {})};});
   try{await submit(this.backend,a.paneId,prompt);await this.change(a.agentId,w=>{w.deliveryPending=false;if(initialize)w.workerSkillSent=true;});}
   catch{throw new Error('WORKER_DELIVERY_UNCERTAIN: input may have reached the pane; inspect and agent.reattach before retrying');}
@@ -200,7 +215,7 @@ export class Agents {
  }));}
  interrupt(agentId:string){return this.run(()=>this.locked(agentId,async w=>{
   const {a}=await this.checked(w);if(a.deliveryPending)throw new Error('WORKER_DELIVERY_UNCERTAIN: inspect and reattach first');
-  const hash=hashOutput((await this.backend.read(a.paneId,150)).slice(-24000));
+  const hash=hashOutput(await this.screen(a.paneId));
   await this.change(a.agentId,w=>{w.inputOutputHash=hash;w.lastInputAt=Date.now();w.deliveryPending=true;});
   try{await sendKeys(this.backend,a.paneId,['CTRL_C']);await this.change(a.agentId,w=>{w.deliveryPending=false;});}
   catch{throw new Error('WORKER_DELIVERY_UNCERTAIN: interrupt may have reached pane; inspect and reattach');}
@@ -219,7 +234,7 @@ export class Agents {
  }
  async requireAttachment(agentId:string){const w=await this.lookup(agentId);if(!this.attached(w,await this.identity()))throw new Error('WORKER_DETACHED');return w;}
  async reconcileClosed(paneId:number){const w=await this.findByPane(paneId);if(w)await this.run(()=>this.locked(w.agentId,async current=>{await this.checked(current);})).catch(e=>{if(!(e instanceof Error&&e.message.includes('disappeared')))throw e;});}
- wait(agentId:string,predicate:(o:Awaited<ReturnType<Agents['observe']>>)=>boolean,timeoutMs=30000){return this.run(async()=>{const deadline=Date.now()+timeoutMs;let last;do{last=await this.observe(agentId);if(predicate(last))return last;if(Date.now()>=deadline)break;await new Promise(r=>setTimeout(r,Math.min(250,deadline-Date.now())));}while(Date.now()<=deadline);throw new Error(`Timed out waiting for ${agentId}; last status ${last?.status}`);});}
+ wait(agentId:string,predicate:(o:Awaited<ReturnType<Agents['observe']>>)=>boolean,timeoutMs=30000){return this.run(async()=>{const deadline=Date.now()+timeoutMs;let last;do{const sample=await this.locked(agentId,w=>this.sample(w));last=this.present(sample,undefined,150);if(predicate(last))return this.present(sample,undefined,linesSchema.parse(undefined));if(Date.now()>=deadline)break;await new Promise(r=>setTimeout(r,Math.min(250,deadline-Date.now())));}while(Date.now()<=deadline);throw new Error(`Timed out waiting for ${agentId}; last status ${last?.status}`);});}
  waitForOutcome(agentId:string,turnId:string,timeoutMs=30000,quietMs?:number,signal?:AbortSignal){return this.run(async()=>{
   z.uuid().parse(turnId);z.number().int().min(1).max(120000).parse(timeoutMs);
   if(quietMs!==undefined)z.number().int().min(1000).max(3600000).parse(quietMs);

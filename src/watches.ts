@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { inputKind } from './interaction.js';
 import { adapters, type Status } from './adapters.js';
-import { Agents, hashOutput } from './agents.js';
+import { Agents, hashOutput,normalizeScreen } from './agents.js';
 import type { WorkerRecord } from './worker-storage.js';
 import { id, type TerminalBackend } from './backend.js';
 import type { NotificationProvider } from './notifications.js';
@@ -97,7 +97,7 @@ export class WatchManager {
   }
   let hash:string,status:Status;
   if(w.agentId){const o=await this.agents.observe(w.agentId);hash=o.outputHash;status=o.status;}
-  else {const text=(await this.backend.read(w.paneId,150)).slice(-24000);hash=hashOutput(text);status=adapters[w.adapter!].classify(text);}
+  else {const text=normalizeScreen((await this.backend.read(w.paneId,150)).slice(-24000));hash=hashOutput(text);status=adapters[w.adapter!].classify(text);}
   if(!this.active(w))return;
   const changed=hash!==w.hash;
   if(changed){w.changedAt=this.now();w.quiet=false;}
