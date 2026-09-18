@@ -194,6 +194,14 @@ export class WorkerPushRegistry implements WorkerPush {
         throw new Error(
           `PUSH_UNKNOWN_WORKER: ${agentIdOrName} is not a managed worker; agent.list names the workers this server knows`,
         );
+      // Say why nothing is registered: only a pane launched with hooks can ever be re-enabled.
+      const cli = worker?.cli ?? this.clis.get(agentId);
+      const reason =
+        cli === 'shell'
+          ? 'shell workers have no hook surface; watch the pane instead'
+          : surface === null
+            ? 'this pane was launched without hooks (adopted), so nothing can push for it; respawn with agent.spawn to push, or watch the pane'
+            : 'no push registration in this server; a surviving worker needs push enabled again explicitly after a restart';
       return {
         agentId,
         paneId: null,
@@ -205,8 +213,7 @@ export class WorkerPushRegistry implements WorkerPush {
         proven: false,
         socket: this.socket(),
         deliverable: false,
-        reason:
-          'no push registration in this server; a surviving worker needs push enabled again explicitly after a restart',
+        reason,
       };
     }
     const view = this.ingress.status(agentId);

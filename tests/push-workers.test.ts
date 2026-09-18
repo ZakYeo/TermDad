@@ -63,6 +63,11 @@ test('a shell worker is launched unmodified and cannot be enabled for push', asy
   const { agentId } = await f.agents.spawn({ name: 'sh', cli: 'shell' } as any);
   assert.ok(!f.spawns[0].join(' ').includes('push.sock'));
   await assert.rejects(f.push.setEnabled(agentId, true), /PUSH_UNSUPPORTED_WORKER/);
+  // The status reason must say why, not describe a survivor that could be re-enabled.
+  const status = await f.push.status(agentId);
+  assert.equal(status.registered, false);
+  assert.match(status.reason!, /shell workers have no hook surface/);
+  assert.doesNotMatch(status.reason!, /surviving worker/);
 });
 test('a channel is only deliverable once the socket this server owns has actually bound', async () => {
   const f = fixture();
