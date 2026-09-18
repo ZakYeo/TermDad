@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { open, unlink,type FileHandle } from 'node:fs/promises';
+import { unlink,type FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { attemptReferenceSchema } from './task-results.js';
-import { FileJournal } from './journal.js';
+import { FileJournal,acquireLock } from './journal.js';
 
 export const instanceSchema=z.object({endpoint:z.string().min(1).max(8192),key:z.string().min(1).max(1024)}).strict();
 export type TerminalInstance=z.infer<typeof instanceSchema>;
@@ -48,7 +48,7 @@ export class FileWorkerStorage extends FileJournal<WorkerState> implements Worke
   await this.transaction(true,()=>({result:undefined}));
   const path=join(this.directory,`worker-${agentId}.lock`);
   let lock;
-  try{lock=await open(path,'wx',0o600);}catch{throw new Error('WORKER_BUSY: Input already in progress or lifecycle operation locked; retry. After a crash, stop all servers before removing stale worker locks');}
+  try{lock=await acquireLock(path);}catch{throw new Error('WORKER_BUSY: Input already in progress or lifecycle operation locked; retry. A lock left by a process that has exited is reclaimed automatically');}
   try{return await fn();}
   finally{
    try{await this.releaseWorkerLock(lock,path);}

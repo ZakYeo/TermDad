@@ -11,5 +11,22 @@ if(subcommand!==undefined){
  process.exit(2);
 }
 const [{StdioServerTransport},{createServer}]=await Promise.all([import('@modelcontextprotocol/sdk/server/stdio.js'),import('./server.js')]);
-const {server}=createServer();
-await server.connect(new StdioServerTransport());
+const {server,dispose}=createServer();
+const transport=new StdioServerTransport();
+// The stdio transport only reads stdin data; it never notices the client going away. Close the
+// server explicitly when stdin ends, and when the parent process has died while something else
+// still holds the stdin pipe open, so a server never outlives the client it was launched for.
+let closing=false;
+const shutdown=async(reason:string)=>{
+ if(closing)return;closing=true;
+ console.error(`[term-dad] shutting down: ${reason}`);
+ const cap=new Promise<void>(resolve=>setTimeout(resolve,5000).unref());
+ await Promise.race([dispose().catch(()=>{}),cap]);
+ await Promise.race([server.close().catch(()=>{}),cap]);
+ process.exit(0);
+};
+process.stdin.once('end',()=>void shutdown('client closed stdin'));
+process.stdin.once('close',()=>void shutdown('client closed stdin'));
+const launchedBy=process.ppid,parentCheckMs=Number(process.env.TERM_DAD_PARENT_CHECK_MS)||5000;
+setInterval(()=>{if(process.ppid!==launchedBy)void shutdown(`parent process ${launchedBy} exited`);},parentCheckMs).unref();
+await server.connect(transport);

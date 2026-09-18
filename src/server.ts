@@ -21,7 +21,7 @@ import { PushIngress,PushSocket,pushSocketPath } from './ingress.js';
 import { WorkerPushRegistry } from './push-workers.js';
 import { registerPushTools } from './push-tools.js';
 import { notifyCommand } from './worker-hooks.js';
-import { stateDirectory } from './journal.js';
+import { stateDirectory,reapStaleLocks } from './journal.js';
 export function createServer(backend:TerminalBackend=new WezTermBackend(),screenshots:ScreenshotProvider=new CommandScreenshotProvider(),watchOptions:WatchOptions|EventQueue={},eventQueue?:EventQueue,workerStorage:WorkerStorage=new FileWorkerStorage(),taskStorage:TaskStorage=new FileTaskStorage()){
  const server=new McpServer({name:'term-dad',version:'0.1.0'}),tasks=new TaskBoard(taskStorage);
  const socketPath=pushSocketPath(stateDirectory());
@@ -93,11 +93,18 @@ export function createServer(backend:TerminalBackend=new WezTermBackend(),screen
  // what makes push recoverable without killing the pane. Skipped entirely when the socket did
  // not bind: rewriting credentials to a dead path would also strand a live peer server's worker.
  const pushRestored=pushReady.then(path=>path?agents.restorePush():undefined).catch(e=>{console.error(`[term-dad] push restore: ${e instanceof Error?e.message:e}`);});
+ // Locks whose holder has exited would otherwise fail every write in every server sharing the
+ // directory until someone removed them by hand. Only dead holders are reclaimed; see journal.ts.
+ const reaped=reapStaleLocks(stateDir).then(removed=>{for(const name of removed)console.error(`[term-dad] reclaimed stale ${name}`);return removed;}).catch(()=>[] as string[]);
  registerTaskTools(server,tasks,()=>agents.list());
  const attention=new AttentionService(()=>tasks.snapshot(),()=>agents.snapshot());
  registerAttentionTools(server,attention);
  registerEventTools(server,events);
  registerPushTools(server,push);
  registerWatchTools(server,watches);
- return {server,agents,watches,events,tasks,attention,push,ingress,pushSocket,pushReady,pushRestored};
+ // The SDK fires onclose without awaiting it, so an explicit shutdown needs a promise to wait on.
+ const chain=server.server.onclose;let disposed:Promise<void>|undefined;
+ const dispose=()=>disposed??=(async()=>{await chain?.();})();
+ server.server.onclose=dispose;
+ return {server,agents,watches,events,tasks,attention,push,ingress,pushSocket,pushReady,pushRestored,reaped,dispose};
 }
