@@ -37,7 +37,7 @@ Windows WezTerm can be controlled from WSL using its `.exe`; it spawns Linux pro
 
 Observation first checks pane existence and metadata, reads the recent tail, normalizes it (per-line trailing whitespace stripped, blank runs collapsed to one), hashes the normalized text with SHA-256, updates output timestamps on change, and classifies text. Silence does not cause an IDLE transition. Permission/question patterns take precedence over prompt markers. After input, a short timing guard and comparison with the pre-input output hash prevent an unchanged old prompt from becoming ready merely because time passes. RUNNING_EXTERNAL_COMMAND and IDLE are reserved states; the current CLI/text evidence does not reliably distinguish them. Process information is passed through only when WezTerm supplies it.
 
-Observations return IDs, status, activity, timestamps, output hash, cwd, process, input flags, and the last 20 lines of normalized text (`lines` raises the cap to 150; `linesOmitted` reports the rest). With `since`, identical output is omitted; a grown current line or a scrolled screen whose head matches the previous tail uses append with only the new part; screen rewrites use replace. `wait_for_outcome` pins the `since` text before polling so its final delta survives history eviction. `orchestrator.status` returns the same observations without text. Reads retry through a bounded back-off when a worker or journal lock is held; writes fail fast. Expired/unknown observation IDs return a full replacement with `deltaReset`. Each worker retains at most 16 observations of 24,000 characters (board polls through `orchestrator.status` do not record one, so they cannot evict a `since` baseline); the registry is capped at 64. Agent observations are on demand; explicitly created watches also poll through the same guarded observation path. Missing panes remove registry entries; transport failures preserve them. Waits are bounded, return diagnostic last state, and never approve a prompt.
+Observations return IDs, status, activity, timestamps, output hash, cwd, process, input flags, and the last 20 lines of normalized text (`lines` raises the cap to 150; `linesOmitted` reports the rest). With `since`, identical output is omitted; a grown current line or a scrolled screen whose head matches the previous tail uses append with only the new part; screen rewrites use replace. `wait_for_outcome` pins the `since` text before polling so its final delta survives history eviction. `orchestrator.status` returns the same observations without text. Reads retry through a bounded back-off when a worker or journal lock is held; writes fail fast. Expired/unknown observation IDs return a full replacement with `deltaReset`. Each worker retains at most 16 observations of 24,000 characters (board polls through `orchestrator.status` and watch samples do not record one, so they cannot evict a `since` baseline); the registry is capped at 64. Agent observations are on demand; explicitly created watches also poll through the same guarded observation path. Missing panes remove registry entries; transport failures preserve them. Waits are bounded, return diagnostic last state, and never approve a prompt.
 
 ## Screenshots
 
@@ -59,7 +59,7 @@ retrying, declaring whether the skill was initialized. This is delivery of role
 instructions, not proof the model followed them. Raw terminal operations do not
 initialize skills, and Claude/shell inputs are unchanged.
 
-MCP stdio stdout contains only protocol messages. Tool failures return `isError` and diagnostics; logs go to stderr without intentionally logging terminal content. CLI calls have a 15-second subprocess timeout and 8 MiB output limit. Worker waits allow up to 120 seconds plus the duration of the final observation. A failed initial prompt wait retains the worker for diagnosis. Closing the MCP connection does not kill workers. Multiple server instances sharing a state directory share durable worker metadata and input exclusion, while observation caches remain process-local.
+MCP stdio stdout contains only protocol messages. Every tool answers through one helper (`src/tool-result.ts`): the JSON of its result, or the failure message as `isError` text, with a schema failure naming the offending field; failures are logged to stderr without intentionally logging terminal content. Failure kinds are `CodedError`s (`src/errors.ts`) whose `code` callers branch on, keeping the `CODE: detail` message shape. CLI calls have a 15-second subprocess timeout and 8 MiB output limit. Worker waits allow up to 120 seconds plus the duration of the final observation. A failed initial prompt wait retains the worker for diagnosis. Closing the MCP connection does not kill workers. Multiple server instances sharing a state directory share durable worker metadata and input exclusion, while observation caches remain process-local.
 
 ## Durable event journal
 
@@ -70,9 +70,10 @@ returns both `watches` and `events`; passing an `EventQueue` as the third argume
 remains supported. By default WatchManager publishes through the durable queue.
 An explicitly injected `WatchOptions.sink` replaces that default for embedders.
 Queue rejection leaves watch delivery pending and observable for later retry.
-Event tool registration precedes watch registration so MCP disconnect disposes
-watchers and awaits their in-flight sink before closing the queue and settling
-event waits. No arbitrary event injection is exposed over MCP.
+Each tool registrar returns a disposer and `createServer` runs them in one explicit
+`shutdown` list: watches first, so their in-flight sink is drained before the queue
+closes and settles event waits, then attention, tasks, the push socket and the
+worker registry. No arbitrary event injection is exposed over MCP.
 
 The queue persists only bounded metadata and queue-owned identity/acknowledgment
 fields. Producers must construct summaries from static metadata, never excerpts
@@ -188,94 +189,57 @@ still wakes it. It acknowledges nothing, writes nothing, and holds no terminal.
 `PushSocket` (transport) and `pushSocketPath`. `src/push-workers.ts` exports
 `WorkerPushRegistry`, the `WorkerPush` surface `Agents` depends on, so worker code
 never sees the transport. `src/worker-hooks.ts` builds the launch arguments and
-`src/term-dad-notify.ts` is the executable a worker hook runs.
+`src/term-dad-notify.ts` is the executable a worker hook runs. The tool-level
+contract (fields, error codes, limits) lives in the [tool reference](tools.md#worker-pushed-events);
+this section records the decisions behind it.
 
-Delivery is opt-in per pane and starts disabled. `agent.spawn` mints a token,
-injects `--settings` hooks for a Claude worker or a `-c notify=` program for a
-Codex worker, and binds the registration to the pane once the spawn returns; a
-shell worker is launched unmodified. Hooks therefore exist from launch but stay
-inert, so `push.set` needs no relaunch. A push against a disabled registration is
-answered `{ok:true,delivered:false}` and records nothing.
+**Off until enabled, wired from launch.** `agent.spawn` injects hooks so that
+`push.set` never needs a relaunch; a push against a disabled registration is
+acknowledged and dropped. Enabling fails explicitly when the channel cannot
+deliver, while disabling always succeeds: the safe direction must never be
+blocked by the reasons a channel is broken.
 
-Transport is a Unix socket per server process (`push.<pid>.sock`, mode 0600) in
-the state directory, so servers under different MCP clients never contend; there
-is no network listener. Listening is best effort: a server that cannot bind still
-polls. `listen` sweeps `push.<pid>.sock` files that no longer answer, replaces a
-stale socket at its own path, and refuses to replace a non-socket file. The server
-handle is unref'ed, so the ingress never keeps a process alive; the transport owns
-that lifetime. The stdio transport itself only reads stdin data, so `src/index.ts`
-ends the process explicitly: when stdin ends, and when the parent pid changes while
-something else still holds the stdin pipe open (checked every five seconds,
-`TERM_DAD_PARENT_CHECK_MS` in tests), it runs the close chain with a five-second cap
-and exits. A server therefore never outlives the client it was launched for, and
-peers with a live client are never touched. Connections are half-open so a reply survives a slow sink, and are
-bounded at 64 concurrent, 4,096 bytes per request and a 5-second idle timeout.
+**One socket per server process.** Servers under different MCP clients never
+contend, and there is no network listener. Listening is best effort: a server that
+cannot bind still polls, and the bind outcome is carried into the registry so no
+surface can report an intended socket path as a bound one. The server handle is
+unref'ed, so the transport owns process lifetime; `src/index.ts` ends the process
+explicitly when stdin ends or the parent pid changes (checked every five seconds,
+`TERM_DAD_PARENT_CHECK_MS` in tests), so a server never outlives its client and
+never touches a peer with a live client.
 
-Requests carry only `{token,kind}`. Tokens are 256-bit and per worker, held in
-memory *and* in that worker's owner-only credential file under
-`push-credentials/`, and released with the worker. The hook argv carries only that
-file's path: a running process's argv cannot be rewritten, so interpolating a
-socket path and token into it orphaned every surviving worker across a supervisor
-restart, and the file can be replaced under a live worker instead. `launch` writes
-it before the record is inserted, so the binding is durable from the first write;
-a write failure degrades to unmodified argv and no binding rather than failing the
-spawn, which is safe only because `push.set` then refuses the pane. The store is
-deliberately write-only — it exposes no read method — so "a credential is never
-loaded into server or event state" holds by construction. It is not a security
-boundary: workers share the server's uid, so 0600 isolates nothing that the
-previous argv did not already expose.
+**Credentials live in a file, not in argv.** A running process's argv cannot be
+rewritten, so interpolating a socket path and token into it orphaned every
+surviving worker across a supervisor restart. The hook argv carries only the path
+of an owner-only credential file that `launch` writes before the record is
+inserted; a write failure degrades to unmodified argv and no binding rather than
+failing the spawn, which is safe only because `push.set` then refuses the pane.
+The store is write-only by construction so a credential is never loaded into
+server or event state. It is not a security boundary: workers share the server's
+uid.
 
-Startup and `agent.reattach` re-key surviving workers and revoke their previous
-tokens, and both leave delivery disabled, since push is off until enabled and a
-restart cannot verify that a worker's hook configuration survived. Restore is
-gated on the same verified attachment that guards every other managed operation:
-worker metadata is shared by state directory, so an ungated pass would re-key
-another live server's workers and silently revoke their tokens. Each worker's
-re-key runs under its per-worker lock, so it cannot race a concurrent reattach
-into the wrong pane or resurrect a forgotten worker. A worker whose lock was held
-at startup is skipped, not lost: `push.set` re-keys an attached survivor on demand
-under the same lock before enabling it, and refuses an unattached one with advice
-to `agent.reattach`. Push tools resolve the worker by UUID or name through the
-same registry lookup as every other worker tool. It is skipped entirely when
-the socket did not bind, because rewriting credentials to a dead path would also
-strand a peer's worker. Credentials are swept by membership of the durable journal
-rather than by liveness probe — a credential cannot be probed the way a socket can
-— and never when that journal could not be read. Two servers attached to the same
-verified GUI still race a re-key, last writer wins, and the loser reports
-`enabled:false` and never becomes `proven`; that is observable rather than
-arbitrated. Pushed kinds are limited to `input_required`, `ready`
-and `session_ended` (`attention_required` is only ever derived from a pane sample); summaries are authored by the server, so a worker cannot
-inject event text, and the metadata bound is the same one watches obey. Unknown
-or revoked tokens yield `PUSH_UNAUTHORIZED`; a failed sink yields
-`PUSH_DELIVERY_FAILED` without leaking its cause. `MCP` still exposes no arbitrary
-event injection: `push.status` and `push.set` only toggle authenticated local
-delivery.
+**Re-keying is gated on verified attachment.** Startup and `agent.reattach` re-key
+surviving workers under their per-worker lock and leave delivery disabled, since a
+restart cannot verify that a worker's hook configuration survived. Worker metadata
+is shared by state directory, so an ungated pass would revoke another live
+server's tokens. A worker whose lock was held at startup is re-keyed on demand by
+`push.set`; re-keying is skipped entirely when the socket did not bind. Credentials
+are swept by membership of the durable journal, never by liveness probe, and never
+when that journal could not be read. Two servers attached to the same GUI still
+race a re-key; last writer wins and the loser is observably `enabled:false`.
 
-Push reports independent facts rather than one flag, because the previous success
-value described worker-side wiring intent and was read as deliverability.
-`enabled` is intent; `registered` is a live token in this process; `hookSurface`
-is whether this server launched the pane with hooks at all; `deliveries` counts
-only pushes the sink accepted; `proven` is an observed hook and is the sole
-evidence the channel works; `deliverable` is the conjunction of everything the
-server can see. Nothing inspectable establishes that a worker's CLI accepted its
-injected configuration, that the notifier is executable there, or that the
-worker's process can reach the socket, so `deliverable` deliberately stops short
-of a promise. Enabling a channel that cannot deliver fails explicitly
-(`PUSH_NOT_WIRED`, `PUSH_SOCKET_UNAVAILABLE`, `PUSH_UNSUPPORTED_WORKER`) rather
-than succeeding; disabling always succeeds, since the safe direction must not be
-blocked by the reasons a channel is broken. The bind outcome is carried into the
-registry instead of being logged and discarded, so no surface can report an
-intended socket path as a bound one.
-
-An accepted push publishes the event and then calls `WatchManager.confirm`, which
-samples the pane through the same guarded path as polling, so the recorded status
-is the terminal's, not the worker's claim. Watches derive their due time from the
-last poll and select `pushPollMs` over `pollMs` only while the worker's push is
-*deliverable* — registered, enabled, and backed by a socket this process actually
-bound — so enabling or disabling push takes effect on the next pass rather than
-after an already-scheduled interval elapses. Deliberately not mere intent: an
-enabled registration on a server that failed to bind would otherwise leave the
-pane neither pushed nor polled at its normal rate.
+**Facts, not a flag.** The previous success value described worker-side intent and
+was read as deliverability. `enabled` is intent, `registered` a live token,
+`hookSurface` whether this server launched the pane with hooks, `deliveries` only
+pushes the sink accepted, `proven` the sole evidence the channel works, and
+`deliverable` the conjunction of everything the server can see, which deliberately
+stops short of a promise. Only `input_required`, `ready` and `session_ended` may be
+pushed; summaries are server-authored and `attention_required` is derived from
+pane samples alone. An accepted push publishes and then calls
+`WatchManager.confirm`, which samples the pane, so the recorded status is the
+terminal's. Watches select `pushPollMs` only while the worker's push is
+*deliverable*, so an enabled registration on a server that failed to bind never
+leaves a pane neither pushed nor polled at its normal rate.
 
 ## Background watches and desktop delivery
 
@@ -304,10 +268,9 @@ pending request rather than being dropped, and delivery drains it first and outs
 cooldown. Successful destinations
 are tracked independently so one failed destination does not repeat another.
 
-`registerWatchTools` isolates schemas and registration from `server.ts`, returns
-an async disposer, and chains shutdown after awaiting disposal. The server chains
-this with queue close; embedders can explicitly `await watches.dispose()` before
-closing their queue. Disposal clears
+`registerWatchTools` isolates schemas and registration from `server.ts` and
+returns an async disposer that `createServer` runs before queue close; embedders
+can explicitly `await watches.dispose()` before closing their queue. Disposal clears
 timers and registrations immediately, waits for in-flight polls/creation, and
 suppresses further delivery after an awaited operation returns. An external
 notification or sink operation already in flight cannot be retracted. Nothing

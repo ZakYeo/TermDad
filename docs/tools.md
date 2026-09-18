@@ -80,7 +80,9 @@ much text you actually need:
 `since` returns `unchanged` with empty text when nothing moved, `append` with only
 the new lines when the screen scrolled or the current line grew, and `replace`
 when it was redrawn. `wait_for_outcome` pins the `since` text when it starts, so
-its result is a real delta however many times it polled.
+its result is a real delta however many times it polled. Watches and
+`orchestrator.status` sample without recording, so neither can push a `since`
+baseline out of the worker's 16-entry history.
 
 Automatic recovery requires a matching terminal endpoint and process identity.
 Windows/WSL uses the bundled `scripts/instance-windows.ps1` helper and automatic
@@ -145,8 +147,8 @@ filesystems, including WSL; disconnect never kills worker panes.
 `event.list`, `event.acknowledge`, and `event.wait_for_event` expose the durable
 local event journal. Background watches publish to this queue by default; there
 is deliberately no MCP publish/injection tool. Internal producers use
-`await events.publish(input)`. The server exposes 52 tools, including the three
-watch tools and three event tools.
+`await events.publish(input)`. The server exposes 53 tools, including the three
+watch tools and four event tools.
 
 | Tool | Arguments | Result |
 | --- | --- | --- |
@@ -188,9 +190,9 @@ that has been evicted is reported in `unknownIds` without modifying the journal.
 minutes) acknowledge themselves, so a journal nobody drains does not grow until it
 rejects publication. That set is closed and default-deny: `attention_required`,
 `input_required`, `pane_disappeared`, `session_ended` and any unrecognised kind never expire,
-because a request for a person or a lost pane must not vanish on a timer. The set
-is default-deny, so a kind added later is never swept unless it is added to it. Expiry runs inside `event.list`-free write paths — a publication, an
-acknowledgment, or a bounded background pass — never on a read, and an
+because a request for a person or a lost pane must not vanish on a timer. Expiry
+runs only on write paths — a publication, an acknowledgment, or a bounded
+background pass — never on a read, and an
 auto-acknowledged record is indistinguishable from an explicitly acknowledged one.
 Acknowledge because you handled something, not to keep waits usable.
 Use `afterSequence` with the last returned sequence to paginate. Sequence values
@@ -411,7 +413,8 @@ cooling down; repeated pending events of the same kind coalesce (maximum five
 pending kinds per watch). `attention_required` is exempt: it is delivered ahead of
 the other kinds on the same pass and is never held by the cooldown, because it is
 the one signal that exists to stop a human waiting. Delivery failures remain visible and retry on later
-polls; a successful sink is not called again just because desktop delivery failed.
+polls, and a destination that keeps rejecting one kind never holds back the others;
+a successful sink is not called again just because desktop delivery failed.
 An external sink which accepts an event and then rejects can still cause duplicate
 publication on retry; sinks should resolve after acceptance. Removal drops pending
 events that have not reached the sink; committed queue events remain available

@@ -11,7 +11,7 @@ import { MemoryTaskStorage } from '../src/task-storage.js';
 
 test('standalone task tools validate MCP calls, report conflicts and preserve explicit completion',async()=>{
  const server=new McpServer({name:'task-test',version:'1'}),board=new TaskBoard(new MemoryTaskStorage());
- registerTaskTools(server,board);
+ const closeTasks=registerTaskTools(server,board);
  const client=new Client({name:'task-test',version:'1'}),[local,remote]=InMemoryTransport.createLinkedPair();
  await server.connect(remote);await client.connect(local);
  const call=(name:string,args:Record<string,unknown>)=>client.callTool({name,arguments:args});
@@ -45,6 +45,6 @@ test('standalone task tools validate MCP calls, report conflicts and preserve ex
   await call('task.archive',{taskId:task.id,expectedRevision:done.revision,archived:true});
   assert.equal(data(await call('task.list',{})).total,0);
   assert.equal(data(await call('task.get',{taskId:task.id})).archived,true);
- }finally{await client.close();await server.close();}
+ }finally{await client.close();await server.close();await closeTasks();}
  await assert.rejects(board.list(),/TASK_BOARD_CLOSED/);
 });

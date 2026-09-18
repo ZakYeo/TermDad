@@ -37,7 +37,7 @@ test('baseline, prompt transitions, permission precedence and quiet episodes',as
 });
 test('sink failures retry independently of successful notifications, bounded cooldown and disappearance',async()=>{
  let attempts=0,notifications=0;const f=fixture({sink:async()=>{if(++attempts===1)throw new Error('private');},notifications:{notify:async()=>{notifications++;}}});
- f.setText('Do you want to proceed?');await f.watches.create({...config,notify:true,cooldownMs:1000});await f.tick();assert.match(f.watches.list()[0].deliveryError!,/retrying/);assert.equal(notifications,1);
+ f.setText('Do you want to proceed?');await f.watches.create({...config,notify:true,cooldownMs:1000});await f.tick();assert.match(f.watches.list()[0].deliveryError!,/retrying/);assert.equal(notifications,2,'the failed request for a person does not hold back the input request');
  await f.tick();assert.equal(attempts,3,'the request for a person and the input request each reach the sink once');assert.equal(notifications,2);assert.equal(f.watches.list()[0].deliveryError,undefined);
  f.fail(true);await f.tick();assert.equal(f.watches.list()[0].disappeared,false);assert.match(f.watches.list()[0].backendError!,/retrying/);
  f.fail(false);f.remove();await f.tick();assert.equal(f.watches.list()[0].disappeared,true);await f.tick(1000);assert.equal(f.watches.list()[0].pendingEvents,0);assert.ok(!f.calls.includes('kill-pane'));await f.watches.dispose();
@@ -79,7 +79,7 @@ test('notification command preserves literal argv, JSON stdin, timeout and failu
 });
 test('successful sink is not duplicated when desktop delivery fails',async()=>{
  let sent=0,notifications=0;const f=fixture({sink:async()=>{sent++;},notifications:{notify:async()=>{if(++notifications===1)throw new Error('failed');}}});
- f.setText('Do you want to proceed?');await f.watches.create({...config,notify:true,inactivityMs:10000});await f.tick();assert.equal(sent,1);assert.ok(f.watches.list()[0].deliveryError);await f.tick();assert.equal(sent,2,'the retried notification does not resend the delivered event; the second send is the input request');assert.equal(notifications,3);assert.equal(f.watches.list()[0].pendingEvents,0);await f.watches.dispose();
+ f.setText('Do you want to proceed?');await f.watches.create({...config,notify:true,inactivityMs:10000});await f.tick();assert.equal(sent,2,'both kinds reach the sink although the first notification failed');assert.ok(f.watches.list()[0].deliveryError);assert.equal(f.watches.list()[0].pendingEvents,1);await f.tick();assert.equal(sent,2,'the retried notification does not resend the delivered event');assert.equal(notifications,3);assert.equal(f.watches.list()[0].pendingEvents,0);assert.equal(f.watches.list()[0].deliveryError,undefined);await f.watches.dispose();
 });
 test('cooldown retains transitions and activity resets inactivity once per episode',async()=>{
  const f=fixture();await f.watches.create({...config,cooldownMs:2000});f.setText('Working (1s • esc to interrupt)');await f.tick();f.setText('new\n› ');await f.tick();assert.deepEqual(f.events.map(e=>e.kind),['ready']);
@@ -198,4 +198,27 @@ test('an unmanaged pane whose padding changes is not activity, so its quiet epis
  const f=fixture();f.setText('secret output\n› ');await f.watches.create(config);await f.tick();
  f.setText('secret output     \n›   ');await f.tick();await f.tick();
  assert.deepEqual(f.events.map(e=>e.kind),['inactive']);
+});
+test('a notifier that rejects attention_required does not stall the other kinds of the same watch',async()=>{
+ const notified:string[]=[];
+ const f=fixture({notifications:{notify:async(e:WatchEventInput)=>{if(e.kind==='attention_required')throw new Error('Unsupported notification kind');notified.push(e.kind);}}});
+ await f.watches.create({...config,notify:true,attentionMs:1000,inactivityMs:100000});
+ f.setText('Working (1s • esc to interrupt)');await f.tick();f.setText('done\n› ');await f.tick();
+ await f.tick(1000);await f.tick(1000);
+ assert.deepEqual(f.events.map(e=>e.kind),['ready','attention_required'],'the request for a person still reaches the durable sink');
+ f.setText('Do you want to proceed?\n› ');await f.tick();await f.tick();
+ assert.ok(f.events.some(e=>e.kind==='input_required'),'an input request is delivered although the notifier keeps failing on the request for a person');
+ assert.ok(notified.includes('input_required'));
+ assert.equal(f.watches.list()[0].deliveryError,'Event delivery failed; retrying on the next poll.','the failing destination stays visible');
+ await f.watches.dispose();
+});
+test('watch polling does not record observations, so a supervisor since baseline survives it',async()=>{
+ const f=fixture();await f.agents.adopt({name:'w',paneId:7,cli:'codex'});
+ const first=await f.agents.observe('w');
+ await f.watches.create({agentId:'w',pollMs:500});
+ for(let i=0;i<20;i++)await f.tick();
+ const again=await f.agents.observe('w',first.observationId);
+ assert.equal(again.deltaReset,false,'twenty watch polls must not evict the baseline the supervisor is holding');
+ assert.equal(again.outputMode,'unchanged');
+ await f.watches.dispose();
 });

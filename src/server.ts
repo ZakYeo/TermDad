@@ -23,6 +23,7 @@ import { registerPushTools } from './push-tools.js';
 import { notifyCommand } from './worker-hooks.js';
 import { stateDirectory,reapStaleLocks } from './journal.js';
 import { oneOf } from './arguments.js';
+import { toolCall,toolError } from './tool-result.js';
 export function createServer(backend:TerminalBackend=new WezTermBackend(),screenshots:ScreenshotProvider=new CommandScreenshotProvider(),watchOptions:WatchOptions|EventQueue={},eventQueue?:EventQueue,workerStorage:WorkerStorage=new FileWorkerStorage(),taskStorage:TaskStorage=new FileTaskStorage()){
  const server=new McpServer({name:'term-dad',version:'0.1.0'}),tasks=new TaskBoard(taskStorage);
  const socketPath=pushSocketPath(stateDirectory());
@@ -42,7 +43,7 @@ export function createServer(backend:TerminalBackend=new WezTermBackend(),screen
   return {agentId:w.agentId,cli:w.cli,push:w.push,...(attached?{rekey:()=>agents.rekey(w.agentId)}:{})};
  });
  guardTerminalSelection(server);
- const register=(name:string,description:string,shape:z.ZodRawShape,fn:(a:any)=>Promise<unknown>)=>server.registerTool(name,{description,inputSchema:shape},async a=>{try{const result=await fn(a);return {content:[{type:'text' as const,text:JSON.stringify(result??{ok:true})}]};}catch(e){const message=e instanceof Error?e.message:String(e);console.error(`[term-dad] ${name}: ${message}`);return {isError:true,content:[{type:'text' as const,text:message}]};}});
+ const register=(name:string,description:string,shape:z.ZodRawShape,fn:(a:any)=>Promise<unknown>)=>server.registerTool(name,{description,inputSchema:shape},a=>toolCall(name,()=>fn(a)));
  const pane={paneId:id},agent={agentId:z.string().min(1)},text={text:z.string().max(100000)},wait={timeoutMs:z.number().int().min(1).max(120000).default(30000)};
  // `text` or `message`: both spellings were used for days, so both are accepted and one is required.
  const textOrMessage={text:z.string().max(100000).optional().describe('the text to submit (alias: message)'),message:z.string().max(100000).optional()};
@@ -83,22 +84,16 @@ export function createServer(backend:TerminalBackend=new WezTermBackend(),screen
  for(const name of ['observe','status'])register(`agent.${name}`,'Observe state, activity and the tail of normalized output (20 lines by default). Pass since to get only the change since that observation; raise lines only when a screen is actually needed.',{...agent,since:z.string().optional(),lines:z.number().int().min(1).max(150).default(20)},a=>agents.observe(a.agentId,a.since,a.lines));
  register('agent.interrupt','Send Ctrl+C to worker.',agent,a=>agents.interrupt(a.agentId));
  register('agent.stop','Close worker pane and remove mapping.',agent,a=>agents.stop(a.agentId));
- server.registerTool('agent.wait_for_outcome',{description:'Wait for required input, heuristic turn completion, optional quiet output, disappearance or timeout. Never verifies task success. lastObservation carries the change since `since` when given, capped to `lines`.',inputSchema:{...agent,turnId:z.uuid(),...wait,quietMs:z.number().int().min(1000).max(3600000).optional(),since:z.string().optional(),lines:z.number().int().min(1).max(150).default(20)}},async(a,extra)=>{
-  try{return {content:[{type:'text' as const,text:JSON.stringify(await agents.waitForOutcome(a.agentId,a.turnId,a.timeoutMs,a.quietMs,extra.signal,{since:a.since,lines:a.lines}))}]};}
-  catch(e){return {isError:true,content:[{type:'text' as const,text:e instanceof Error?e.message:'Worker wait failed'}]};}
- });
+ server.registerTool('agent.wait_for_outcome',{description:'Wait for required input, heuristic turn completion, optional quiet output, disappearance or timeout. Never verifies task success. lastObservation carries the change since `since` when given, capped to `lines`.',inputSchema:{...agent,turnId:z.uuid(),...wait,quietMs:z.number().int().min(1000).max(3600000).optional(),since:z.string().optional(),lines:z.number().int().min(1).max(150).default(20)}},(a,extra)=>toolCall('agent.wait_for_outcome',()=>agents.waitForOutcome(a.agentId,a.turnId,a.timeoutMs,a.quietMs,extra.signal,{since:a.since,lines:a.lines})));
  register('agent.wait_for_text','Wait for literal text in recent output.',{...agent,text:z.string().min(1),...wait},a=>agents.wait(a.agentId,o=>o.recentText.includes(a.text),a.timeoutMs));
  register('agent.wait_until_idle','Wait for a recognized prompt; silence alone never counts.',{...agent,...wait},a=>agents.wait(a.agentId,o=>['READY_FOR_PROMPT','IDLE'].includes(o.status),a.timeoutMs));
  register('agent.broadcast','Submit a message (text, alias message) to explicit workers; returns per-agent outcomes.',{agentIds:z.array(z.string()).min(1).max(64),...textOrMessage},async a=>{const task=body(a);return Promise.all(a.agentIds.map(async (agentId:string)=>{try{return await agents.send(agentId,task);}catch(e){return {agentId,error:String(e)};}}));});
  register('agent.collect_results','Collect observations; does not infer task success from idle state.',{},async()=>withWorkerTasks(await agents.snapshot(),tasks));
  register('orchestrator.status','Status, activity and task summary of every managed agent without screen text; use agent.status for the one you need to read.',{},async()=>withWorkerTasks(await agents.summaries(),tasks));
- for(const kind of ['terminal','agent'])server.registerTool(`${kind}.screenshot`,{description:'Capture on demand through the configured platform screenshot provider.',inputSchema:kind==='terminal'?pane:agent},async(a:any)=>{try{return {content:[await (kind==='terminal'?screenshots.capture(a.paneId,await backend.instance?.()):agents.withPane(a.agentId,(paneId,instance)=>screenshots.capture(paneId,instance)))]};}catch(e){return {isError:true,content:[{type:'text' as const,text:String(e)}]};}});
+ for(const kind of ['terminal','agent'])server.registerTool(`${kind}.screenshot`,{description:'Capture on demand through the configured platform screenshot provider.',inputSchema:kind==='terminal'?pane:agent},async(a:any)=>{try{return {content:[await (kind==='terminal'?screenshots.capture(a.paneId,await backend.instance?.()):agents.withPane(a.agentId,(paneId,instance)=>screenshots.capture(paneId,instance)))]};}catch(e){return toolError(`${kind}.screenshot`,e);}});
  const events:EventQueue=watchOptions instanceof EventQueue?watchOptions:eventQueue??new EventQueue();
  const options=watchOptions instanceof EventQueue?{}:watchOptions;
  const watches:WatchManager=new WatchManager(backend,agents,{notifications:CommandNotificationProvider.fromEnvironment(),pushDeliverable:agentId=>push.deliverable(agentId),...options,sink:options.sink??(input=>events.publish(input))});
- // Register the event close handler first so watch disposal drains its sink before queue close.
- const previousClose=server.server.onclose;
- server.server.onclose=async()=>{await pushSocket.close();await agents.close();await previousClose?.();};
  // Listening is best effort: a server that cannot bind still polls, it just cannot be pushed to.
  const pushReady=pushSocket.listen().then(path=>{push.attach({listening:true});return path;}).catch(e=>{const message=e instanceof Error?e.message:String(e);push.attach({listening:false,bindError:message});console.error(`[term-dad] push socket: ${message}`);return undefined;});
  // A worker that outlived the previous server rereads its credential file, so re-keying it is
@@ -108,15 +103,20 @@ export function createServer(backend:TerminalBackend=new WezTermBackend(),screen
  // Locks whose holder has exited would otherwise fail every write in every server sharing the
  // directory until someone removed them by hand. Only dead holders are reclaimed; see journal.ts.
  const reaped=reapStaleLocks(stateDir).then(removed=>{for(const name of removed)console.error(`[term-dad] reclaimed stale ${name}`);return removed;}).catch(()=>[] as string[]);
- registerTaskTools(server,tasks,()=>agents.list());
+ const closeTasks=registerTaskTools(server,tasks,()=>agents.list());
  const attention=new AttentionService(()=>tasks.snapshot(),()=>agents.snapshot());
- registerAttentionTools(server,attention);
- registerEventTools(server,events);
+ const closeAttention=registerAttentionTools(server,attention);
+ const closeEvents=registerEventTools(server,events);
  registerPushTools(server,push);
- registerWatchTools(server,watches);
- // The SDK fires onclose without awaiting it, so an explicit shutdown needs a promise to wait on.
- const chain=server.server.onclose;let disposed:Promise<void>|undefined;
- const dispose=()=>disposed??=(async()=>{await chain?.();})();
+ const closeWatches=registerWatchTools(server,watches);
+ // Shutdown order, explicitly: watches stop sampling and drain their in-flight sink first, so
+ // the queue that sink publishes to is still open; the queue then settles every wait; the
+ // attention and task services drain; finally the push socket and the worker registry close.
+ // Nothing here closes a worker pane. The SDK fires onclose without awaiting it, so the same
+ // memoised promise serves both the SDK and an explicit `dispose()`.
+ const shutdown=[closeWatches,closeEvents,closeAttention,closeTasks,()=>pushSocket.close(),()=>agents.close()];
+ let disposed:Promise<void>|undefined;
+ const dispose=()=>disposed??=(async()=>{for(const step of shutdown)await step();})();
  server.server.onclose=dispose;
  return {server,agents,watches,events,tasks,attention,push,ingress,pushSocket,pushReady,pushRestored,reaped,dispose};
 }

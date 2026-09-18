@@ -120,3 +120,22 @@ test('a spawn that fails after launch leaks no token and no credential file',asy
  assert.equal(f.push.list().length,1,'retried failures never accumulate registrations');
  assert.equal(credentials(),baseline);
 });
+test('an unwritable credential store degrades the worker to polling and still saves its mapping',async()=>{
+ const broken=mkdtempSync(join(tmpdir(),'term-dad-push-broken-'));
+ // A regular file where the credential directory belongs makes every credential write fail.
+ const {writeFileSync}=await import('node:fs');writeFileSync(join(broken,'push-credentials'),'not a directory');
+ const backend=new WezTermBackend(async(args)=>{
+  if(args[0]==='list')return JSON.stringify([{pane_id:7,tab_id:1,window_id:1,title:'t',cwd:'/',size:{rows:24,cols:80}}]);
+  if(args[0]==='spawn')return '7';
+  return 'OpenAI Codex\n› ';
+ },async()=>null);
+ const push=new WorkerPushRegistry(new PushIngress({sink:async()=>{}}),'/run/term-dad/push.sock',['/usr/bin/node','/opt/notify.js'],broken);
+ push.attach({listening:true});
+ const agents=new Agents(backend,undefined,push);
+ const spawned=await agents.spawn({name:'w',cli:'claude'} as any);
+ assert.equal(spawned.paneId,7,'the spawn the user asked for succeeds');
+ const [saved]=await agents.list();
+ assert.equal(saved.paneId,7);assert.equal(saved.attachment,'attached');
+ await assert.rejects(push.setEnabled(spawned.agentId,true),/PUSH_CREDENTIAL_UNWRITABLE/,'push cannot be enabled for a channel nothing can reach');
+ rmSync(broken,{recursive:true,force:true});
+});

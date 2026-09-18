@@ -7,6 +7,7 @@ import { initialWorkerPrompt } from './worker-skill.js';
 import { type TerminalBackend,type SpawnOptions,spawnSchema,splitCommand,submit,sendKeys,id } from './backend.js';
 import type { WorkerPush } from './push-workers.js';
 import { MemoryWorkerStorage,newWorker,workerSchema,type WorkerStorage,type WorkerRecord,type TerminalInstance } from './worker-storage.js';
+import { CodedError,hasCode } from './errors.js';
 export const hashOutput=(text:string)=>createHash('sha256').update(text).digest('hex');
 /** Screen text as the caller should see it: no per-line padding to the pane width, no runs of blank lines. */
 export function normalizeScreen(text:string){return text.split('\n').map(l=>l.trimEnd()).join('\n').replace(/\n{3,}/g,'\n\n').trimEnd();}
@@ -84,10 +85,10 @@ export class Agents {
   if(!this.attached(w,instance))throw new Error('WORKER_DETACHED: terminal identity differs or cannot be verified; use agent.reattach explicitly');
   const a=this.cache(w),pane=(await this.backend.list()).find(p=>p.pane_id===a.paneId);
   if(!this.attached(w,await this.identity()))throw new Error('WORKER_DETACHED: terminal identity changed during observation');
-  if(!pane){await this.remove(a.agentId);throw new Error(`Pane ${a.paneId} disappeared; agent ${a.name} removed`);}
+  if(!pane){await this.remove(a.agentId);throw new CodedError('WORKER_PANE_DISAPPEARED',`pane ${a.paneId} disappeared; agent ${a.name} removed`);}
   return {a,pane};
  }
- private static busy(e:unknown){return e instanceof Error&&/WORKER_BUSY|WORKER_STORAGE_BUSY/.test(e.message);}
+ private static busy(e:unknown){return hasCode(e,'WORKER_BUSY','WORKER_STORAGE_BUSY');}
  private async retrying<T>(fn:()=>Promise<T>):Promise<T>{
   for(let attempt=0;;attempt++){
    try{return await fn();}
@@ -114,8 +115,11 @@ export class Agents {
     await this.insert(w);
     try{paneId=await this.backend.spawn(options);launchedPane=true;}
     catch{throw new Error(`WORKER_SPAWN_UNCERTAIN: launch response was lost or rejected; reservation ${w.agentId} retained. Inspect terminal.list before forgetting the reservation and adopting any surviving pane. Do not repeat spawn blindly.`);}
-    try{await this.change(w.agentId,a=>{a.paneId=paneId!;});this.push?.bind(w.agentId,paneId);}
+    try{await this.change(w.agentId,a=>{a.paneId=paneId!;});}
     catch{throw new Error(`WORKER_STORAGE_FAILED: pane ${paneId} is alive but mapping was not saved; inspect it, forget reservation ${w.agentId}, and agent.adopt it. No prompt sent.`);}
+    // Only a worker that was actually launched with hooks has a registration to bind; a
+    // degraded launch (unwritable credential, registration limit) polls instead.
+    if(launched?.push)this.push?.bind(w.agentId,paneId);
    });
   }catch(e){
    // `launch` already minted a token and wrote a credential file. Release them unless a pane
@@ -190,7 +194,7 @@ export class Agents {
   for(const w of workers){
    if(w.paneId!==null&&this.attached(w,instance)&&!panes.some(p=>p.pane_id===w.paneId)){
     try{await this.locked(w.agentId,current=>this.checked(current));}
-    catch(e){if(e instanceof Error&&e.message.includes('disappeared'))continue;result.push(this.view(w,'detached','Recovery could not verify pane; retry'));continue;}
+    catch(e){if(hasCode(e,'WORKER_PANE_DISAPPEARED'))continue;result.push(this.view(w,'detached','Recovery could not verify pane; retry'));continue;}
    }
    result.push(this.view(w,w.paneId!==null&&this.attached(w,instance)?'attached':'detached',w.paneId===null?'Spawn reservation needs explicit recovery':this.attached(w,instance)?null:'Terminal identity differs or is unverified'));
   }
@@ -218,6 +222,8 @@ export class Agents {
   return {...observation,previousObservationId:since,deltaReset:!!since&&previous===undefined,recentText:capped.text,outputMode:output.mode,linesOmitted:capped.linesOmitted};
  }
  observe(agentId:string,since?:string,lines?:number){return this.run(async()=>{const n=linesSchema.parse(lines);return this.retrying(()=>this.locked(agentId,async w=>this.present(await this.sample(w),since,n)));});}
+ /** A full observation that records nothing, for pollers: it can never evict a caller's `since` baseline. */
+ peek(agentId:string){return this.run(()=>this.retrying(()=>this.locked(agentId,async w=>(await this.sample(w,false)).observation)));}
  send(agentId:string,text:string,attempt?:z.infer<typeof attemptReferenceSchema>){return this.run(()=>this.locked(agentId,async w=>{
   z.string().max(100000).parse(text);
   if(attempt)attemptReferenceSchema.parse(attempt);
@@ -254,7 +260,7 @@ export class Agents {
   return exists;
  }
  async requireAttachment(agentId:string){const w=await this.lookup(agentId);if(!this.attached(w,await this.identity()))throw new Error('WORKER_DETACHED');return w;}
- async reconcileClosed(paneId:number){const w=await this.findByPane(paneId);if(w)await this.run(()=>this.locked(w.agentId,async current=>{await this.checked(current);})).catch(e=>{if(!(e instanceof Error&&e.message.includes('disappeared')))throw e;});}
+ async reconcileClosed(paneId:number){const w=await this.findByPane(paneId);if(w)await this.run(()=>this.locked(w.agentId,async current=>{await this.checked(current);})).catch(e=>{if(!hasCode(e,'WORKER_PANE_DISAPPEARED'))throw e;});}
  wait(agentId:string,predicate:(o:Awaited<ReturnType<Agents['observe']>>)=>boolean,timeoutMs=30000){return this.run(async()=>{const deadline=Date.now()+timeoutMs;let last;do{const sample=await this.retrying(()=>this.locked(agentId,w=>this.sample(w)));last=this.present(sample,undefined,150);if(predicate(last))return this.present(sample,undefined,linesSchema.parse(undefined));if(Date.now()>=deadline)break;await new Promise(r=>setTimeout(r,Math.min(250,deadline-Date.now())));}while(Date.now()<=deadline);throw new Error(`Timed out waiting for ${agentId}; last status ${last?.status}`);});}
  waitForOutcome(agentId:string,turnId:string,timeoutMs=30000,quietMs?:number,signal?:AbortSignal,view:{since?:string;lines?:number}={}){return this.run(async()=>{
   z.uuid().parse(turnId);const lines=linesSchema.parse(view.lines);z.number().int().min(1).max(120000).parse(timeoutMs);
@@ -286,7 +292,7 @@ export class Agents {
    try{last=await this.locked(binding.agentId,w=>this.sample(w));}
    catch(e){
     if(contended(e)){await pause();continue;}
-    if(e instanceof Error&&e.message.includes('disappeared')&&!await this.bindingPaneExists(binding))return {reason:'worker_disappeared',lastObservation:shown()};
+    if(hasCode(e,'WORKER_PANE_DISAPPEARED')&&!await this.bindingPaneExists(binding))return {reason:'worker_disappeared',lastObservation:shown()};
     throw e;
    }
    // Input and reattachment can interleave between observations; do not answer for a newer turn.

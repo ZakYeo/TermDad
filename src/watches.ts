@@ -58,22 +58,18 @@ export class WatchManager {
   * happened, the sample decides what the pane's state actually is.
   */
  async confirm(paneId:number){
-  for(const w of [...this.records.values()]){
-   if(w.paneId!==paneId||!this.active(w)||w.disappeared)continue;
-   if(!w.disappeared){try{await this.sample(w,false);w.backendError=undefined;}catch{w.backendError='Observation failed; retrying on the next poll.';}}
-   if(this.active(w))await this.deliver(w);
-   w.lastPoll=this.now();
-  }
+  for(const w of [...this.records.values()])if(w.paneId===paneId&&this.active(w)&&!w.disappeared)await this.visit(w);
+ }
+ /** One sample-then-deliver pass over a watch, shared by the poll timer and pushed confirmations. */
+ private async visit(w:Watch){
+  if(!w.disappeared){try{await this.sample(w,false);w.backendError=undefined;}catch{w.backendError='Observation failed; retrying on the next poll.';}}
+  if(this.active(w))await this.deliver(w);
+  w.lastPoll=this.now();
  }
  private schedule(){if(this.disposed||this.options.automatic===false||this.timer||!this.records.size)return;this.timer=setTimeout(()=>{this.timer=undefined;void this.poll().finally(()=>this.schedule());},500);this.timer.unref();}
  // Public for deterministic schedulers/tests. Concurrent callers share one pass.
  poll():Promise<void>{if(this.running)return this.running;if(this.disposed)return Promise.resolve();this.running=this.pass().finally(()=>{this.running=undefined;});return this.running;}
- private async pass(){for(const w of this.records.values()){
-  if(!this.active(w)||this.now()-w.lastPoll<this.interval(w))continue;
-  if(!w.disappeared){try{await this.sample(w,false);w.backendError=undefined;}catch{w.backendError='Observation failed; retrying on the next poll.';}}
-  if(this.active(w))await this.deliver(w);
-  w.lastPoll=this.now();
- }}
+ private async pass(){for(const w of this.records.values())if(this.active(w)&&this.now()-w.lastPoll>=this.interval(w))await this.visit(w);}
  private enqueue(w:Watch,kind:string){if(!this.active(w)||(kind!==attention&&w.pending.has(kind)))return;w.pending.set(kind,{event:{kind,paneId:w.paneId,watchId:w.watchId,...(w.agentId?{agentId:w.agentId}:{}),occurredAt:new Date(this.now()).toISOString(),summary:summaries[kind]},sinkDone:!this.options.sink,notificationDone:!w.notify});w.lastEvent={...w.pending.get(kind)!.event};}
  private async sample(w:Watch,baseline:boolean){
   if(w.agentId){
@@ -96,7 +92,9 @@ export class WatchManager {
    w.disappeared=true;if(!baseline)this.enqueue(w,'pane_disappeared');return;
   }
   let hash:string,status:Status;
-  if(w.agentId){const o=await this.agents.observe(w.agentId);hash=o.outputHash;status=o.status;}
+  // Peek rather than observe: a watch samples every couple of seconds and must not push the
+  // supervisor's `since` baseline out of the worker's bounded observation history.
+  if(w.agentId){const o=await this.agents.peek(w.agentId);hash=o.outputHash;status=o.status;}
   else {const text=normalizeScreen((await this.backend.read(w.paneId,150)).slice(-24000));hash=hashOutput(text);status=adapters[w.adapter!].classify(text);}
   if(!this.active(w))return;
   const changed=hash!==w.hash;
@@ -125,10 +123,15 @@ export class WatchManager {
   w.attentionKey=key;this.enqueue(w,attention);
  }
  private async deliver(w:Watch){
+  // The error describes this pass: any destination that failed here sets it, a clean pass clears it.
+  w.deliveryError=undefined;
+  // A failed request for a person stays pending and visible, but never holds the other kinds
+  // hostage: a destination that rejects this kind for good would otherwise stall the watch.
   const urgent=w.pending.get(attention);
-  if(urgent&&!await this.deliverOne(w,attention,urgent))return;
+  if(urgent){await this.deliverOne(w,attention,urgent);if(!this.active(w))return;}
   if(w.lastDelivery!==undefined&&this.now()-w.lastDelivery<w.cooldownMs)return;
   for(const [kind,p] of w.pending){
+   if(kind===attention)continue;
    if(!this.active(w))return;
    if(!await this.deliverOne(w,kind,p))return;
    w.lastDelivery=this.now();
@@ -143,6 +146,6 @@ export class WatchManager {
   if(!p.notificationDone){try{await this.options.notifications!.notify({...p.event});p.notificationDone=true;}catch{failed=true;}}
   if(!this.active(w))return false;
   if(failed){w.deliveryError='Event delivery failed; retrying on the next poll.';return false;}
-  if(w.pending.get(kind)===p)w.pending.delete(kind);w.deliveryError=undefined;return true;
+  if(w.pending.get(kind)===p)w.pending.delete(kind);return true;
  }
 }

@@ -1,4 +1,5 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { toolError } from './tool-result.js';
 
 /** A GUI switch cannot split a multi-step tool call across terminal instances. */
 export class TerminalSelectionGate {
@@ -18,5 +19,5 @@ export function guardTerminalSelection(server:McpServer){
  const gate=new TerminalSelectionGate(),register=server.registerTool.bind(server);
  server.registerTool=(name,config,callback)=>register(name,config,((...args:unknown[])=>
   gate.run(name==='terminal.select_instance',()=>Promise.resolve((callback as (...args:unknown[])=>unknown)(...args)))
-   .catch(e=>({isError:true,content:[{type:'text',text:e instanceof Error?e.message:'Terminal selection failed'}]}))) as typeof callback);
+   .catch(e=>toolError(name,e))) as typeof callback);
 }

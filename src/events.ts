@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { FileJournal } from './journal.js';
 import { z } from 'zod';
+import { CodedError,hasCode } from './errors.js';
 
 const token=z.string().min(1).max(100).regex(/^[a-zA-Z0-9_.:/-]+$/);
 const identifier=z.string().min(1).max(100).regex(/^[^\x00-\x1f\x7f]*$/);
@@ -47,8 +48,8 @@ export class EventQueue {
  /** Ageing noise is acknowledged, never discarded; a pending record is always retained. */
  private expired(s:EventState,now:number){return this.autoAcknowledgeMs?s.events.filter(e=>e.acknowledgedAt===null&&(autoAcknowledgeKinds as readonly string[]).includes(e.kind)&&now-Date.parse(e.occurredAt)>this.autoAcknowledgeMs):[];}
  private run<T>(fn:()=>Promise<T>):Promise<T>{
-  if(this.closed)return Promise.reject(new Error('EVENT_QUEUE_CLOSED'));
-  if(this.operations>=128)return Promise.reject(new Error('EVENT_OPERATION_LIMIT'));
+  if(this.closed)return Promise.reject(new CodedError('EVENT_QUEUE_CLOSED'));
+  if(this.operations>=128)return Promise.reject(new CodedError('EVENT_OPERATION_LIMIT'));
   this.operations++;
   const result=this.tail.then(fn).finally(()=>{this.operations--;});this.tail=result.catch(()=>{});return result;
  }
@@ -127,7 +128,7 @@ export class EventQueue {
   try{const now=this.now(),{events}=await this.list({},false,1000);for(const waiter of this.waiters){if(!waiter.armed)continue;const event=events.find(e=>matches(e,waiter.filter,now));if(event)waiter.finish({status:'event',event});}}
   // Backpressure and lock contention are transient: the 100ms poll retries them. Failing every
   // parked waiter on one of them would hand a supervisor an error instead of its event.
-  catch(e){const transient=e instanceof Error&&/^(EVENT_STORAGE_BUSY|EVENT_OPERATION_LIMIT|EVENT_QUEUE_CLOSED)/.test(e.message);if(!transient)for(const waiter of this.waiters)waiter.fail(e);}
+  catch(e){if(!hasCode(e,'EVENT_STORAGE_BUSY','EVENT_OPERATION_LIMIT','EVENT_QUEUE_CLOSED'))for(const waiter of this.waiters)waiter.fail(e);}
   finally{this.checking=false;}
  }
  async close(){this.closed=true;if(this.sweeping){clearInterval(this.sweeping);this.sweeping=undefined;}for(const waiter of this.waiters)waiter.finish({status:'closed'});await this.tail;}

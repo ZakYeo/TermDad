@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { attemptReferenceSchema } from './task-results.js';
 import { FileJournal,acquireLock } from './journal.js';
+import { CodedError } from './errors.js';
 
 export const instanceSchema=z.object({endpoint:z.string().min(1).max(8192),key:z.string().min(1).max(1024)}).strict();
 export type TerminalInstance=z.infer<typeof instanceSchema>;
@@ -48,7 +49,7 @@ export class FileWorkerStorage extends FileJournal<WorkerState> implements Worke
   await this.transaction(true,()=>({result:undefined}));
   const path=join(this.directory,`worker-${agentId}.lock`);
   let lock;
-  try{lock=await acquireLock(path);}catch{throw new Error('WORKER_BUSY: Input already in progress or lifecycle operation locked; retry. A lock left by a process that has exited is reclaimed automatically');}
+  try{lock=await acquireLock(path);}catch{throw new CodedError('WORKER_BUSY','Input already in progress or lifecycle operation locked; retry. A lock left by a process that has exited is reclaimed automatically');}
   try{return await fn();}
   finally{
    try{await this.releaseWorkerLock(lock,path);}
@@ -67,7 +68,7 @@ export class MemoryWorkerStorage implements WorkerStorage {
   return value.result;
  }
  async exclusive<T>(agentId:string,fn:()=>Promise<T>){
-  if(this.locks.has(agentId))throw new Error('WORKER_BUSY: Input already in progress');
+  if(this.locks.has(agentId))throw new CodedError('WORKER_BUSY','Input already in progress');
   this.locks.add(agentId);try{return await fn();}finally{this.locks.delete(agentId);}
  }
 }

@@ -94,13 +94,10 @@ Invoke `$term-dad`, or ask “Activate TermDad” / “You are the TermDad”. T
 supervisor delegates outcomes and constraints while workers own implementation.
 Restart Codex if the newly installed skills do not appear.
 
-Managed workers launched with `agent.spawn({cli:"codex", ...})` automatically
-receive `$term-dad-worker` and its bundled instructions with their first task.
-This also works without installing the skill in the worker's terminal domain.
-Follow-ups do not repeat the instructions. When spawning without a prompt, or
-after an initial readiness timeout, the first successful `agent.send` supplies
-them. Use managed agent tools for Codex workers: raw terminal tools do not apply
-this initialization. Claude and shell workers receive their task text unchanged.
+Managed Codex workers receive `$term-dad-worker` and its bundled instructions
+with their first submitted task, so the skill need not be installed in the
+worker's terminal domain; Claude and shell workers receive their task text
+unchanged. See [lifecycle](docs/architecture.md#lifecycle-and-failures).
 
 ## Selecting the containing WezTerm GUI in WSL
 
@@ -144,24 +141,18 @@ when a new server starts.
 ## Persistent workers and adoption
 
 Managed workers are saved under `TERM_DAD_STATE_DIR` (default:
-`${XDG_STATE_HOME:-$HOME/.local/state}/term-dad`). MCP servers sharing this directory
+`${XDG_STATE_HOME:-$HOME/.local/state}/term-dad`). Servers sharing this directory
 see the same worker IDs and coordinate managed input. Restarting the MCP client
 recovers surviving workers in the same verified GUI instance; it does not relaunch
-applications or resume exited CLI conversations. Observations and watches start
-fresh after restart.
+applications, and observations and watches start fresh.
 
-On Windows/WSL, the bundled host-side helper verifies the GUI process and its
-start time. With one running GUI, it discovers the standard socket automatically.
-With multiple GUIs, automatic selection follows the foreground/newest policy above.
-To select the containing GUI reliably, inherit `WEZTERM_UNIX_SOCKET` as described
-above, or explicitly configure the MCP server with the chosen
-Windows path, typically `C:\Users\<user>\.local\share\wezterm\gui-sock-<PID>`.
-Find the GUI PID with PowerShell `Get-Process wezterm-gui`; socket files are under
-that user's `.local\share\wezterm` directory. The server forwards the endpoint
-explicitly to Windows CLI and screenshot subprocesses. Each server targets one
-GUI; saved workers belonging to another instance remain detached. If the GUI
-restarts, launch the supervisor from a new pane to inherit its current socket,
-or update an explicit socket configuration, and restart the MCP server.
+On Windows/WSL the bundled host-side helper verifies the GUI process and start
+time. With one GUI it discovers the socket automatically; with several, inherit
+`WEZTERM_UNIX_SOCKET` as described above or configure the chosen Windows path
+(`C:\Users\<user>\.local\share\wezterm\gui-sock-<PID>`; find the PID with
+`Get-Process wezterm-gui`). Each server targets one GUI; workers in another remain
+detached. If the GUI restarts, launch the supervisor from a new pane or update the
+explicit socket, then restart the MCP server.
 
 ```text
 agent.list({})
@@ -170,23 +161,19 @@ agent.reattach({"agentId":"existing-worker","paneId":7})
 agent.forget({"agentId":"existing-worker"})
 ```
 
-Choose a real pane ID from `terminal.list`; tabs may contain multiple panes.
-Adoption and reattachment send no input. An adopted Codex worker receives its
-role instructions with the next task unless `workerSkillInitialized:true` was
-specified. `agent.forget` removes only the mapping; `agent.stop` closes the pane.
-Where identity verification is unsupported, explicit attachment lasts for the
-current server session and must be repeated after restart.
-
-An uncertain submission is never replayed automatically. Inspect the pane and
-use `agent.reattach` with `acknowledgeUncertainDelivery:true` and an explicit
-`workerSkillInitialized` value before retrying. See [worker recovery and storage
-failures](docs/tools.md#persistent-workers) for crash-lock recovery.
+Adoption and reattachment send no input; `agent.forget` removes only the mapping
+and `agent.stop` closes the pane. An uncertain submission is never replayed
+automatically. See [persistent workers](docs/tools.md#persistent-workers) for
+`workerSkillInitialized`, uncertain-delivery acknowledgment and crash-lock recovery.
 
 ## Persistent task board
 
 Track goals, priorities, assignments, dependencies, blockers and acceptance criteria
-with `task.create`, `task.get`, `task.list`, `task.update`, `task.assign` and
-`task.archive`. Tasks persist alongside worker metadata in `TERM_DAD_STATE_DIR`.
+with the `task.*` tools; record attempts, results and verification with
+`task.start_attempt`, `task.report_result`, `task.verify` and `task.history`.
+Tasks persist alongside worker metadata in `TERM_DAD_STATE_DIR`, survive worker
+removal, reject stale concurrent edits, and are never completed from terminal
+readiness or silence.
 
 ```text
 task.create({"boardId":"my-project","title":"Implement feature","goal":"Meet the agreed requirements","priority":"high","acceptanceCriteria":[{"id":"checks","description":"Relevant checks pass"}]})
@@ -194,24 +181,11 @@ task.assign({"taskId":"<task UUID>","expectedRevision":1,"agentId":"<worker UUID
 task.list({"boardId":"my-project","readyOnly":true})
 ```
 
-Use `orchestrator.attention` for task-focused decisions, dispatch eligibility,
-verification work, and changes since your last check. Pass its returned `cursor`
-as `since` on the next refresh; use `pageCursor` and `offset` to page the frozen
-result. Each refresh observes workers and includes observation age, uncertainty,
-and worker constraints separately from task eligibility. Cursors are local to the
-server session; expired or restarted baselines reset explicitly. See the
-[attention reference](docs/tools.md#task-focused-attention) for the response contract.
-
-Use returned UUIDs and revisions. Tasks survive worker removal, and concurrent
-stale edits are rejected. Worker lists and supervisor snapshots include assigned
-task summaries; task reads show attached, detached or missing assignees. Completion
-requires an explicit passing verification of the current result, satisfied criteria,
-completed dependencies and no blockers.
-Use `task.start_attempt`, `task.report_result`, and `task.verify` to record results,
-artifacts and checks; `task.history` retains the evidence. Supplied exit codes are
-reported evidence, not automatically captured execution results. Existing done tasks
-remain explicitly `legacy_unverified` until reopened and verified. Assignment records intent; sending instructions to the worker remains a separate
-operation. See [task tools and recovery](docs/tools.md#persistent-task-board).
+`orchestrator.attention` joins worker observations to the task graph for
+decisions, dispatch eligibility and changes since a cursor. See the
+[task board](docs/tools.md#persistent-task-board), [completion
+reporting](docs/tools.md#completion-reporting-and-verification) and
+[attention](docs/tools.md#task-focused-attention) references.
 
 ## Screenshots
 
@@ -223,59 +197,27 @@ codex mcp add term-dad --env TERM_DAD_SCREENSHOT_COMMAND=/home/zak/personal/term
 
 `terminal.screenshot` and `agent.screenshot` return MCP PNG images. The bundled provider captures the whole WezTerm window and activates the requested pane/tab first. It matches the target GUI window by title, restores it if minimized, and fails when the title is ambiguous. See [screenshot strategy](docs/architecture.md#screenshots).
 
-## Input-aware waits
+## Waits, watches and pushed events
 
-Use `agent.wait_for_outcome({agentId, turnId})` with the turn ID returned by
-`agent.send` to wait for required input, heuristic turn completion, disappearance,
-or timeout. Add `quietMs` to also return on unchanged output. Observations expose
-`inputRequired`, `readyForPrompt`, and pending permission/question/authentication
-requests. Quiet output and prompt readiness never verify task success; permission
-requests are never automatically approved. See [tool details](docs/tools.md#input-aware-turn-waits).
+`agent.wait_for_outcome({agentId, turnId})` waits for required input, heuristic
+turn completion, optional quiet output, disappearance or timeout; prompt
+readiness and quiet output never verify success, and permission requests are
+never approved automatically. See [input-aware waits](docs/tools.md#input-aware-turn-waits).
 
-## Background watches
+`watch.create` monitors a managed worker or an unmanaged pane for prompt
+transitions, input requests, inactivity, disappearance and `attention_required`
+(a person is needed). Events enter a bounded durable journal read through
+`event.list`, `event.wait_for_event` and `event.acknowledge`; pending events
+replay after restart, watches must be recreated. To be woken while idle, run the
+command from `event.wake_command` as a detached background process. See
+[watches](docs/tools.md#background-watches), [events](docs/tools.md#durable-metadata-events)
+and [waking an idle supervisor](docs/tools.md#waking-an-idle-supervisor).
 
-Use `watch.create` with a managed `agentId`, or an existing `paneId` plus an explicit
-`adapter`, to monitor prompt transitions, input requests, inactivity and disappearance.
-Watches never approve prompts or infer task success. Desktop notifications are
-opt-in; see [watch tools and Windows/WSL setup](docs/tools.md#background-watches).
-
-Watch events enter a bounded durable metadata queue. Use `event.wait_for_event`
-or `event.list` to retrieve them and `event.acknowledge` after handling them.
-Pending events replay after restart; watch registrations must be recreated.
-Set `TERM_DAD_STATE_DIR` to choose a private local storage directory; see
-[queue limits and recovery](docs/tools.md#durable-metadata-events).
-
-## Worker-pushed events
-
-By default a watch discovers a worker's state by polling its pane. A Claude or
-Codex worker can instead push its own input requests and turn completions to the
-server, which then verifies them by sampling the pane.
-
-Push is off for every pane until it is enabled. Turn it on for long-running work
-and off again afterwards:
-
-```text
-push.set({"agentId":"research","enabled":true})
-push.status({})
-```
-
-`agent.spawn` injects the hook plumbing at launch, so enabling push never needs a
-relaunch, and the hooks record nothing while push is disabled. Hooks reach the
-server over a per-process Unix socket in the state directory (mode 0600, no
-network listener) and may send only a token and one of three pushed event kinds; event
-text is authored by the server. A worker's argv carries the path of a private
-credential file rather than the credentials, so a supervisor restart re-keys a
-surviving worker instead of orphaning it. Shell workers have no hook surface and always
-poll.
-
-`push.status` separates intent from evidence: `enabled` is only this server's
-willingness to accept a push, while `proven` means a hook has actually fired.
-Enabling a channel that cannot deliver fails explicitly rather than reporting
-success. To be woken while idle rather than polling, call `event.wake_command`
-and run its `example` as a detached background process; its exit is the wake.
-`attention_required` fires when a worker needs a person, including a question
-asked in prose at a ready prompt. See [worker-pushed events](docs/tools.md#worker-pushed-events) and
-[waking an idle supervisor](docs/tools.md#waking-an-idle-supervisor).
+Push is off for every pane until `push.set` enables it. A Claude or Codex worker
+then reports its own input requests and turn ends over a local owner-only socket,
+each verified by sampling the pane; `enabled` is intent and `proven` is the only
+evidence a hook has fired. Shell workers always poll. See
+[worker-pushed events](docs/tools.md#worker-pushed-events).
 
 ## Development and tests
 
@@ -298,6 +240,6 @@ Worker mappings persist in a private shared journal; worker panes stay alive acr
 
 Key injection uses standard VT bytes, not global shortcuts. Apps using application cursor mode or extended keyboard protocols may need a custom key mapping. Focus activates the mux pane; OS foreground behavior varies. Movement currently supports moving to a new tab/window. Screenshots on Linux/macOS require your own provider executable. No remote transport, credentials, application relaunch, or push destination is configured.
 
-Worker-pushed events are local only: the ingress socket lives in your state directory, is owner-only, and accepts a bounded token and event kind, never event text. Credential files are owner-only, but workers run as your user, so that is not an isolation boundary between them. A worker that can read its own credential file can push those kinds for its own pane while push is enabled for it, which is why a push is verified by sampling the pane and never treated as evidence of task success. Push is off by default and cannot be enabled for a pane the server did not launch with hooks. Hooks run inside the worker; a worker started outside `agent.spawn` has none.
+Worker-pushed events are local only and carry a token and kind, never event text. Workers run as your user, so credential files are not an isolation boundary between them; a push is therefore verified by sampling the pane and never treated as evidence of task success.
 
 Read the [tool reference](docs/tools.md), [architecture and observation decision](docs/architecture.md), and [roadmap](docs/roadmap.md).

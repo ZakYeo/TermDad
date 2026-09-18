@@ -6,6 +6,8 @@ $messages = @{
   ready = 'A watched pane returned to a prompt. Success is not established.'
   inactive = 'A watched pane has unchanged text. Success is not established.'
   pane_disappeared = 'A watched pane is no longer present.'
+  attention_required = 'A watched pane needs a person.'
+  session_ended = 'A worker reported that its session ended.'
 }
 if (-not $messages.ContainsKey([string]$event.kind)) { throw 'Unsupported notification kind' }
 Add-Type -AssemblyName System.Windows.Forms
