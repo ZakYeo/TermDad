@@ -3,7 +3,10 @@
 Status: findings and planned work. Items 1–3 (wake discipline) and 5–8 (shrink
 tool results) were delivered on 18 Sep 2026; item 4 is delivered for the read
 path (`agent.observe`, `agent.status`, `agent.wait_for_outcome`), writes still
-fail fast by design. This records what three
+fail fast by design. Items 9, 10, 12–17 and 18–20 were delivered later on
+18 Sep 2026 (skill text, argument aliases, key names, push by name with on-demand
+re-key, pid-stamped locks with dead-holder reclaim, explicit server exit); see the
+notes on each item. This records what three
 real Term Dad supervisor sessions showed about the tool surface and the
 supervisor skill, so the fixes can be picked up without re-reading the
 transcripts.
@@ -158,6 +161,15 @@ status call whether or not it asked.
 - Copilot cannot be a managed worker: `agent.spawn` refuses it, `push.set`
   returns `PUSH_UNSUPPORTED_WORKER`, and the supervisor rediscovered the
   `zsh -l` then `copilot --plan` launch recipe each day.
+- Servers outliving their client: on 18 Sep four servers were alive, each with a
+  live `claude` parent, so multiple servers are usually legitimate. The MCP stdio
+  transport never handles stdin ending; in practice the event loop drained and the
+  process exited anyway, but an inherited stdin pipe would keep it alive, so the
+  server now exits explicitly on stdin end and on parent death. The real
+  operational damage found was a `workers.lock` held by no process (0 bytes,
+  two hours old) that made every worker write in every server fail
+  `WORKER_STORAGE_BUSY`; locks now record their holder and are reclaimed when the
+  holder is gone.
 - Supervisor acted before being told on 17 Sep (08:23 and 08:43): created
   worktrees, ran installs and spawned two Codex workers when only a plan was
   requested.
@@ -196,14 +208,14 @@ status call whether or not it asked.
 
 ### P1 Status-report budget (finding 2)
 
-9. `skills/term-dad/SKILL.md`: one line per wake unless a decision is needed;
+9. **Delivered (18 Sep).** `skills/term-dad/SKILL.md`: one line per wake unless a decision is needed;
    redraw a board only when a row changed; no TLDR under roughly 1,500 chars;
    no closing "Want me to" once the user has granted autopilot; approvals are a
    single key with no rationale; retractions are two sentences.
 
 ### P1 Acceptance-criteria level (finding 4)
 
-10. `skills/term-dad/SKILL.md`: no grep, `sed`, test runs or git forensics in
+10. **Delivered (18 Sep).** `skills/term-dad/SKILL.md`: no grep, `sed`, test runs or git forensics in
     the target repo or worker worktrees unless verifying a merge claim or a CI
     red; ask the worker for its evidence instead. Worker briefs carry ticket
     key, purpose, acceptance criteria and boundaries only, capped around
@@ -213,32 +225,32 @@ status call whether or not it asked.
 
 ### P2 Tool ergonomics
 
-12. Normalise parameter names across tools (`id`/`paneId`, `text`/`message`),
+12. **Delivered (18 Sep).** Normalise parameter names across tools (`id`/`paneId`, `text`/`message`),
     accept `terminal.submit` without `text`, accept a string command on
     `terminal.spawn`, and accept an array target on `watch.create`. Update
     `docs/tools.md` alongside.
-13. Live-check `terminal.send_text` for the duplicated-prompt symptom.
-14. `push.set`: report deliverability rather than wiring, and confirm the
+13. **Checked (18 Sep).** Live-check `terminal.send_text` for the duplicated-prompt symptom: a marker pasted into a scratch `cat` pane appeared once (`docs/testing.md`); a unit test pins one `send-text` call per paste. Not reproduced against a Claude TUI prompt, so the 16 Sep symptom stays open as a manual retry of the same text.
+14. **Delivered (18 Sep).** `push.set`: report deliverability rather than wiring, and confirm the
     re-key path covers `PUSH_UNKNOWN_WORKER` after a successful
     `agent.reattach` (see `push-remaining-work.md` section 4, `restorePush`).
-15. Reap stale servers and the storage lock at startup so a restart does not
+15. **Delivered (18 Sep).** Reap stale servers and the storage lock at startup so a restart does not
     leave three servers attached to one GUI.
 
 ### P2 Plan and state
 
-16. `skills/term-dad/SKILL.md`: plan-only until an explicit go; no worktree,
+16. **Delivered (18 Sep).** `skills/term-dad/SKILL.md`: plan-only until an explicit go; no worktree,
     install or spawn during planning.
-17. Store the active work plan in tasks (see `persistent-task-board.md`) so a
+17. **Delivered as skill text (18 Sep).** Store the active work plan in tasks (see `persistent-task-board.md`) so a
     `/compact` does not require the user to re-paste it, and have the skill
     read the board on reconnect.
 
 ### P3 Supplementary
 
-18. Skill guidance for Jira via the Atlassian MCP: bulk transitions in one
+18. **Delivered (18 Sep).** Skill guidance for Jira via the Atlassian MCP: bulk transitions in one
     shell call, request key and status fields only.
-19. Skill guidance for menus: one `terminal.send_keys` batch and one read, not
+19. **Delivered (18 Sep).** Skill guidance for menus: one `terminal.send_keys` batch and one read, not
     a read after every key.
-20. Document in the skill that Copilot panes are unmanaged (no push, no
+20. **Delivered (18 Sep).** Document in the skill that Copilot panes are unmanaged (no push, no
     `agent.spawn`), with the fallback launch and watch recipe.
 
 ## Tests and docs each item must touch

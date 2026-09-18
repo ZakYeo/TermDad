@@ -7,17 +7,17 @@ Tool names use dots. All arguments are JSON objects. Omitted arguments below use
 | terminal.list_instances | `{}` → up to 64 live Windows/WSL GUI identities (`key`, `endpoint`, `pid`, `title`), plus `selected`; unavailable selection is reported as `selectionError` |
 | terminal.select_instance | `key` → select an exact live identity returned above, for this server session; no terminal input |
 | terminal.list | `{}` → raw pane metadata including window/tab IDs, cwd, dimensions |
-| terminal.spawn | `paneId?, windowId?, newWindow?, domain?, cwd?, command?: string[]` → new pane ID in a tab/window |
+| terminal.spawn | `paneId?, windowId?, newWindow?, domain?, cwd?, command?: string[] \| string` → new pane ID in a tab/window. A string command is split like a shell would (quotes and backslashes honoured); no shell runs |
 | terminal.split | `paneId, direction?: right\|bottom, percent?: 1..99, cwd?, command?` → new split pane ID |
-| terminal.close | `target?: pane\|tab\|window, id` → kills all selected panes |
-| terminal.focus | `target?: pane\|tab\|window, id` → activates matching pane |
+| terminal.close | `target?: pane\|tab\|window, id` or just `paneId` → kills all selected panes |
+| terminal.focus | `target?: pane\|tab\|window, id` or just `paneId` → activates matching pane |
 | terminal.resize | `paneId, direction: Left\|Right\|Up\|Down, amount?: 1..1000` |
 | terminal.move | `paneId, newWindow?, windowId?` → move to new tab |
 | terminal.read | `paneId, lines?: 1..5000` (default 100) → text tail |
 | terminal.send_text | `paneId, text` → paste without submitting |
 | terminal.send_key | `paneId, key` → one raw key |
 | terminal.send_keys | `paneId, keys: string[]` → ordered keys, entire sequence validated first |
-| terminal.submit | `paneId, text` → paste then Enter |
+| terminal.submit | `paneId, text?` → paste then Enter; with no text, Enter only |
 | terminal.screenshot | `paneId` → MCP PNG image via provider |
 | terminal.snapshot | `{}` → panes, 30-line tails and managed agents |
 | agent.spawn | `name, cli: claude\|codex\|shell, prompt?, timeoutMs?` plus terminal.spawn options → mapped worker; prompt waits for readiness; first Codex task includes the worker skill |
@@ -25,23 +25,23 @@ Tool names use dots. All arguments are JSON objects. Omitted arguments below use
 | agent.adopt | `name, paneId, cli, workerSkillInitialized?` → register an existing pane; no input sent |
 | agent.reattach | `agentId, paneId, acknowledgeUncertainDelivery?, workerSkillInitialized?` → explicitly bind a saved worker; no input sent |
 | agent.forget | `agentId` → remove mapping without closing pane |
-| agent.send | `agentId, text` → submit task; includes the worker skill on the first Codex task if deferred at spawn |
+| agent.send | `agentId, text` (alias `message`) → submit task; includes the worker skill on the first Codex task if deferred at spawn |
 | agent.observe | `agentId, since?: observationId, lines?: 1..150` (default 20) → compact state and the tail of normalized output; with `since`, only the change since that observation. `linesOmitted` counts what the cap dropped |
 | agent.status | Same as observe |
 | agent.interrupt | `agentId` → Ctrl+C |
 | agent.stop | `agentId` → kill pane and remove mapping; releases its push registration and removes its credential file |
-| push.status | `agentId?` → socket bind state and per-pane delivery facts (`enabled` is intent, `deliverable` is reachability, `proven` is an observed hook) |
-| push.set | `agentId, enabled` → turn worker-pushed events on or off for one pane |
+| push.status | `agentId?` (UUID or worker name) → socket bind state and per-pane delivery facts (`enabled` is intent, `deliverable` is reachability, `proven` is an observed hook) |
+| push.set | `agentId` (UUID or name), `enabled` → turn worker-pushed events on or off for one pane; returns the `push.status` facts plus `note` |
 | agent.screenshot | `agentId` → provider image |
 | agent.wait_for_text | `agentId, text, timeoutMs?` → wait for literal substring in recent output |
 | agent.wait_for_outcome | `agentId, turnId, timeoutMs?, quietMs?, since?, lines?` → input required, heuristic turn finished, optional quiet output, disappearance, or timeout; `lastObservation` is the change since `since`, capped to `lines` |
 | agent.wait_until_idle | `agentId, timeoutMs?` → recognized ready/idle state; no silence heuristic |
-| agent.broadcast | `agentIds: string[], text` → per-worker send success/error |
+| agent.broadcast | `agentIds: string[], text` (alias `message`) → per-worker send success/error |
 | agent.collect_results | `{}` → current observations, no inferred task success |
 | orchestrator.status | `{}` → per-worker status, activity, hash and task summary with no screen text; metadata for detached workers |
 | orchestrator.attention | Task-focused decisions, eligibility, verification, and cursor-based changes; see below |
 
-Keys (case-insensitive): ENTER, ESC, TAB, UP, DOWN, LEFT, RIGHT, CTRL_C, CTRL_D, CTRL_A, CTRL_E, CTRL_U, BACKSPACE, DELETE, HOME, END. Aliases: Escape → ESC, Return → ENTER, ArrowUp/UpArrow → UP, ArrowDown/DownArrow → DOWN, ArrowLeft/LeftArrow → LEFT, ArrowRight/RightArrow → RIGHT. For example, `terminal.send_key({"paneId":7,"key":"ArrowDown"})` sends a down arrow. Both key tools send raw control bytes without bracketed paste; use them for menu navigation. `terminal.send_text` pastes text, so escape sequences sent through it may be treated as pasted content instead of navigation. Unsupported names report accepted keys, and a sequence containing any unsupported name sends no input.
+Keys (case-insensitive): ENTER, ESC, TAB, SPACE, UP, DOWN, LEFT, RIGHT, PAGEUP, PAGEDOWN, CTRL_C, CTRL_D, CTRL_A, CTRL_E, CTRL_U, BACKSPACE, DELETE, HOME, END. Aliases: Escape → ESC, Return/CR/Newline → ENTER, ArrowUp/UpArrow → UP, ArrowDown/DownArrow → DOWN, ArrowLeft/LeftArrow → LEFT, ArrowRight/RightArrow → RIGHT, PgUp/PgDn → PAGEUP/PAGEDOWN, Del → DELETE, BS → BACKSPACE. The separators `+`, `-` and space are accepted, so `Ctrl+C`, `ctrl-c` and `Page Down` resolve. For example, `terminal.send_key({"paneId":7,"key":"ArrowDown"})` sends a down arrow. Both key tools send raw control bytes without bracketed paste; use them for menu navigation. `terminal.send_text` pastes text, so escape sequences sent through it may be treated as pasted content instead of navigation. Unsupported names report accepted keys, and a sequence containing any unsupported name sends no input.
 
 Text is capped at 100,000 characters; key sequences at 100 keys. Wait timeout defaults to 30,000ms, maximum 120,000ms. Screenshots require `TERM_DAD_SCREENSHOT_COMMAND`. `newWindow` and `windowId` are mutually exclusive.
 
@@ -130,10 +130,13 @@ repeat spawn. Forgetting never closes a pane; successful stop removes its mappin
 Corrupt, oversized or unsafe journals raise `WORKER_STATE_CORRUPT` or
 `WORKER_STORAGE_UNSAFE`; preserve the file and recover explicitly. Atomic rename
 is the commit point; a later directory-sync failure appears in `storageWarning`
-without treating the committed action as failed. A crash can leave `workers.lock`,
-`worker-<UUID>.lock`, or `workers.<UUID>.tmp`. Stop **all** servers sharing the
-directory, preserve `workers.json`, remove stale locks/orphan temporaries, and
-restart. Locks are never stolen on a timer. Resolve any uncertain-delivery marker
+without treating the committed action as failed. Every lock records the pid of the
+process holding it. A lock whose holder has exited is reclaimed automatically, both
+when the next acquisition meets it and by a sweep at server startup, which also
+removes `workers.<UUID>.tmp` orphans older than a minute. A lock held by a live
+process is never taken: nothing is stolen on a timer, so a slow live writer keeps
+its exclusivity. If `WORKER_BUSY` persists, the holder is alive; find it before
+removing anything by hand. Resolve any uncertain-delivery marker
 through explicit reattachment afterward. Storage targets private local POSIX
 filesystems, including WSL; disconnect never kills worker panes.
 
@@ -148,7 +151,7 @@ watch tools and three event tools.
 | Tool | Arguments | Result |
 | --- | --- | --- |
 | `event.list` | Optional filters below; `includeAcknowledged` (default false), `limit` (1–1000, default 100) | `events` in ascending sequence order, `hasMore`, global `pendingCount`, `capacity`, `storageWarning` |
-| `event.acknowledge` | `ids`: 1–100 UUID event IDs | Retained matching `events` with acknowledgment timestamps, plus `unknownIds` |
+| `event.acknowledge` | `ids` (alias `eventIds`): 1–100 UUID event IDs | Retained matching `events` with acknowledgment timestamps, plus `unknownIds` |
 | `event.wait_for_event` | Optional filters; `timeoutMs` (1–120000, default 30000); `freshOnly` (default true) | `{status:"event",event}` or `{status:"timeout"}`, `{status:"cancelled"}`, `{status:"closed"}` |
 | `event.wake_command` | none | `command` (argv of the bundled waiter), `stateDir`, `kinds`, and a runnable `example`; read-only |
 
@@ -291,9 +294,18 @@ Delivery counts are per server process; `push.status` is honest about that by
 reporting `registered:false` rather than `count:0` when a registration is absent.
 
 Enabling fails instead of returning a success value that overstates what is
-known: `PUSH_NOT_WIRED` when the pane has no hook surface in this server (it was
-adopted rather than spawned, or this process was restarted), `PUSH_SOCKET_UNAVAILABLE`
-when the socket did not bind, and `PUSH_UNSUPPORTED_WORKER` for a shell worker.
+known: `PUSH_UNKNOWN_WORKER` when the ID or name is not a managed worker,
+`PUSH_UNSUPPORTED_WORKER` for a shell worker, `PUSH_SOCKET_UNAVAILABLE` when the
+socket did not bind, and `PUSH_NOT_WIRED` when the pane was launched without hooks
+(an adopted pane). A worker that survived a server restart is not refused: if the
+startup re-key skipped it (its lock was held at the time), `push.set` re-keys it
+under its lock and enables it, and a survivor this server is not attached to is
+told to `agent.reattach`, never to respawn. Both push tools accept the worker's
+UUID or its unique name, like every other worker tool. `push.set` returns the same
+facts as `push.status` (`deliverable`, `proven`, `reason`) plus a `note`, so the
+result reports deliverability rather than wiring intent. `credential` is
+`recorded` (a binding exists), `absent` or `unwritable`; it never asserts that the
+file on disk is intact.
 Disabling always succeeds and is idempotent, including when no registration
 exists: the safe direction is never blocked by the reasons a channel is broken.
 `push.status` likewise reports a managed worker it holds no registration for
@@ -493,9 +505,9 @@ Atomic replacement and directory sync follow the worker/event journal contract.
 `TASK_STATE_CORRUPT` preserves damaged state for explicit recovery; never delete it
 to suppress an error. A post-commit sync failure succeeds but sets a
 `TASK_DURABILITY_WARNING` on subsequent lists; power-loss durability is uncertain.
-`TASK_STORAGE_BUSY` may be temporary contention. For a confirmed crash, stop all
-servers using the directory, preserve `tasks.json`, and only then remove stale
-`tasks.lock` and orphan `tasks.*.tmp` files. No time-based lock stealing occurs.
+`TASK_STORAGE_BUSY` means a live process holds `tasks.lock`: a lock left by a
+process that has exited is reclaimed automatically (see persistent workers above).
+No time-based lock stealing occurs.
 Tasks, workers and events are separate journals, so their views are not one atomic
 snapshot. Task text and evidence are explicit stored content; treat them as
 untrusted, and do not include secrets or automatically copy terminal output.

@@ -114,11 +114,13 @@ unsure whether publication completed; this API does not promise exactly-once
 production across that crash window.
 
 A crash during a transaction can leave `events.lock` or an orphan `events.*.tmp`.
-Locks are deliberately not stolen on a timer: a slow live writer must never lose
-exclusivity. Stop **all** servers using that directory, preserve `events.json`,
-then remove the stale lock and orphan temporary files before restarting. Pending
-committed events then replay normally. Do not remove a lock while another server
-may be using it. This implementation targets private local POSIX filesystems;
+Every lock records its holder's pid. On the next acquisition, and in a sweep at
+server startup, a lock whose holder has exited is reclaimed and temporaries older
+than a minute are removed; a pid-less lock from an older build counts as abandoned
+once it is older than the five-second write window. Locks are still never stolen
+on a timer from a live holder: a slow live writer never loses exclusivity, and a
+persistent `*_STORAGE_BUSY` means a live process holds the lock. Pending committed
+events replay normally after a reclaim. This implementation targets private local POSIX filesystems;
 network filesystems and hostile same-user filesystem modification are outside its
 locking/security model. Existing unsafe directory or journal permissions are
 rejected. No background journal is created merely by starting the MCP server.
@@ -197,7 +199,12 @@ is no network listener. Listening is best effort: a server that cannot bind stil
 polls. `listen` sweeps `push.<pid>.sock` files that no longer answer, replaces a
 stale socket at its own path, and refuses to replace a non-socket file. The server
 handle is unref'ed, so the ingress never keeps a process alive; the transport owns
-that lifetime. Connections are half-open so a reply survives a slow sink, and are
+that lifetime. The stdio transport itself only reads stdin data, so `src/index.ts`
+ends the process explicitly: when stdin ends, and when the parent pid changes while
+something else still holds the stdin pipe open (checked every five seconds,
+`TERM_DAD_PARENT_CHECK_MS` in tests), it runs the close chain with a five-second cap
+and exits. A server therefore never outlives the client it was launched for, and
+peers with a live client are never touched. Connections are half-open so a reply survives a slow sink, and are
 bounded at 64 concurrent, 4,096 bytes per request and a 5-second idle timeout.
 
 Requests carry only `{token,kind}`. Tokens are 256-bit and per worker, held in
@@ -221,7 +228,11 @@ gated on the same verified attachment that guards every other managed operation:
 worker metadata is shared by state directory, so an ungated pass would re-key
 another live server's workers and silently revoke their tokens. Each worker's
 re-key runs under its per-worker lock, so it cannot race a concurrent reattach
-into the wrong pane or resurrect a forgotten worker. It is skipped entirely when
+into the wrong pane or resurrect a forgotten worker. A worker whose lock was held
+at startup is skipped, not lost: `push.set` re-keys an attached survivor on demand
+under the same lock before enabling it, and refuses an unattached one with advice
+to `agent.reattach`. Push tools resolve the worker by UUID or name through the
+same registry lookup as every other worker tool. It is skipped entirely when
 the socket did not bind, because rewriting credentials to a dead path would also
 strand a peer's worker. Credentials are swept by membership of the durable journal
 rather than by liveness probe — a credential cannot be probed the way a socket can

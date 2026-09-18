@@ -426,3 +426,32 @@ adopted pane is refused with `PUSH_NOT_WIRED` and gets no credential; and
 appears in `workers.json`.
 
 No live checks were run for this work.
+
+## Argument aliases, lock reclaim, explicit exit and push by name (2026-09-18)
+
+`npm run check`: **261 tests** on Node 22.14.0. New deterministic coverage: a held
+lock names its holder pid; a lock whose holder is dead is reclaimed and the
+transaction proceeds; a lock held by a live pid is honoured; a pid-less lock is
+honoured while fresh and reclaimed once older than the write window; a worker
+lock left by a dead process no longer blocks the worker; startup reaping removes
+dead-holder locks and old orphan temporaries only. Over real stdio: a server
+exits with code 0 and no socket file when its client closes stdin, and exits when
+its parent dies while `sleep` still holds its stdin pipe open. Push tools accept
+the worker name; a survivor whose startup re-key was skipped by a held lock is
+re-keyed by `push.set` and delivers with its new token; unknown names report
+`PUSH_UNKNOWN_WORKER`. In-process MCP calls exercise `terminal.close {paneId}`,
+`agent.send {message}`, `terminal.submit {paneId}` alone (one Enter, nothing
+pasted), `terminal.spawn {command:"zsh -l -c \"echo hi there\""}` split without a
+shell, `event.acknowledge {eventIds}`, and `terminal.send_key` with `Ctrl+C`,
+`ctrl-c`, `Page Down`, `PgUp`, `Space`, `Enter`, `Escape`, `Tab`, `Down`.
+`send_text` is pinned to one `send-text` call carrying the text on stdin.
+
+Live check performed for `terminal.send_text` duplication (review item 13) with
+the same WezTerm argv the backend issues: `wezterm cli spawn -- cat` in a new tab,
+`send-text` of a marker, `get-text` showed the marker exactly once; after a
+`--no-paste` Enter it appeared twice, which is `cat` echoing its input line. The
+tab was killed afterwards. This does not reproduce the 16 Sep symptom, which was
+seen inside a Claude Code prompt; no Claude worker was launched for this check
+because that uses the configured account.
+
+No live supervisor session was run against the new skill text.
