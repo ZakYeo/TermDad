@@ -181,6 +181,9 @@ export class Agents {
   private attached(w: WorkerRecord, instance: TerminalInstance | null) {
     return sameInstance(w.instance, instance) || (!w.instance && !instance && w.sessionId === this.sessionId);
   }
+  // Identity is resolved once per operation: the resolver pins the first GUI it saw and throws
+  // if that ever changes, so a second resolution after the pane listing could only agree or
+  // throw, while costing a host subprocess under the worker lock on every observation.
   private async checked(w: WorkerRecord) {
     const instance = await this.identity();
     if (!this.attached(w, instance))
@@ -189,8 +192,6 @@ export class Agents {
       );
     const a = this.cache(w),
       pane = (await this.backend.list()).find((p) => p.pane_id === a.paneId);
-    if (!this.attached(w, await this.identity()))
-      throw new Error('WORKER_DETACHED: terminal identity changed during observation');
     if (!pane) {
       await this.remove(a.agentId);
       throw new CodedError('WORKER_PANE_DISAPPEARED', `pane ${a.paneId} disappeared; agent ${a.name} removed`);
@@ -626,9 +627,7 @@ export class Agents {
   }
   async bindingPaneExists(w: WorkerRecord) {
     if (!this.attached(w, await this.identity())) throw new Error('WORKER_DETACHED');
-    const exists = (await this.backend.list()).some((p) => p.pane_id === w.paneId);
-    if (!this.attached(w, await this.identity())) throw new Error('WORKER_DETACHED');
-    return exists;
+    return (await this.backend.list()).some((p) => p.pane_id === w.paneId);
   }
   async requireAttachment(agentId: string) {
     const w = await this.lookup(agentId);

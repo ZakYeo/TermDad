@@ -627,3 +627,24 @@ test('wait_for_text and wait_until_idle retry through a briefly held worker lock
   assert.equal((await waiting).name, 'worker');
   await first;
 });
+test('one managed operation resolves terminal identity once, so no lock is held across a second identity subprocess', async () => {
+  let resolutions = 0;
+  const panes = JSON.stringify([
+    { pane_id: 7, tab_id: 1, window_id: 1, title: 't', cwd: 'c', size: { rows: 24, cols: 80 } },
+  ]);
+  const backend = new WezTermBackend(
+    async (args) => (args[0] === 'list' ? panes : args[0] === 'get-text' ? '$ ' : ''),
+    async () => {
+      resolutions++;
+      return { ...original };
+    },
+  );
+  const agents = new Agents(backend);
+  await agents.adopt({ name: 'w', cli: 'shell', paneId: 7 });
+  resolutions = 0;
+  await agents.observe('w');
+  assert.equal(resolutions, 1);
+  resolutions = 0;
+  await agents.send('w', 'echo hi');
+  assert.equal(resolutions, 1);
+});
