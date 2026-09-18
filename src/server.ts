@@ -79,7 +79,7 @@ export function createServer(backend:TerminalBackend=new WezTermBackend(),screen
  register('agent.wait_until_idle','Wait for a recognized prompt; silence alone never counts.',{...agent,...wait},a=>agents.wait(a.agentId,o=>['READY_FOR_PROMPT','IDLE'].includes(o.status),a.timeoutMs));
  register('agent.broadcast','Submit a message to explicit workers; returns per-agent outcomes.',{agentIds:z.array(z.string()).min(1).max(64),...text},async a=>Promise.all(a.agentIds.map(async (agentId:string)=>{try{return await agents.send(agentId,a.text);}catch(e){return {agentId,error:String(e)};}})));
  register('agent.collect_results','Collect observations; does not infer task success from idle state.',{},async()=>withWorkerTasks(await agents.snapshot(),tasks));
- register('orchestrator.status','Observe all managed agents.',{},async()=>withWorkerTasks(await agents.snapshot(),tasks));
+ register('orchestrator.status','Status, activity and task summary of every managed agent without screen text; use agent.status for the one you need to read.',{},async()=>withWorkerTasks(await agents.summaries(),tasks));
  for(const kind of ['terminal','agent'])server.registerTool(`${kind}.screenshot`,{description:'Capture on demand through the configured platform screenshot provider.',inputSchema:kind==='terminal'?pane:agent},async(a:any)=>{try{return {content:[await (kind==='terminal'?screenshots.capture(a.paneId,await backend.instance?.()):agents.withPane(a.agentId,(paneId,instance)=>screenshots.capture(paneId,instance)))]};}catch(e){return {isError:true,content:[{type:'text' as const,text:String(e)}]};}});
  const events:EventQueue=watchOptions instanceof EventQueue?watchOptions:eventQueue??new EventQueue();
  const options=watchOptions instanceof EventQueue?{}:watchOptions;

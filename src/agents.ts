@@ -271,5 +271,7 @@ export class Agents {
   }while(Date.now()<=deadline);
   return {reason:'timeout',lastObservation:last??null};
  });}
+ /** Board view: every observation field except the screen text, so polling all workers stays cheap. */
+ async summaries(){return (await this.snapshot()).map(entry=>{if(!('recentText' in entry))return entry;const {recentText,outputMode,linesOmitted,...summary}=entry;return summary;});}
  async snapshot(){const workers=await this.list();return Promise.all(workers.map(async w=>{if(w.attachment==='detached')return w;try{return await this.observe(w.agentId);}catch(e){return {...w,error:String(e)};}}));}
 }

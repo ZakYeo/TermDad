@@ -92,3 +92,12 @@ test('attention MCP refreshes task queues, pages frozen changes and resets curso
  const reset=await second.call('orchestrator.attention',{since:fresh.cursor});
  assert.equal(reset.baseline.reason,'unknown_or_expired');assert.deepEqual(reset.changes,[]);assert.equal(reset.counts.ready_to_dispatch,2);
 });
+test('orchestrator.status summarises attached workers without screen text',async t=>{
+ const directory=await mkdtemp(join(tmpdir(),'term-dad-status-summary-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+ const f=await connect(directory,true);t.after(()=>f.client.close());
+ await f.call('agent.spawn',{name:'worker',cli:'codex'});
+ const [summary]=await f.call('orchestrator.status');
+ for(const key of ['status','outputHash','lastActivitySecondsAgo','awaitingInput','tasks','observationId'])assert.ok(key in summary,key);
+ for(const key of ['recentText','outputMode','linesOmitted'])assert.ok(!(key in summary),`${key} should be absent`);
+ assert.ok('recentText' in (await f.call('agent.collect_results'))[0]);
+});
