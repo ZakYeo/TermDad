@@ -207,7 +207,9 @@ A self-review of the delivered commits found these. They are real but were left
 alone when the work was wrapped up; none can lose an event, leak a token or
 deadlock.
 
-- **`WORKER_BUSY` surfaces to callers instead of being retried.** Across the
+- **`WORKER_BUSY` surfaces to callers instead of being retried.** Fixed for reads
+  on 18 Sep 2026 (`agent.observe`, `agent.status`, `agent.wait_for_outcome`);
+  writes still fail fast on purpose. Original note: across the
   17–18 Sep supervisor sessions, 30 calls failed with `WORKER_BUSY` or
   `WORKER_STORAGE_BUSY`, including 7 of 11 `agent.wait_for_outcome` calls on
   18 Sep, each retry re-sending a full `agent.send` body or re-pulling a full

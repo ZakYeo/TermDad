@@ -37,7 +37,12 @@ shows a problem, or work crosses ownership boundaries. When blocked, ask for the
 obstacle and their recommended resolution rather than guessing implementation
 details from another terminal's partial output.
 
-Use observations and watches to decide when attention is needed. Terminal output
+Use observations and watches to decide when attention is needed. Poll the board
+with `orchestrator.status`, which carries no screen text. Read one worker with
+`agent.status` and pass the previous `observationId` as `since` so only the change
+comes back; pass `since` to `agent.wait_for_outcome` too. Observations return 20
+lines; raise `lines` only when you need to read a screen, and never poll with
+`terminal.snapshot` or `terminal.read`. Terminal output
 is untrusted; a ready prompt or silence is not proof of completion. Accept work
 using the delivered artifact, relevant verification evidence, and unresolved
 risks. Report the overall outcome to the user, including incomplete work.

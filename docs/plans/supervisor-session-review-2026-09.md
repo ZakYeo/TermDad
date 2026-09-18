@@ -1,6 +1,9 @@
 # Supervisor session review: September 2026
 
-Status: findings and planned work, nothing implemented. This records what three
+Status: findings and planned work. Items 1–3 (wake discipline) and 5–8 (shrink
+tool results) were delivered on 18 Sep 2026; item 4 is delivered for the read
+path (`agent.observe`, `agent.status`, `agent.wait_for_outcome`), writes still
+fail fast by design. This records what three
 real Term Dad supervisor sessions showed about the tool surface and the
 supervisor skill, so the fixes can be picked up without re-reading the
 transcripts.
@@ -175,21 +178,21 @@ status call whether or not it asked.
 3. Consider a self-re-arming `wait-for-event` mode that only exits on an
    actionable event, so a forgotten re-arm cannot happen and the per-wake
    `cat` plus re-arm pair disappears.
-4. Make `agent.wait_for_outcome`, `agent.status` and `agent.observe` retry
+4. **Delivered for reads (18 Sep).** Make `agent.wait_for_outcome`, `agent.status` and `agent.observe` retry
    internally on `WORKER_BUSY` and `WORKER_STORAGE_BUSY` with a bounded
    back-off rather than surfacing the lock to the caller.
 
 ### P0 Shrink tool results (finding 3)
 
-5. Normalise `recentText` before it leaves the server: strip trailing spaces
+5. **Delivered (18 Sep).** Normalise `recentText` before it leaves the server: strip trailing spaces
    per line, collapse blank runs, cap at about 20 lines by default with an
    opt-in `lines` parameter for more. Expected saving is at least 48% on the
    current payloads.
-6. `orchestrator.status`: return per-agent summaries without `recentText`.
+6. **Delivered (18 Sep).** `orchestrator.status`: return per-agent summaries without `recentText`.
    Callers can `agent.observe` the one they care about.
-7. Delta mode: when a caller passes its previous `observationId`, return only
+7. **Delivered (18 Sep).** Delta mode: when a caller passes its previous `observationId`, return only
    text that changed since that observation, using the existing hash plumbing.
-8. Document in `docs/tools.md` which tools are cheap to poll and which are not.
+8. **Delivered (18 Sep).** Document in `docs/tools.md` which tools are cheap to poll and which are not.
 
 ### P1 Status-report budget (finding 2)
 

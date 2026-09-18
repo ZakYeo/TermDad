@@ -26,7 +26,7 @@ Tool names use dots. All arguments are JSON objects. Omitted arguments below use
 | agent.reattach | `agentId, paneId, acknowledgeUncertainDelivery?, workerSkillInitialized?` → explicitly bind a saved worker; no input sent |
 | agent.forget | `agentId` → remove mapping without closing pane |
 | agent.send | `agentId, text` → submit task; includes the worker skill on the first Codex task if deferred at spawn |
-| agent.observe | `agentId, since?: observationId` → compact state and output delta |
+| agent.observe | `agentId, since?: observationId, lines?: 1..150` (default 20) → compact state and the tail of normalized output; with `since`, only the change since that observation. `linesOmitted` counts what the cap dropped |
 | agent.status | Same as observe |
 | agent.interrupt | `agentId` → Ctrl+C |
 | agent.stop | `agentId` → kill pane and remove mapping; releases its push registration and removes its credential file |
@@ -34,11 +34,11 @@ Tool names use dots. All arguments are JSON objects. Omitted arguments below use
 | push.set | `agentId, enabled` → turn worker-pushed events on or off for one pane |
 | agent.screenshot | `agentId` → provider image |
 | agent.wait_for_text | `agentId, text, timeoutMs?` → wait for literal substring in recent output |
-| agent.wait_for_outcome | `agentId, turnId, timeoutMs?, quietMs?` → input required, heuristic turn finished, optional quiet output, disappearance, or timeout |
+| agent.wait_for_outcome | `agentId, turnId, timeoutMs?, quietMs?, since?, lines?` → input required, heuristic turn finished, optional quiet output, disappearance, or timeout; `lastObservation` is the change since `since`, capped to `lines` |
 | agent.wait_until_idle | `agentId, timeoutMs?` → recognized ready/idle state; no silence heuristic |
 | agent.broadcast | `agentIds: string[], text` → per-worker send success/error |
 | agent.collect_results | `{}` → current observations, no inferred task success |
-| orchestrator.status | `{}` → observations for attached workers and metadata for detached workers |
+| orchestrator.status | `{}` → per-worker status, activity, hash and task summary with no screen text; metadata for detached workers |
 | orchestrator.attention | Task-focused decisions, eligibility, verification, and cursor-based changes; see below |
 
 Keys (case-insensitive): ENTER, ESC, TAB, UP, DOWN, LEFT, RIGHT, CTRL_C, CTRL_D, CTRL_A, CTRL_E, CTRL_U, BACKSPACE, DELETE, HOME, END. Aliases: Escape → ESC, Return → ENTER, ArrowUp/UpArrow → UP, ArrowDown/DownArrow → DOWN, ArrowLeft/LeftArrow → LEFT, ArrowRight/RightArrow → RIGHT. For example, `terminal.send_key({"paneId":7,"key":"ArrowDown"})` sends a down arrow. Both key tools send raw control bytes without bracketed paste; use them for menu navigation. `terminal.send_text` pastes text, so escape sequences sent through it may be treated as pasted content instead of navigation. Unsupported names report accepted keys, and a sequence containing any unsupported name sends no input.
@@ -64,6 +64,24 @@ Transport failure or identity mismatch preserves saved records. Worker IDs and
 names survive restart; terminal output, observation IDs and watches do not.
 An old `since` observation ID produces a full replacement with `deltaReset:true`.
 
+## Cost of polling
+
+Screen text is normalized before it leaves the server: trailing spaces are
+stripped per line, blank runs collapse to one, and the hash is taken on that
+text. Observations return the last 20 lines by default. Choose the tool by how
+much text you actually need:
+
+| Cost | Tools | Use for |
+|---|---|---|
+| Cheap, no screen text | `agent.list`, `orchestrator.status`, `push.status`, `event.list`, `orchestrator.attention` | The board: who is busy, ready, or asking for a person |
+| One worker, bounded | `agent.status` / `agent.observe` with `since`; `agent.wait_for_outcome` with `since` | What changed on the worker you are about to act on |
+| Expensive | `terminal.snapshot`, `terminal.read` with a large `lines`, `agent.observe` with `lines:150`, `agent.collect_results` | Reading a screen when the tail is not enough; never as a poll |
+
+`since` returns `unchanged` with empty text when nothing moved, `append` with only
+the new lines when the screen scrolled or the current line grew, and `replace`
+when it was redrawn. `wait_for_outcome` pins the `since` text when it starts, so
+its result is a real delta however many times it polled.
+
 Automatic recovery requires a matching terminal endpoint and process identity.
 Windows/WSL uses the bundled `scripts/instance-windows.ps1` helper and automatic
 GUI selection described below. Set or inherit `WEZTERM_UNIX_SOCKET` to prefer a
@@ -82,7 +100,10 @@ following reattachment. On a changed binding, old input hashes are cleared.
 Skill state is preserved unless `workerSkillInitialized` is supplied.
 
 Managed input/lifecycle operations use exclusive per-worker locks. A concurrent
-operation returns `WORKER_BUSY`; retry after the active operation finishes. Raw
+write returns `WORKER_BUSY`; retry after the active operation finishes. Reads
+(`agent.observe`, `agent.status`, the wait tools) retry through a bounded back-off
+of about 1.5 seconds before surfacing `WORKER_BUSY` or `WORKER_STORAGE_BUSY`, and
+`agent.wait_for_outcome` keeps polling through the lock until its deadline. Raw
 terminal tools remain explicit low-level operations and do not acquire these
 input locks. `WORKER_DELIVERY_UNCERTAIN` means a paste, Enter or interrupt may
 have reached the pane even though completion could not be recorded. Further
