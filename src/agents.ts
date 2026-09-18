@@ -4,7 +4,7 @@ import { adapters, type Status } from './adapters.js';
 import { observeInteraction,type InteractionState } from './interaction.js';
 import { attemptReferenceSchema } from './task-results.js';
 import { initialWorkerPrompt } from './worker-skill.js';
-import { type TerminalBackend,type SpawnOptions,spawnSchema,submit,sendKeys,id } from './backend.js';
+import { type TerminalBackend,type SpawnOptions,spawnSchema,splitCommand,submit,sendKeys,id } from './backend.js';
 import type { WorkerPush } from './push-workers.js';
 import { MemoryWorkerStorage,newWorker,workerSchema,type WorkerStorage,type WorkerRecord,type TerminalInstance } from './worker-storage.js';
 export const hashOutput=(text:string)=>createHash('sha256').update(text).digest('hex');
@@ -100,7 +100,7 @@ export class Agents {
  }
  spawn(o:SpawnOptions & {name:string;cli:WorkerRecord['cli'];prompt?:string;timeoutMs?:number}){return this.run(async()=>{
   const configured=process.env[`TERM_DAD_${o.cli.toUpperCase()}_COMMAND`];
-  const command=o.command??(configured?z.array(z.string().min(1)).min(1).parse(JSON.parse(configured)):(o.cli==='shell'?undefined:[o.cli]));
+  const command=o.command!==undefined?splitCommand(o.command):(configured?z.array(z.string().min(1)).min(1).parse(JSON.parse(configured)):(o.cli==='shell'?undefined:[o.cli]));
   if(o.newWindow&&o.windowId!==undefined)throw new Error('newWindow and windowId are mutually exclusive');
   const w=newWorker(o.name,o.cli,null,await this.identity(),this.sessionId);
   // Hooks are injected at launch but stay inert: pushes are dropped until the pane is enabled.

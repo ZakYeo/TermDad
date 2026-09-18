@@ -7,7 +7,35 @@ import type { TerminalInstance } from './worker-storage.js';
 
 export const id = z.number().int().nonnegative().safe();
 const string = z.string().min(1).max(8192).refine(s => !s.includes('\0'), 'NUL is not allowed');
-export const spawnSchema = z.object({ cwd: string.optional(), command: z.array(string).min(1).max(100).optional(), paneId: id.optional(), windowId: id.optional(), newWindow: z.boolean().optional(), domain: string.optional() });
+/**
+ * Splits one command line into argv the way a POSIX shell would tokenise it (whitespace, single
+ * and double quotes, backslash escapes) without ever invoking a shell: no expansion, no operators.
+ */
+export function splitCommand(command:string|string[]):string[] {
+ if(Array.isArray(command))return command;
+ if(!/\S/.test(command))throw new Error('command must name a program');
+ const argv:string[]=[];let current='',inWord=false,quote:'"'|"'"|undefined;
+ for(let i=0;i<command.length;i++){
+  const c=command[i];
+  if(quote){
+   if(c===quote)quote=undefined;
+   else if(c==='\\'&&quote==='"'&&i+1<command.length)current+=command[++i];
+   else current+=c;
+  }
+  else if(c==='"'||c==="'"){quote=c;inWord=true;}
+  else if(c==='\\'&&i+1<command.length){current+=command[++i];inWord=true;}
+  else if(/\s/.test(c)){if(inWord){argv.push(current);current='';inWord=false;}}
+  else{current+=c;inWord=true;}
+ }
+ if(quote)throw new Error('command has an unterminated quote');
+ if(inWord)argv.push(current);
+ if(!argv.length)throw new Error('command must name a program');
+ return argv;
+}
+// A string is split by the handlers, not the schema: the SDK reports a schema failure only as
+// "Invalid input at command", while splitCommand can say which quote is unterminated.
+const commandSchema=z.union([z.array(string).min(1).max(100),z.string().min(1).max(8192)]);
+export const spawnSchema = z.object({ cwd: string.optional(), command: commandSchema.optional().describe('argv array, or one command line split like a shell would (quotes honoured, no shell run)'), paneId: id.optional(), windowId: id.optional(), newWindow: z.boolean().optional(), domain: string.optional() });
 export type SpawnOptions = z.infer<typeof spawnSchema>;
 const paneSchema = z.object({pane_id:id, tab_id:id, window_id:id, title:z.string(), cwd:z.string(), size:z.object({rows:id,cols:id}).passthrough()}).passthrough();
 export type Pane = z.infer<typeof paneSchema>;
@@ -62,8 +90,8 @@ export class WezTermBackend implements TerminalBackend {
  async list(){return parsePanes(await this.run(['list','--format','json']));}
  private options(o:SpawnOptions){spawnSchema.parse(o);const a:string[]=[];if(o.paneId!==undefined)a.push('--pane-id',String(o.paneId));if(o.cwd)a.push('--cwd',o.cwd);return a;}
  private paneId(text:string){const n=Number(text.trim());if(!/^\d+$/.test(text.trim()))throw new Error('WezTerm returned an invalid pane ID');return id.parse(n);}
- async spawn(o:SpawnOptions){const a=['spawn',...this.options(o)];if(o.newWindow&&o.windowId!==undefined)throw new Error('newWindow and windowId are mutually exclusive');if(o.newWindow)a.push('--new-window');if(o.windowId!==undefined)a.push('--window-id',String(o.windowId));if(o.domain)a.push('--domain-name',o.domain);if(o.command)a.push('--',...o.command);return this.paneId(await this.run(a));}
- async split(o:SpawnOptions & {paneId:number;direction?:'right'|'bottom';percent?:number}){id.parse(o.paneId);const a=['split-pane',...this.options(o),o.direction==='right'?'--right':'--bottom'];if(o.percent!==undefined)a.push('--percent',String(z.number().int().min(1).max(99).parse(o.percent)));if(o.command)a.push('--',...o.command);return this.paneId(await this.run(a));}
+ async spawn(o:SpawnOptions){const a=['spawn',...this.options(o)];if(o.newWindow&&o.windowId!==undefined)throw new Error('newWindow and windowId are mutually exclusive');if(o.newWindow)a.push('--new-window');if(o.windowId!==undefined)a.push('--window-id',String(o.windowId));if(o.domain)a.push('--domain-name',o.domain);if(o.command)a.push('--',...z.array(string).min(1).max(100).parse(splitCommand(o.command)));return this.paneId(await this.run(a));}
+ async split(o:SpawnOptions & {paneId:number;direction?:'right'|'bottom';percent?:number}){id.parse(o.paneId);const a=['split-pane',...this.options(o),o.direction==='right'?'--right':'--bottom'];if(o.percent!==undefined)a.push('--percent',String(z.number().int().min(1).max(99).parse(o.percent)));if(o.command)a.push('--',...z.array(string).min(1).max(100).parse(splitCommand(o.command)));return this.paneId(await this.run(a));}
  async read(paneId:number,lines=100){id.parse(paneId);z.number().int().min(1).max(5000).parse(lines);const text=await this.run(['get-text','--pane-id',String(paneId),'--start-line',String(-lines)]);return text.replace(/\r\n/g,'\n').trimEnd().split('\n').slice(-lines).join('\n');}
  async sendText(paneId:number,text:string,raw=false){id.parse(paneId);z.string().max(100000).parse(text);await this.run(['send-text','--pane-id',String(paneId),...(raw?['--no-paste']:[])],text);}
  async close(paneId:number){await this.run(['kill-pane','--pane-id',String(id.parse(paneId))]);}
@@ -71,15 +99,21 @@ export class WezTermBackend implements TerminalBackend {
  async resize(paneId:number,direction:string,amount:number){await this.run(['adjust-pane-size','--pane-id',String(id.parse(paneId)),'--amount',String(z.number().int().min(1).max(1000).parse(amount)),z.enum(['Left','Right','Up','Down']).parse(direction)]);}
  async move(paneId:number,newWindow=false,windowId?:number){await this.run(['move-pane-to-new-tab','--pane-id',String(id.parse(paneId)),...(newWindow?['--new-window']:[]),...(windowId!==undefined?['--window-id',String(id.parse(windowId))]:[])]);}
 }
-export const keys:Record<string,string>={ENTER:'\r',ESC:'\x1b',TAB:'\t',UP:'\x1b[A',DOWN:'\x1b[B',RIGHT:'\x1b[C',LEFT:'\x1b[D',CTRL_C:'\x03',CTRL_D:'\x04',CTRL_A:'\x01',CTRL_E:'\x05',CTRL_U:'\x15',BACKSPACE:'\x7f',DELETE:'\x1b[3~',HOME:'\x1b[H',END:'\x1b[F'};
-const keyAliases:Record<string,string>={ESCAPE:'ESC',RETURN:'ENTER',ARROWUP:'UP',UPARROW:'UP',ARROWDOWN:'DOWN',DOWNARROW:'DOWN',ARROWLEFT:'LEFT',LEFTARROW:'LEFT',ARROWRIGHT:'RIGHT',RIGHTARROW:'RIGHT'};
-export const keyDescription=`Case-insensitive key name: ${Object.keys(keys).join(', ')}. Aliases: Escape, Return, ArrowUp/UpArrow, ArrowDown/DownArrow, ArrowLeft/LeftArrow, ArrowRight/RightArrow.`;
+export const keys:Record<string,string>={ENTER:'\r',ESC:'\x1b',TAB:'\t',SPACE:' ',UP:'\x1b[A',DOWN:'\x1b[B',RIGHT:'\x1b[C',LEFT:'\x1b[D',PAGEUP:'\x1b[5~',PAGEDOWN:'\x1b[6~',CTRL_C:'\x03',CTRL_D:'\x04',CTRL_A:'\x01',CTRL_E:'\x05',CTRL_U:'\x15',BACKSPACE:'\x7f',DELETE:'\x1b[3~',HOME:'\x1b[H',END:'\x1b[F'};
+const keyAliases:Record<string,string>={ESCAPE:'ESC',RETURN:'ENTER',CR:'ENTER',NEWLINE:'ENTER',ARROWUP:'UP',UPARROW:'UP',ARROWDOWN:'DOWN',DOWNARROW:'DOWN',ARROWLEFT:'LEFT',LEFTARROW:'LEFT',ARROWRIGHT:'RIGHT',RIGHTARROW:'RIGHT',PGUP:'PAGEUP',PGDN:'PAGEDOWN',PAGE_UP:'PAGEUP',PAGE_DOWN:'PAGEDOWN',DEL:'DELETE',BS:'BACKSPACE'};
+export const keyDescription=`Case-insensitive key name: ${Object.keys(keys).join(', ')}. Aliases: ${Object.entries(keyAliases).map(([alias,key])=>`${alias}→${key}`).join(', ')}. Separators + - and space are accepted, so Ctrl+C, ctrl-c and "Page Down" work.`;
+/** Uppercase, unify the separators people type, drop a KEY_ prefix, then resolve aliases. */
+export function canonicalKey(key:string){
+ const name=key.trim().toUpperCase().replace(/[+\-\s]+/g,'_').replace(/^KEY_/,'');
+ return Object.hasOwn(keyAliases,name)?keyAliases[name]:name;
+}
 export async function sendKeys(b:TerminalBackend,paneId:number,sequence:string[]){
  const encoded=sequence.map(key=>{
-  const name=key.toUpperCase(),canonical=Object.hasOwn(keyAliases,name)?keyAliases[name]:name;
+  const canonical=canonicalKey(key);
   if(!Object.hasOwn(keys,canonical))throw new Error(`Unsupported key: ${key}. ${keyDescription}`);
   return keys[canonical];
  });
  for(const input of encoded)await b.sendText(paneId,input,true);
 }
-export async function submit(b:TerminalBackend,paneId:number,text:string){await b.sendText(paneId,text);await new Promise(r=>setTimeout(r,100));await sendKeys(b,paneId,['ENTER']);}
+/** Pastes then presses Enter; with no text it only presses Enter, which is what confirming a prompt needs. */
+export async function submit(b:TerminalBackend,paneId:number,text=''){if(text){await b.sendText(paneId,text);await new Promise(r=>setTimeout(r,100));}await sendKeys(b,paneId,['ENTER']);}

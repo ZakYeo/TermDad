@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp,readFile,rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { execute,keys,sendKeys,WezTermBackend } from '../src/backend.js';
+import { execute,keys,sendKeys,splitCommand,WezTermBackend } from '../src/backend.js';
 import { adapters } from '../src/adapters.js';
 
 test('subprocess decoding preserves prompt markers split across UTF-8 chunks',async()=>{
@@ -37,7 +37,7 @@ test('named keys accept case variants and navigation aliases through raw stdin',
  await sendKeys(backend,7,cases.map(([key])=>key));
  assert.deepEqual(calls,cases.map(([,input])=>({args:['send-text','--pane-id','7','--no-paste'],input})));
  calls.length=0;
- await assert.rejects(sendKeys(backend,7,['ArrowDown','Bogus']),/Unsupported key: Bogus.*DOWN.*Escape/);
+ await assert.rejects(sendKeys(backend,7,['ArrowDown','Bogus']),/Unsupported key: Bogus.*DOWN.*ESCAPE/);
  assert.deepEqual(calls,[]);
 });
 
@@ -65,4 +65,18 @@ test('timeout terminates a subprocess that ignores SIGTERM',async()=>{
   if(pid!==undefined){try{process.kill(pid,'SIGKILL');}catch(e){if((e as NodeJS.ErrnoException).code!=='ESRCH')throw e;}}
   await rm(directory,{recursive:true,force:true});
  }
+});
+test('send_text issues exactly one bracketed paste carrying the text on stdin',async()=>{
+ const calls:{args:string[];input?:string}[]=[];
+ const backend=new WezTermBackend(async(args,input)=>{calls.push({args,input});return '';});
+ await backend.sendText(7,'marker-once');
+ assert.equal(calls.length,1);
+ assert.deepEqual(calls[0].args,['send-text','--pane-id','7']);
+ assert.equal(calls[0].input,'marker-once');
+});
+test('splitCommand honours quotes and backslashes and rejects an empty command',()=>{
+ assert.deepEqual(splitCommand(`git commit -m "a b" 'c d' e\\ f`),['git','commit','-m','a b','c d','e f']);
+ assert.deepEqual(splitCommand(['already','argv']),['already','argv']);
+ assert.throws(()=>splitCommand('  '),/command/);
+ assert.throws(()=>splitCommand('"unterminated'),/quote/);
 });
