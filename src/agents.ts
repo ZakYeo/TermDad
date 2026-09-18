@@ -243,7 +243,10 @@ export class Agents {
  withPane<T>(agentId:string,fn:(paneId:number,instance:TerminalInstance|null)=>Promise<T>){return this.run(()=>this.locked(agentId,async w=>{const {a}=await this.checked(w);return fn(a.paneId,a.instance);}));}
  async findByPane(paneId:number){const instance=await this.identity();return (await this.saved()).find(w=>w.paneId===paneId&&this.attached(w,instance));}
  async resolve(agentId:string){return this.lookup(agentId);}
- async resolveOptional(agentId:string){return (await this.saved()).find(w=>w.agentId===agentId);}
+ async resolveOptional(agentId:string){return (await this.saved()).find(w=>w.agentId===agentId||w.name===agentId);}
+ async isAttached(w:WorkerRecord){return this.attached(w,await this.identity());}
+ /** Re-keys one attached worker under its lock, for a `push.set` that finds startup restore skipped it. */
+ rekey(agentId:string){return this.run(()=>this.locked(agentId,async w=>{if(!this.attached(w,await this.identity()))throw new Error('WORKER_DETACHED: terminal identity differs; agent.reattach the worker first');await this.push?.rekey(w);}));}
  async bindingPaneExists(w:WorkerRecord){
   if(!this.attached(w,await this.identity()))throw new Error('WORKER_DETACHED');
   const exists=(await this.backend.list()).some(p=>p.pane_id===w.paneId);

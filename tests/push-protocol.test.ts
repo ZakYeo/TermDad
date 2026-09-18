@@ -24,7 +24,7 @@ test('push is listed, disabled by default, and an enabled hook wakes a waiting s
   // A pane this server never launched with hooks is refused explicitly, not reported as enabled.
   const unwired=await client.callTool({name:'push.set',arguments:{agentId:'absent',enabled:true}});
   assert.equal(unwired.isError,true);
-  assert.match((unwired.content as any)[0].text,/PUSH_NOT_WIRED/);
+  assert.match((unwired.content as any)[0].text,/PUSH_UNKNOWN_WORKER/);
   assert.deepEqual(value(await client.callTool({name:'push.set',arguments:{agentId:'absent',enabled:false}})),{agentId:'absent',enabled:false,registered:false},'turning delivery off always succeeds');
   assert.deepEqual(await sendPush(socketPath,JSON.stringify({token:'forged',kind:'ready'})),{error:'PUSH_UNAUTHORIZED: unknown or revoked push token'});
   assert.deepEqual(value(await client.callTool({name:'event.list',arguments:{}})).events,[],'a forged push never becomes an event');

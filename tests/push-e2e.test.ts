@@ -29,7 +29,7 @@ test('an enabled worker push becomes a durable event and releases a waiting supe
  await term.watches.create({agentId,pushPollMs:30000,cooldownMs:0});
  const waiting=events.wait({agentIds:[agentId]},5000);
  await term.pushReady;
- const enabled=term.push.setEnabled(agentId,true);
+ const enabled=await term.push.setEnabled(agentId,true);
  assert.equal(enabled.proven,false,'enabling claims nothing about delivery');
  assert.equal(enabled.deliverable,true,'every link this server can see is live');
  assert.deepEqual(await sendPush(socketPath,JSON.stringify({token,kind:'input_required'})),{ok:true,delivered:true});

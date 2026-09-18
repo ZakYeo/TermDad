@@ -32,8 +32,14 @@ export function createServer(backend:TerminalBackend=new WezTermBackend(),screen
  const stateDir=stateDirectory();
  const push=new WorkerPushRegistry(ingress,socketPath,notifyCommand(),stateDir);
  const agents=new Agents(backend,workerStorage,push);
- // Push can then report on a managed worker it holds no registration for, rather than failing.
- push.attachWorkers(async agentId=>{const w=await agents.resolveOptional(agentId);return w?{cli:w.cli,push:w.push}:undefined;});
+ // Push can then report on a managed worker it holds no registration for, rather than failing,
+ // accept the worker's name, and re-key a surviving worker on demand under its own lock.
+ push.attachWorkers(async agentIdOrName=>{
+  const w=await agents.resolveOptional(agentIdOrName);
+  if(!w)return undefined;
+  const attached=w.paneId!==null&&await agents.isAttached(w).catch(()=>false);
+  return {agentId:w.agentId,cli:w.cli,push:w.push,...(attached?{rekey:()=>agents.rekey(w.agentId)}:{})};
+ });
  guardTerminalSelection(server);
  const register=(name:string,description:string,shape:z.ZodRawShape,fn:(a:any)=>Promise<unknown>)=>server.registerTool(name,{description,inputSchema:shape},async a=>{try{const result=await fn(a);return {content:[{type:'text' as const,text:JSON.stringify(result??{ok:true})}]};}catch(e){const message=e instanceof Error?e.message:String(e);console.error(`[term-dad] ${name}: ${message}`);return {isError:true,content:[{type:'text' as const,text:message}]};}});
  const pane={paneId:id},agent={agentId:z.string().min(1)},text={text:z.string().max(100000)},wait={timeoutMs:z.number().int().min(1).max(120000).default(30000)};

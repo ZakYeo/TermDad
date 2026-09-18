@@ -57,7 +57,7 @@ test('a supervisor restart re-keys a surviving worker so its unchanged argv keep
  assert.equal(status.enabled,false,'push stays off until it is enabled explicitly');
  assert.match(status.reason??'',/explicitly/,'the report says a surviving worker must be re-enabled');
  // The surviving worker can deliver again after one push.set, with no relaunch.
- second.term.push.setEnabled(agentId,true);
+ await second.term.push.setEnabled(agentId,true);
  assert.deepEqual(await sendPush(after.socketPath,JSON.stringify({token:after.token,kind:'ready'})),{ok:true,delivered:true});
  assert.deepEqual(await sendPush(after.socketPath,JSON.stringify({token:before.token,kind:'ready'})),{error:'PUSH_UNAUTHORIZED: unknown or revoked push token'},'the pre-restart token is revoked');
  assert.equal((await second.term.push.status(agentId)).deliveries.count,1);
@@ -123,7 +123,7 @@ test('an adopted pane is never reported as pushable and gets no credential',asyn
  t.after(()=>rm(directory,{recursive:true,force:true}));
  const {term}=await server(t,directory);
  const adopted=await term.agents.adopt({name:'adopted',cli:'claude',paneId:7} as any);
- assert.throws(()=>term.push.setEnabled(adopted.agentId,true),/PUSH_NOT_WIRED/,'a pane launched without injected argv can never deliver');
+ await assert.rejects(term.push.setEnabled(adopted.agentId,true),/PUSH_NOT_WIRED/,'a pane launched without injected argv can never deliver');
  const status=await term.push.status(adopted.agentId);
  assert.equal(status.hookSurface,null);
  assert.equal(status.deliverable,false);
@@ -136,11 +136,52 @@ test('reattaching a surviving worker re-keys it and re-points its registration a
  const {agentId}=await term.agents.spawn({name:'survivor',cli:'claude'} as any);
  const path=bakedCredentialPath(spawns[0]);
  const before=await readCredential(path);
- term.push.setEnabled(agentId,true);
+ await term.push.setEnabled(agentId,true);
  await term.agents.reattach({agentId,paneId:9} as any);
  const after=await readCredential(path);
  assert.notEqual(after.token,before.token,'a rebind re-keys, so the old token cannot report for the new pane');
  const status=await term.push.status(agentId);
  assert.equal(status.paneId,9,'the registration follows the pane');
  assert.equal(status.enabled,false,'and comes back off');
+});
+test('push tools accept the worker name the supervisor uses everywhere else',async t=>{
+ const directory=await mkdtemp(join(tmpdir(),'term-dad-push-name-'));
+ t.after(()=>rm(directory,{recursive:true,force:true}));
+ const {term}=await server(t,directory);
+ const {agentId}=await term.agents.spawn({name:'survivor',cli:'claude'} as any);
+ const status=await term.push.status('survivor');
+ assert.equal(status.agentId,agentId,'a name resolves to the worker it names');
+ assert.equal(status.registered,true);
+ const enabled=await term.push.setEnabled('survivor',true);
+ assert.equal(enabled.agentId,agentId);
+ assert.equal(enabled.enabled,true);
+ assert.equal(enabled.deliverable,true,'set reports deliverability, the same fact status reports');
+ assert.equal(enabled.proven,false);
+ assert.equal(enabled.credential,'recorded','a durable binding is a record, not evidence the file is intact');
+ assert.match(enabled.note??'',/not proven/);
+ await assert.rejects(term.push.status('nobody'),/PUSH_UNKNOWN_WORKER/);
+ await assert.rejects(term.push.setEnabled('nobody',true),/PUSH_UNKNOWN_WORKER/);
+});
+test('a surviving worker that startup could not re-key is re-keyed by push.set instead of being told to respawn',async t=>{
+ const directory=await mkdtemp(join(tmpdir(),'term-dad-rekey-on-demand-'));
+ t.after(()=>rm(directory,{recursive:true,force:true}));
+ const first=await server(t,directory);
+ const {agentId}=await first.term.agents.spawn({name:'survivor',cli:'claude'} as any);
+ const path=bakedCredentialPath(first.spawns[0]);
+ const before=await readCredential(path);
+ await first.term.pushSocket.close();
+ // Another live operation holds the worker lock while the new server starts, so restore skips it.
+ const lock=join(directory,`worker-${agentId}.lock`);
+ await writeFile(lock,String(process.pid),{mode:0o600});
+ const second=await server(t,directory);
+ assert.deepEqual(await readCredential(path),before,'restore left the busy worker alone');
+ assert.equal((await second.term.push.status(agentId)).registered,false);
+ await rm(lock);
+ const enabled=await await second.term.push.setEnabled(agentId,true);
+ assert.equal(enabled.enabled,true);
+ assert.equal(enabled.registered,true);
+ const after=await readCredential(path);
+ assert.notEqual(after.token,before.token,'enabling re-keyed the worker under its lock');
+ assert.equal(after.socketPath,second.term.push.socket().path);
+ assert.deepEqual(await sendPush(after.socketPath,JSON.stringify({token:after.token,kind:'ready'})),{ok:true,delivered:true});
 });

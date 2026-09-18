@@ -15,17 +15,25 @@ export interface WorkerPush {
  deliverable(agentId?:string):boolean;
 }
 
+/**
+ * What the registry needs to know about a managed worker it may hold no registration for. `rekey`
+ * re-keys the worker under its own lock and is present only when this server is attached to it.
+ */
+export interface ResolvedWorker {agentId:string;cli:WorkerCli;push?:WorkerPushBinding;rekey?:()=>Promise<void>;}
+export type WorkerResolver=(agentIdOrName:string)=>Promise<ResolvedWorker|undefined>;
 /** Mints one token per worker, injects its hooks at launch, and keeps delivery off until asked. */
 export class WorkerPushRegistry implements WorkerPush {
  private clis=new Map<string,WorkerCli>();
  private socketState:{listening:boolean;bindError?:string}={listening:false};
- private resolve?:(agentId:string)=>Promise<{cli:WorkerCli;push?:WorkerPushBinding}|undefined>;
+ private resolve?:WorkerResolver;
  private credentialErrors=new Map<string,string>();
  private store:PushCredentialStore;
  constructor(private ingress:PushIngress,private socketPath:string,private notify:string[],stateDir:string){this.store=new PushCredentialStore(stateDir);this.stateDir=stateDir;}
  private stateDir:string;
- /** Lets push report on a managed worker it holds no registration for, instead of failing. */
- attachWorkers(resolve:(agentId:string)=>Promise<{cli:WorkerCli;push?:WorkerPushBinding}|undefined>){this.resolve=resolve;}
+ /** Lets push report on a managed worker it holds no registration for, instead of failing, and accept its name. */
+ attachWorkers(resolve:WorkerResolver){this.resolve=resolve;}
+ /** The worker as the supervisor named it (UUID or unique name), or undefined when it is not managed. */
+ private async worker(agentIdOrName:string){return this.resolve?.(agentIdOrName);}
  /** The real bind outcome, so nothing reports an intended socket path as a bound one. */
  attach(outcome:{listening:boolean;bindError?:string}){this.socketState=outcome;}
  socket(){return {path:this.socketPath,listening:this.socketState.listening,bindError:this.socketState.bindError};}
@@ -81,31 +89,39 @@ export class WorkerPushRegistry implements WorkerPush {
  private surface(agentId:string):HookSurface|null{const known=this.clis.get(agentId);return known==='claude'?'claude_hooks':known==='codex'?'codex_notify':null;}
  private credential(agentId:string,durable?:WorkerPushBinding){
   const error=this.credentialErrors.get(agentId);
-  return error?{credential:'unwritable' as const,credentialError:error}:{credential:(durable||this.ingress.revoked(agentId)===false?'ok':'absent') as 'ok'|'absent'};
+  // `recorded` says a binding exists in the journal or this process; it never claims the file is intact.
+  return error?{credential:'unwritable' as const,credentialError:error}:{credential:(durable||this.ingress.revoked(agentId)===false?'recorded':'absent') as 'recorded'|'absent'};
  }
  /**
   * Turning delivery off always succeeds and is idempotent: the safe direction must never be
   * blocked by the reasons a channel is broken. Turning it on fails explicitly instead of
-  * returning a success value that describes wiring intent rather than deliverability.
+  * returning a success value that describes wiring intent rather than deliverability, and a
+  * surviving worker whose startup re-key was skipped is re-keyed here rather than told to respawn.
   */
- setEnabled(agentId:string,enabled:boolean){
+ async setEnabled(agentIdOrName:string,enabled:boolean){
+  const worker=await this.worker(agentIdOrName),agentId=worker?.agentId??agentIdOrName;
   if(!enabled){const revoked=this.ingress.revoked(agentId);return revoked?{agentId,enabled:false,registered:false}:{...this.ingress.setEnabled(agentId,false),registered:true};}
-  if(this.clis.get(agentId)==='shell')throw new Error('PUSH_UNSUPPORTED_WORKER: shell workers have no hook surface; use a watch instead');
-  if(!this.surface(agentId))throw new Error(`PUSH_NOT_WIRED: worker ${agentId} has no hook surface in this server, so a hook can never reach it; respawn it with agent.spawn, or watch its pane instead`);
+  if(!worker&&!this.clis.has(agentId))throw new Error(`PUSH_UNKNOWN_WORKER: ${agentIdOrName} is not a managed worker; agent.list names the workers this server knows`);
+  if((worker?.cli??this.clis.get(agentId))==='shell')throw new Error('PUSH_UNSUPPORTED_WORKER: shell workers have no hook surface; use a watch instead');
+  if(!this.socketState.listening)throw new Error(`PUSH_SOCKET_UNAVAILABLE: this server did not bind its push socket (${this.socketState.bindError??'reason unavailable'}); keep polling`);
+  if(this.ingress.revoked(agentId)&&worker?.push){
+   if(!worker.rekey)throw new Error(`PUSH_NOT_WIRED: worker ${agentId} was launched with hooks but this server is not attached to its pane; agent.reattach it, then enable push again`);
+   await worker.rekey();
+  }
+  if(!this.surface(agentId))throw new Error(`PUSH_NOT_WIRED: worker ${agentId} has no hook surface in this server, so a hook can never reach it; an adopted pane must be respawned with agent.spawn to push, or watch its pane instead`);
   const failed=this.credentialErrors.get(agentId);
   if(failed)throw new Error(`PUSH_CREDENTIAL_UNWRITABLE: worker ${agentId} has no private credential a hook could read (${failed})`);
-  if(!this.socketState.listening)throw new Error(`PUSH_SOCKET_UNAVAILABLE: this server did not bind its push socket (${this.socketState.bindError??'reason unavailable'}); keep polling`);
-  const view=this.ingress.setEnabled(agentId,true);
-  return {...view,registered:true,hookSurface:this.surface(agentId),...this.credential(agentId),socket:this.socket(),deliverable:this.deliverable(agentId),note:'enabled; no hook has fired yet, so delivery is not proven'};
+  this.ingress.setEnabled(agentId,true);
+  return {...await this.status(agentId),note:'enabled; no hook has fired yet, so delivery is not proven'};
  }
- async status(agentId:string){
-  const worker=await this.resolve?.(agentId);
+ async status(agentIdOrName:string){
+  const worker=await this.worker(agentIdOrName),agentId=worker?.agentId??agentIdOrName;
   // A hook surface means this pane was actually launched with injected argv: the durable
   // binding, or a launch in this process. Never merely the CLI, or an adopted claude pane
   // would report as wired when nothing can ever reach it.
   const surface=worker?.push?.surface??this.surface(agentId);
   if(this.ingress.revoked(agentId)){
-   if(worker===undefined&&!this.clis.has(agentId))throw new Error(`PUSH_UNKNOWN_WORKER: no push registration for ${agentId}`);
+   if(worker===undefined&&!this.clis.has(agentId))throw new Error(`PUSH_UNKNOWN_WORKER: ${agentIdOrName} is not a managed worker; agent.list names the workers this server knows`);
    return {agentId,paneId:null,registered:false,enabled:false,hookSurface:surface,...this.credential(agentId,worker?.push),deliveries:{count:0,lastAt:null,lastKind:null},proven:false,socket:this.socket(),deliverable:false,reason:'no push registration in this server; a surviving worker needs push enabled again explicitly after a restart'};
   }
   const view=this.ingress.status(agentId);

@@ -32,7 +32,7 @@ test('a spawned worker carries inert push plumbing and stays disabled until it i
  assert.ok(!argv.includes('/run/term-dad/push.sock'),'no socket path or token is baked into argv');
  assert.equal(f.ingress.status(agentId).enabled,false,'push is off by default');
  assert.equal(f.ingress.status(agentId).paneId,7,'the registration is bound to the spawned pane');
- assert.equal(f.push.setEnabled(agentId,true).enabled,true);
+ assert.equal((await f.push.setEnabled(agentId,true)).enabled,true);
 });
 test('push registration is released when a worker is stopped or forgotten',async()=>{
  const f=fixture();
@@ -48,13 +48,13 @@ test('a shell worker is launched unmodified and cannot be enabled for push',asyn
  const f=fixture();
  const {agentId}=await f.agents.spawn({name:'sh',cli:'shell'} as any);
  assert.ok(!f.spawns[0].join(' ').includes('push.sock'));
- assert.throws(()=>f.push.setEnabled(agentId,true),/PUSH_UNSUPPORTED_WORKER/);
+ await assert.rejects(f.push.setEnabled(agentId,true),/PUSH_UNSUPPORTED_WORKER/);
 });
 test('a channel is only deliverable once the socket this server owns has actually bound',async()=>{
  const f=fixture();
  const {agentId}=await f.agents.spawn({name:'w',cli:'claude'} as any);
  assert.equal(f.push.deliverable(agentId),false,'delivery needs an explicit enable');
- f.push.setEnabled(agentId,true);
+ await f.push.setEnabled(agentId,true);
  assert.equal(f.push.deliverable(agentId),true);
  assert.deepEqual(f.push.socket(),{path:'/run/term-dad/push.sock',listening:true,bindError:undefined});
  // A server that could not bind still reports enabled intent, but nothing can reach it.
@@ -68,26 +68,26 @@ test('enabling push fails for a channel that cannot deliver, rather than reporti
  const f=fixture();
  const {agentId}=await f.agents.spawn({name:'w',cli:'claude'} as any);
  // A pane this server never launched has no hook surface and can never deliver.
- f.push.attachWorkers(async id=>id===agentId?{cli:'claude'}:id==='adopted'?{cli:'codex'}:undefined);
- assert.throws(()=>f.push.setEnabled('adopted',true),/PUSH_NOT_WIRED/);
+ f.push.attachWorkers(async id=>id===agentId?{agentId,cli:'claude'}:id==='adopted'?{agentId:'adopted',cli:'codex'}:undefined);
+ await assert.rejects(f.push.setEnabled('adopted',true),/PUSH_NOT_WIRED/);
  f.push.attach({listening:false,bindError:'PUSH_SOCKET_PATH_OCCUPIED: refusing to replace a non-socket file'});
- assert.throws(()=>f.push.setEnabled(agentId,true),/PUSH_SOCKET_UNAVAILABLE/);
+ await assert.rejects(f.push.setEnabled(agentId,true),/PUSH_SOCKET_UNAVAILABLE/);
  f.push.attach({listening:true});
- const enabled=f.push.setEnabled(agentId,true);
+ const enabled=await await f.push.setEnabled(agentId,true);
  assert.equal(enabled.enabled,true);
  assert.equal(enabled.proven,false,'enabling never claims a delivery it has not observed');
  assert.match(enabled.note!,/not proven/);
 });
 test('disabling push always succeeds, including for a worker with no registration',async()=>{
  const f=fixture();
- assert.deepEqual(f.push.setEnabled('absent',false),{agentId:'absent',enabled:false,registered:false},'turning delivery off is never blocked by the reasons it is broken');
+ assert.deepEqual(await f.push.setEnabled('absent',false),{agentId:'absent',enabled:false,registered:false},'turning delivery off is never blocked by the reasons it is broken');
  const {agentId}=await f.agents.spawn({name:'w',cli:'claude'} as any);
- f.push.setEnabled(agentId,true);
- assert.equal(f.push.setEnabled(agentId,false).enabled,false);
+ await f.push.setEnabled(agentId,true);
+ assert.equal((await f.push.setEnabled(agentId,false)).enabled,false);
 });
 test('push status reports a managed worker with no registration instead of throwing',async()=>{
  const f=fixture();
- f.push.attachWorkers(async id=>id==='survivor'?{cli:'claude',push:{credentialPath:join(stateDir,'push-credentials','x.json'),surface:'claude_hooks' as const}}:undefined);
+ f.push.attachWorkers(async id=>id==='survivor'?{agentId:'survivor',cli:'claude',push:{credentialPath:join(stateDir,'push-credentials','x.json'),surface:'claude_hooks' as const}}:undefined);
  const survivor=await f.push.status('survivor');
  assert.equal(survivor.registered,false,'a worker this process never registered is reported, not an error');
  assert.equal(survivor.enabled,false);
@@ -96,7 +96,7 @@ test('push status reports a managed worker with no registration instead of throw
  // PUSH_UNKNOWN_WORKER is reserved for an id that is not a managed worker at all.
  await assert.rejects(f.push.status('never-existed'),/PUSH_UNKNOWN_WORKER/);
  const {agentId}=await f.agents.spawn({name:'w',cli:'claude'} as any);
- f.push.attachWorkers(async id=>id===agentId?{cli:'claude'}:undefined);
+ f.push.attachWorkers(async id=>id===agentId?{agentId,cli:'claude'}:undefined);
  const live=await f.push.status(agentId);
  assert.equal(live.registered,true);
  assert.equal(live.hookSurface,'claude_hooks');
