@@ -5,7 +5,7 @@ Live verification performed on 2026-09-16 in this checkout using Node 22.14.0, W
 | Gate | Evidence |
 |---|---|
 | TypeScript build | `npm run build` succeeds |
-| Unit and protocol tests | `npm run check`: 15 tests, including JSON parsing, argv/stdin transport, validation, key bytes, hashes, deltas/history bounds, mappings, pane disappearance, silent-worker timeout, permission gating, captured Claude/Codex fixtures, process timeout, concurrent names, stale prompt guard, and real stdio MCP initialization/list/call/errors |
+| Unit and protocol tests | `npm run check`: the TypeScript build plus the full deterministic suite (269 tests as of 2026-09-18; each dated section below records what it added). The original 15 covered JSON parsing, argv/stdin transport, validation, key bytes, hashes, deltas/history bounds, mappings, pane disappearance, silent-worker timeout, permission gating, captured Claude/Codex fixtures, process timeout, concurrent names, stale prompt guard, and real stdio MCP initialization/list/call/errors |
 | Live terminal and orchestration | `npm run test:live`: real stdio MCP → WezTerm GUI → shell. Creates a tab, submits a command and follow-up, waits for actual result markers, splits/resizes/focuses/moves, broadcasts to two workers, collects snapshots, creates/closes a window, interrupts sleep, and checks pane-count cleanup |
 | Real Claude worker | `npm run test:agent -- claude`: detects readiness, submits short text-only prompt, reads actual answer, submits follow-up in same pane, reads second answer, interrupts and closes |
 | Real Codex worker | `npm run test:agent -- codex`: same sequence, using the documented local launcher, which resolves explicit Node/CLI argv via TERM_DAD_CODEX_COMMAND because the WSL domain does not load nvm |
@@ -455,3 +455,25 @@ seen inside a Claude Code prompt; no Claude worker was launched for this check
 because that uses the configured account.
 
 No live supervisor session was run against the new skill text.
+
+## Review fixes: delivery stall, watch eviction, degraded spawn (2026-09-18)
+
+A whole-codebase review found three defects, each reproduced with a probe
+script before being fixed under a failing test:
+
+- A notification destination that rejected `attention_required` (the bundled
+  `notify-wsl.ps1` did, lacking that kind) stalled every other pending kind of
+  the same watch forever. `deliver` now attempts the urgent entry, keeps it
+  pending and visible on failure, and continues; the PowerShell helper gained
+  `attention_required` and `session_ended` messages. A later success no longer
+  hides a still-failing destination's `deliveryError`.
+- Managed watches observed through the recording path, so a 2-second poll evicted
+  a supervisor's `since` baseline from the 16-entry history in about 30 seconds.
+  Watches now use a non-recording `Agents.peek`.
+- With an unwritable credential store, `agent.spawn` reported
+  `WORKER_STORAGE_FAILED` for a mapping that had been saved, because the push
+  bind shared the mapping commit's catch. Bind now runs only for a worker that
+  was actually launched with hooks.
+
+`npm run check`: 269 tests pass on Node 22.14.0. The same review also introduced `CodedError` (typed failure codes replacing message sniffing), a shared `toolCall` result helper with field-naming schema errors, an explicit shutdown list in `createServer`, and Prettier formatting (`npm run format:check` is part of `check`). No live GUI
+checks were run for these changes.

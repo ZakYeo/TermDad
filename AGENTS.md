@@ -28,8 +28,8 @@ Install dependencies with `npm ci`. Use `npm run check` for code changes; it run
 the TypeScript build followed by unit and stdio protocol tests. `npm test` runs
 tests alone with `tsx`; protocol tests require a current `dist/` build.
 Generated `dist/`, `node_modules/`, and coverage output are ignored; do not commit
-them. There is no separate lint or formatting command; follow surrounding style
-and avoid unrelated formatting changes.
+them. Format with `npm run format` (Prettier, configured in `.prettierrc`);
+`npm run check` fails on unformatted files. There is no separate lint command.
 
 Claude Code and Codex are registered to launch this checkout through the directory
 symlink `/home/zak/.local/share/term-dad` → `/home/zak/personal/term-dad`, using

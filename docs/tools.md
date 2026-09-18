@@ -421,7 +421,9 @@ events that have not reached the sink; committed queue events remain available
 until acknowledged. Watches themselves are process-local and must be recreated
 after restart. MCP disconnect drains in-flight watch delivery before closing the
 queue; other undelivered watch transitions are not persisted. Queue overload is
-visible in `watch.list.deliveryError` and retries after capacity is acknowledged.
+visible in `watch.list.deliveryError` and retries after capacity is acknowledged;
+the error describes the most recent delivery pass, while `pendingEvents` counts
+undelivered work.
 No watch sends input or approves permissions. Polling and desktop delivery
 are serial, so configured intervals are minimum delays, not real-time guarantees.
 
