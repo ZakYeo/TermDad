@@ -186,3 +186,29 @@ test('successful terminal submission with a failed metadata commit remains uncer
  await assert.rejects(f.agents.send('worker','task'),/DELIVERY_UNCERTAIN/);assert.deepEqual(f.inputs,['task','\r']);
  const restarted=new Agents(f.backend,broken);assert.equal((await restarted.list())[0].deliveryPending,true);await assert.rejects(restarted.send('worker','retry'),/DELIVERY_UNCERTAIN/);assert.equal(f.inputs.length,2);
 });
+
+test('observe waits through a briefly held worker lock instead of surfacing WORKER_BUSY',async()=>{
+ const f=fixture();await f.agents.adopt({name:'worker',cli:'codex',paneId:7});
+ const next=new Agents(f.backend,f.storage);let release!:()=>void,entered!:()=>void;const gate=new Promise<void>(r=>{release=r;}),ready=new Promise<void>(r=>{entered=r;});
+ const send=f.backend.sendText.bind(f.backend);f.backend.sendText=async(...args)=>{entered();await gate;return send(...args);};
+ const first=f.agents.send('worker','first');await ready;
+ const observing=next.observe('worker');setTimeout(release,100);
+ assert.equal((await observing).name,'worker');await first;
+});
+test('observe gives up on WORKER_BUSY after its bounded retry schedule',async()=>{
+ let attempts=0;const memory=new MemoryWorkerStorage();
+ const counting:WorkerStorage={transaction:(w,fn)=>memory.transaction(w,fn),exclusive:(id,fn)=>{attempts++;return memory.exclusive(id,fn);}};
+ const f=fixture(counting);const adopted=await f.agents.adopt({name:'worker',cli:'shell',paneId:7});
+ const next=new Agents(f.backend,counting);next.busyRetryMs=[1,1];
+ let release!:()=>void;const gate=new Promise<void>(r=>{release=r;});const held=memory.exclusive(adopted.agentId,()=>gate);attempts=0;
+ await assert.rejects(next.observe('worker'),/WORKER_BUSY/);assert.equal(attempts,3);
+ release();await held;
+});
+test('wait_for_outcome keeps polling through a transient WORKER_BUSY',async()=>{
+ const f=fixture();const adopted=await f.agents.adopt({name:'worker',cli:'codex',paneId:7});
+ const sent=await f.agents.send('worker','task');f.text('OpenAI Codex\n› done');
+ let release!:()=>void;const gate=new Promise<void>(r=>{release=r;});const held=f.storage.exclusive(adopted.agentId,()=>gate);setTimeout(release,300);
+ const next=new Agents(f.backend,f.storage);next.busyRetryMs=[];
+ const outcome=await next.waitForOutcome('worker',sent.turnId,3000);
+ assert.equal(outcome.reason,'turn_finished');await held;
+});

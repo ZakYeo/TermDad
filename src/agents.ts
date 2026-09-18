@@ -33,6 +33,8 @@ export class Agents {
  private readonly sessionId=randomUUID();
  private operations=new Set<Promise<unknown>>();
  private closed=false;
+ /** Back-off between read retries when another operation holds the worker or journal lock. Reads only: writes still fail fast. */
+ busyRetryMs=[50,100,200,400,800];
  constructor(readonly backend:TerminalBackend,readonly storage:WorkerStorage=new MemoryWorkerStorage(),readonly push?:WorkerPush){}
  private run<T>(fn:()=>Promise<T>):Promise<T>{
   if(this.closed)return Promise.reject(new Error('WORKER_CLOSED'));
@@ -83,6 +85,13 @@ export class Agents {
   if(!this.attached(w,await this.identity()))throw new Error('WORKER_DETACHED: terminal identity changed during observation');
   if(!pane){await this.remove(a.agentId);throw new Error(`Pane ${a.paneId} disappeared; agent ${a.name} removed`);}
   return {a,pane};
+ }
+ private static busy(e:unknown){return e instanceof Error&&/WORKER_BUSY|WORKER_STORAGE_BUSY/.test(e.message);}
+ private async retrying<T>(fn:()=>Promise<T>):Promise<T>{
+  for(let attempt=0;;attempt++){
+   try{return await fn();}
+   catch(e){if(!Agents.busy(e)||attempt>=this.busyRetryMs.length)throw e;await new Promise(r=>setTimeout(r,this.busyRetryMs[attempt]));}
+  }
  }
  private async locked<T>(agentId:string,fn:(w:WorkerRecord)=>Promise<T>){
   const w=await this.lookup(agentId);
@@ -207,7 +216,7 @@ export class Agents {
   const capped=tail(output.text,lines);
   return {...observation,previousObservationId:since,deltaReset:!!since&&previous===undefined,recentText:capped.text,outputMode:output.mode,linesOmitted:capped.linesOmitted};
  }
- observe(agentId:string,since?:string,lines?:number){return this.run(async()=>{const n=linesSchema.parse(lines);return this.locked(agentId,async w=>this.present(await this.sample(w),since,n));});}
+ observe(agentId:string,since?:string,lines?:number){return this.run(async()=>{const n=linesSchema.parse(lines);return this.retrying(()=>this.locked(agentId,async w=>this.present(await this.sample(w),since,n)));});}
  send(agentId:string,text:string,attempt?:z.infer<typeof attemptReferenceSchema>){return this.run(()=>this.locked(agentId,async w=>{
   z.string().max(100000).parse(text);
   if(attempt)attemptReferenceSchema.parse(attempt);
@@ -256,10 +265,13 @@ export class Agents {
   // Pin the caller's baseline now: polling pushes more than 16 observations through the history.
   const base=view.since?this.records.get(binding.agentId)?.history.find(h=>h.id===view.since)?.text:undefined;
   let last:Sample|undefined;const shown=()=>last?this.present(last,view.since,lines,base):null;
+  const pause=()=>new Promise(r=>setTimeout(r,Math.min(250,Math.max(0,deadline-Date.now()))));
   do{
    if(signal?.aborted)throw new Error('WORKER_WAIT_CANCELLED');
    if(this.closed)throw new Error('WORKER_CLOSED');
-   const current=await this.resolveOptional(binding.agentId);
+   let current:WorkerRecord|undefined;
+   try{current=await this.resolveOptional(binding.agentId);}
+   catch(e){if(Agents.busy(e)&&Date.now()<deadline){await pause();continue;}throw e;}
    if(!current){
     if(!await this.bindingPaneExists(binding))return {reason:'worker_disappeared',lastObservation:shown()};
     throw new Error('WORKER_NO_LONGER_MANAGED');
@@ -267,6 +279,8 @@ export class Agents {
    assertTurn(current);
    try{last=await this.locked(binding.agentId,w=>this.sample(w));}
    catch(e){
+    // A lock held by a send or a watch poll is contention, not an outcome: poll again until the deadline.
+    if(Agents.busy(e)&&Date.now()<deadline){await pause();continue;}
     if(e instanceof Error&&e.message.includes('disappeared')&&!await this.bindingPaneExists(binding))return {reason:'worker_disappeared',lastObservation:shown()};
     throw e;
    }
@@ -278,7 +292,7 @@ export class Agents {
    if(o.readyForPrompt)return {reason:'turn_finished',provenance:'heuristic',lastObservation:shown()};
    if(quietMs!==undefined&&Date.now()-Math.max(o.lastOutputAt,o.lastInputAt??0)>=quietMs)return {reason:'output_quiet',lastObservation:shown()};
    if(Date.now()>=deadline)break;
-   await new Promise(r=>setTimeout(r,Math.min(250,Math.max(0,deadline-Date.now()))));
+   await pause();
   }while(Date.now()<=deadline);
   return {reason:'timeout',lastObservation:shown()};
  });}
