@@ -160,7 +160,7 @@ export class WatchManager {
   }
   remove(watchId: string) {
     const w = this.records.get(watchId);
-    if (w) this.options.monitoring?.record({ kind: 'watch', watchId, paneId: w.paneId, phase: 'end' });
+    if (w) this.recordWatchEnd(w);
     const removed = this.records.delete(watchId);
     if (!this.records.size && this.timer) {
       clearTimeout(this.timer);
@@ -172,10 +172,19 @@ export class WatchManager {
     this.disposed = true;
     if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
-    for (const w of this.records.values())
-      this.options.monitoring?.record({ kind: 'watch', watchId: w.watchId, paneId: w.paneId, phase: 'end' });
+    for (const w of this.records.values()) this.recordWatchEnd(w);
     this.records.clear();
     await Promise.allSettled([...this.creations, ...(this.running ? [this.running] : [])]);
+  }
+  private recordWatchEnd(w: Watch) {
+    // Baseline creation has no start yet; disappeared watches have already ended.
+    if (!w.disappeared && Number.isFinite(w.lastPoll))
+      this.options.monitoring?.record({ kind: 'watch', watchId: w.watchId, paneId: w.paneId, phase: 'end' });
+  }
+  private disappeared(w: Watch, baseline: boolean) {
+    this.recordWatchEnd(w);
+    w.disappeared = true;
+    if (!baseline) this.enqueue(w, 'pane_disappeared');
   }
   private active(w: Watch) {
     return !this.disposed && this.records.get(w.watchId) === w;
@@ -258,8 +267,7 @@ export class WatchManager {
       const observation = await this.agents.peekBinding(w.agentBinding, read);
       if (!this.active(w)) return;
       if (!observation) {
-        w.disappeared = true;
-        if (!baseline) this.enqueue(w, 'pane_disappeared');
+        this.disappeared(w, baseline);
         return;
       }
       hash = observation.outputHash;
@@ -268,8 +276,7 @@ export class WatchManager {
       const panes = await read.panes();
       if (!this.active(w)) return;
       if (!panes.some((p) => p.pane_id === w.paneId)) {
-        w.disappeared = true;
-        if (!baseline) this.enqueue(w, 'pane_disappeared');
+        this.disappeared(w, baseline);
         return;
       }
       const text = normalizeScreen((await this.backend.read(w.paneId, 150)).slice(-24000));

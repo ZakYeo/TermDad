@@ -121,3 +121,56 @@ test('monitoring uses bounded diagnostic storage separately from tool telemetry'
   assert.equal(report.invalidLines, 1);
   assert.ok(report.metrics.length <= 2);
 });
+
+test('reference matching orders timestamps numerically across fractional precision', async () => {
+  const { summarizeMonitoring, referenceSchema } = await import('../src/monitoring-report.js');
+  const { randomUUID } = await import('node:crypto');
+  const session = randomUUID(),
+    watchId = randomUUID();
+  const metrics: MonitoringMetric[] = [
+    {
+      version: 1,
+      session,
+      timestamp: '2026-09-21T12:00:00.100Z',
+      kind: 'delivery',
+      watchId,
+      paneId: 7,
+      eventKind: 'input_required',
+      success: true,
+      delayMs: 100,
+    },
+  ];
+  const references = referenceSchema.parse([
+    { session, paneId: 7, eventKind: 'input_required', timestamp: '2026-09-21T12:00:01.000Z' },
+    { session, paneId: 7, eventKind: 'input_required', timestamp: '2026-09-21T12:00:00Z' },
+  ]);
+  const report = summarizeMonitoring(metrics, references)[0];
+  assert.equal(report.detectionDelay?.count, 1);
+  assert.equal(report.detectionDelay?.p95Ms, 100);
+  assert.equal(report.detectionDelay?.unmatchedReferences, 1);
+});
+
+test('verified disappearance ends measured worker time while its watch stays registered', async () => {
+  const { summarizeMonitoring } = await import('../src/monitoring-report.js');
+  const metrics: MonitoringMetric[] = [];
+  let now = 0;
+  const monitoring = new Monitoring({ record: (m) => metrics.push(m) }, () => now);
+  const f = await benchmarkFixture(false, monitoring);
+  try {
+    const [worker] = await prepareScaling(f, 1);
+    now = 60000;
+    f.advance();
+    f.panes.delete(worker.paneId);
+    await f.app.watches.poll();
+    assert.equal(f.app.watches.list()[0].disappeared, true);
+    now = 3600000;
+    f.advance();
+    await f.app.watches.poll();
+  } finally {
+    await f.close();
+  }
+  assert.equal(metrics.filter((m) => m.kind === 'watch' && m.phase === 'end').length, 1);
+  const report = summarizeMonitoring(metrics)[0];
+  assert.equal(report.watchedWorkerMinutes, 1);
+  assert.equal(report.incomplete, false);
+});

@@ -113,7 +113,7 @@ function workerMinutes(rows: MonitoringMetric[]) {
 }
 function detection(rows: MonitoringMetric[], references: Reference[]) {
   const deliveries = rows.filter((r) => r.kind === 'delivery' && r.success);
-  const ordered = [...references].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  const ordered = [...references].sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
   const used = new Set<MonitoringMetric>();
   const delays: number[] = [];
   for (let i = 0; i < ordered.length; i++) {
@@ -125,8 +125,8 @@ function detection(rows: MonitoringMetric[], references: Reference[]) {
         !used.has(r) &&
         r.paneId === ref.paneId &&
         r.eventKind === ref.eventKind &&
-        r.timestamp >= ref.timestamp &&
-        (!next || r.timestamp < next.timestamp),
+        Date.parse(r.timestamp) >= Date.parse(ref.timestamp) &&
+        (!next || Date.parse(r.timestamp) < Date.parse(next.timestamp)),
     );
     if (found) {
       used.add(found);
@@ -142,7 +142,9 @@ function detection(rows: MonitoringMetric[], references: Reference[]) {
 export function summarizeMonitoring(metrics: MonitoringMetric[], references: Reference[] = []) {
   const sessions = [...new Set([...metrics.map((m) => m.session), ...references.map((r) => r.session)])];
   return sessions.map((session) => {
-    const rows = metrics.filter((m) => m.session === session).sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+    const rows = metrics
+      .filter((m) => m.session === session)
+      .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
     const refs = references.filter((r) => r.session === session);
     const coverage = rows.length
       ? workerMinutes(rows)

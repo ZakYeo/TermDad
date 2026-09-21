@@ -563,3 +563,15 @@ Normal-session polling collection is staged, not completed. No interval defaults
 changed. The opt-in monitoring report separates enqueue-to-delivery age from
 independently referenced detection delay and reports missing/drop/truncation
 coverage. See [collection protocol](telemetry.md#staged-normal-session-polling-study).
+
+Final verification: `npm run check` passed **304 tests**, zero failures,
+cancellations or skips; TypeScript build and formatting checks passed. The live
+shell round trip also passed with `TERM_DAD_MONITORING=1`, verifying the optional
+backend instrumentation against the actual GUI. This remains a smoke check, not
+a representative-session polling baseline.
+
+A fresh subagent performed the requested thermonuclear maintainability and
+correctness review. Its timestamp-precision finding and subsequent confirmation
+of disappeared-worker lifetime inflation were fixed with regression coverage.
+The reviewer rechecked the fixes, ran focused monitoring/watch/read-scope tests
+and approved with no remaining actionable findings. Polling defaults are unchanged.

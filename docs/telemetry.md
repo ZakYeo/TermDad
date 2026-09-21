@@ -127,8 +127,9 @@ npm run telemetry:report -- /path/to/state/telemetry --json
 
 The monitoring report is JSON grouped by session. It reports all read-backend
 operations (identity/list/read, including setup and supervisor calls), divided
-by the union of watch lifetimes per pane: overlapping watches do not inflate
-watched-worker minutes. This is session overhead per watched-worker minute,
+by the union of sampling lifetimes per pane: overlapping watches do not inflate
+watched-worker minutes, and verified disappearance ends the measured lifetime
+even if the watch remains registered for pending delivery. This is session overhead per watched-worker minute,
 not exclusive attribution of shared checks to a worker. Zero coverage yields
 null. Missing lifecycle/session boundaries, drops, malformed records and report
 truncation must be disclosed; incomplete data cannot establish a safe tuning
