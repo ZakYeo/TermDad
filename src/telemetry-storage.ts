@@ -1,7 +1,7 @@
 import { mkdir, open, readdir, rename, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { Metric, TelemetrySink } from './telemetry.js';
+import type { Metric } from './telemetry.js';
 
 export interface TelemetryStorageOptions {
   maxBytes?: number;
@@ -11,10 +11,10 @@ export interface TelemetryStorageOptions {
   warn?: () => void;
 }
 /** Best-effort diagnostics, separate from durable worker/task journals. One writer per active file. */
-export class FileTelemetry implements TelemetrySink {
+export class FileTelemetry<T = Metric> {
   private readonly stem = `${process.pid}-${randomUUID()}`;
   private readonly active: string;
-  private queue: Metric[] = [];
+  private queue: T[] = [];
   private running?: Promise<void>;
   private closed = false;
   private closing?: Promise<void>;
@@ -35,7 +35,7 @@ export class FileTelemetry implements TelemetrySink {
   get droppedRecords() {
     return this.lost;
   }
-  record(metric: Metric) {
+  record(metric: T) {
     if (this.closed || this.failed || this.queue.length + this.inFlight >= (this.options.queueLimit ?? 1000)) {
       this.lost++;
       return;

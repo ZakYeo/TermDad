@@ -27,6 +27,7 @@ import { toolCall, toolError } from './tool-result.js';
 import { CodedError } from './errors.js';
 import { join } from 'node:path';
 import { instrumentTools, type TelemetryOptions } from './telemetry.js';
+import { Monitoring } from './monitoring.js';
 import { FileTelemetry } from './telemetry-storage.js';
 export function createServer(
   backend: TerminalBackend = new WezTermBackend(),
@@ -43,13 +44,31 @@ export function createServer(
     telemetryOptions.telemetry ??
     (process.env.TERM_DAD_TELEMETRY === '0' ? false : new FileTelemetry(join(stateDirectory(), 'telemetry')));
   if (telemetry) instrumentTools(server, telemetry, telemetryOptions.now);
+  const monitoring =
+    telemetryOptions.monitoring ??
+    (process.env.TERM_DAD_MONITORING === '1' ? Monitoring.file(join(stateDirectory(), 'monitoring')) : undefined);
+  if (monitoring) backend = monitoring.backend(backend);
   const socketPath = pushSocketPath(stateDirectory());
   // A pushed event still publishes bounded metadata; `watches.confirm` then samples the pane
   // so the recorded status comes from the terminal rather than from the worker's claim.
   const ingress = new PushIngress({
     sink: async (event) => {
-      await events.publish(event);
-      await watches.confirm(event.paneId);
+      const start = performance.now();
+      let success = false;
+      try {
+        await events.publish(event);
+        await watches.confirm(event.paneId);
+        success = true;
+      } finally {
+        if (monitoring)
+          monitoring.record({
+            kind: 'push',
+            paneId: event.paneId,
+            eventKind: event.kind,
+            success,
+            durationMs: performance.now() - start,
+          });
+      }
     },
   });
   const pushSocket = new PushSocket(ingress, socketPath);
@@ -356,6 +375,8 @@ export function createServer(
   const watches: WatchManager = new WatchManager(backend, agents, {
     notifications: CommandNotificationProvider.fromEnvironment(),
     pushDeliverable: (agentId) => push.deliverable(agentId),
+    pushProven: (agentId) => !!agentId && !ingress.revoked(agentId) && ingress.status(agentId).proven,
+    ...(monitoring ? { monitoring } : {}),
     ...options,
     sink: options.sink ?? ((input) => events.publish(input)),
   });
@@ -417,6 +438,7 @@ export function createServer(
         for (const step of shutdown) await step();
       } finally {
         if (telemetry) await telemetry.close?.().catch(() => {});
+        if (monitoring) await monitoring.close();
       }
     })());
   server.server.onclose = dispose;

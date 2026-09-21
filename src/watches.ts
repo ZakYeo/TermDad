@@ -1,3 +1,4 @@
+import type { Monitoring } from './monitoring.js';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { inputKind } from './interaction.js';
@@ -62,6 +63,8 @@ const summaries: Record<string, string> = {
 /** The one kind that exists to stop a human waiting: it replaces its own pending entry and ignores the cooldown. */
 const attention = 'attention_required';
 export interface WatchOptions {
+  monitoring?: Monitoring;
+  pushProven?: (agentId?: string) => boolean;
   sink?: WatchEventSink;
   notifications?: NotificationProvider;
   now?: () => number;
@@ -115,7 +118,7 @@ export class WatchManager {
     };
     this.records.set(w.watchId, w);
     try {
-      await TerminalRead.run(this.backend, (read) => this.sample(w, true, read));
+      await TerminalRead.run(this.backend, (read) => this.sample(w, true, read, 'baseline'));
       if (w.disappeared) throw new Error('Pane not found');
     } catch {
       this.records.delete(w.watchId);
@@ -123,6 +126,7 @@ export class WatchManager {
     }
     if (this.disposed || !this.records.has(w.watchId)) throw new Error('Watch removed during creation');
     w.lastPoll = this.now();
+    this.options.monitoring?.record({ kind: 'watch', watchId: w.watchId, paneId: w.paneId, phase: 'start' });
     this.schedule();
     return this.view(w);
   }
@@ -155,6 +159,8 @@ export class WatchManager {
     };
   }
   remove(watchId: string) {
+    const w = this.records.get(watchId);
+    if (w) this.options.monitoring?.record({ kind: 'watch', watchId, paneId: w.paneId, phase: 'end' });
     const removed = this.records.delete(watchId);
     if (!this.records.size && this.timer) {
       clearTimeout(this.timer);
@@ -166,6 +172,8 @@ export class WatchManager {
     this.disposed = true;
     if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
+    for (const w of this.records.values())
+      this.options.monitoring?.record({ kind: 'watch', watchId: w.watchId, paneId: w.paneId, phase: 'end' });
     this.records.clear();
     await Promise.allSettled([...this.creations, ...(this.running ? [this.running] : [])]);
   }
@@ -186,17 +194,18 @@ export class WatchManager {
   async confirm(paneId: number) {
     await TerminalRead.run(this.backend, async (read) => {
       for (const w of [...this.records.values()])
-        if (w.paneId === paneId && this.active(w) && !w.disappeared) await this.visit(w, read);
+        if (w.paneId === paneId && this.active(w) && !w.disappeared) await this.visit(w, read, 'push');
     });
   }
   /** One sample-then-deliver pass over a watch, shared by the poll timer and pushed confirmations. */
-  private async visit(w: Watch, read: TerminalRead) {
+  private async visit(w: Watch, read: TerminalRead, source: 'poll' | 'push' = 'poll') {
     if (!w.disappeared) {
       try {
-        await this.sample(w, false, read);
+        await this.sample(w, false, read, source);
         w.backendError = undefined;
       } catch {
         w.backendError = 'Observation failed; retrying on the next poll.';
+        this.options.monitoring?.record({ kind: 'sample_error', watchId: w.watchId, paneId: w.paneId });
       }
     }
     if (this.active(w)) await this.deliver(w);
@@ -241,7 +250,7 @@ export class WatchManager {
     });
     w.lastEvent = { ...w.pending.get(kind)!.event };
   }
-  private async sample(w: Watch, baseline: boolean, read: TerminalRead) {
+  private async sample(w: Watch, baseline: boolean, read: TerminalRead, source: 'baseline' | 'poll' | 'push') {
     let hash: string, status: Status;
     if (w.agentBinding) {
       // Managed sampling verifies the original binding and refreshes input state under
@@ -269,6 +278,16 @@ export class WatchManager {
     }
     if (!this.active(w)) return;
     const changed = hash !== w.hash;
+    this.options.monitoring?.record({
+      kind: 'sample',
+      watchId: w.watchId,
+      paneId: w.paneId,
+      source,
+      changed,
+      intervalMs: this.interval(w),
+      pushBacked: this.pushed(w),
+      pushProven: this.options.pushProven?.(w.agentId) === true,
+    });
     if (changed) {
       w.changedAt = this.now();
       w.quiet = false;
@@ -345,6 +364,14 @@ export class WatchManager {
       }
     }
     if (!this.active(w)) return false;
+    this.options.monitoring?.record({
+      kind: 'delivery',
+      watchId: w.watchId,
+      paneId: w.paneId,
+      eventKind: kind,
+      success: !failed,
+      delayMs: Math.max(0, this.now() - Date.parse(p.event.occurredAt)),
+    });
     if (failed) {
       w.deliveryError = 'Event delivery failed; retrying on the next poll.';
       return false;

@@ -1,3 +1,4 @@
+import type { Monitoring } from '../src/monitoring.js';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -24,7 +25,10 @@ export const screen =
   Array.from({ length: 100 }, (_, i) =>
     `line ${String(i).padStart(3, '0')}: deterministic benchmark output`.padEnd(100),
   ).join('\n') + '\n$ ';
-export async function benchmarkFixture(telemetry: false | 'file' | 'default' | TelemetrySink = false) {
+export async function benchmarkFixture(
+  telemetry: false | 'file' | 'default' | TelemetrySink = false,
+  monitoring: Monitoring | false = false,
+) {
   const directory = await mkdtemp(join(tmpdir(), 'term-dad-bench-'));
   const oldDirectory = process.env.TERM_DAD_STATE_DIR;
   process.env.TERM_DAD_STATE_DIR = directory;
@@ -106,7 +110,7 @@ export async function benchmarkFixture(telemetry: false | 'file' | 'default' | T
     new EventQueue(new MemoryEvents()),
     new MemoryWorkerStorage(),
     new MemoryTaskStorage(),
-    { telemetry: sink },
+    { telemetry: sink, monitoring },
   );
   await app.pushRestored;
   await app.reaped;

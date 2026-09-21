@@ -1,3 +1,4 @@
+import type { Monitoring } from './monitoring.js';
 import { randomUUID } from 'node:crypto';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
@@ -18,6 +19,7 @@ export interface TelemetrySink {
   close?(): Promise<void>;
 }
 export interface TelemetryOptions {
+  monitoring?: Monitoring | false;
   telemetry?: TelemetrySink | false;
   now?: () => number;
 }
