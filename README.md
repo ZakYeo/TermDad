@@ -243,3 +243,12 @@ Key injection uses standard VT bytes, not global shortcuts. Apps using applicati
 Worker-pushed events are local only and carry a token and kind, never event text. Workers run as your user, so credential files are not an isolation boundary between them; a push is therefore verified by sampling the pane and never treated as evidence of task success.
 
 Read the [tool reference](docs/tools.md), [architecture and observation decision](docs/architecture.md), and [roadmap](docs/roadmap.md).
+
+## Local performance telemetry
+
+New server sessions collect bounded local tool timings, response sizes and
+outcomes by default; no prompts or terminal output are stored. Disable with
+`TERM_DAD_TELEMETRY=0`. Run `npm run telemetry:report` for a summary,
+`npm run bench` for all-tool simulated baselines, or `npm run bench:live` for
+shell-only live latency checks. Neither benchmark launches paid model workers.
+See [telemetry and benchmark details](docs/telemetry.md).

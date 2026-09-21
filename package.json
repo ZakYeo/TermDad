@@ -26,7 +26,10 @@
     "test:screenshot": "node --import tsx scripts/live-screenshot.ts",
     "test:recovery": "node --import tsx scripts/live-recovery.ts",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" \"scripts/*.ts\"",
-    "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\" \"scripts/*.ts\""
+    "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\" \"scripts/*.ts\"",
+    "telemetry:report": "node --import tsx scripts/telemetry-report.ts",
+    "bench": "node --import tsx scripts/benchmark.ts",
+    "bench:live": "node --import tsx scripts/benchmark-live.ts"
   },
   "engines": {
     "node": ">=22"

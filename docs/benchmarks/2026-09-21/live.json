@@ -1,0 +1,179 @@
+{
+  "generatedAt": "2026-09-21T16:16:01.549Z",
+  "commit": "62bbd97740c42117a26e8f41ebf3321ba7fec7cc",
+  "node": "v22.14.0",
+  "platform": "linux",
+  "warmups": 5,
+  "repetitions": 30,
+  "provenance": "Live WezTerm, stdio MCP, isolated on-disk state, one shell worker, no paid models. Round trips include transport and terminal operations. spawn.to_ready measures the wait after spawn returns.",
+  "operations": [
+    {
+      "operation": "spawn.shell",
+      "count": 1,
+      "medianMs": 1607.541685,
+      "p95Ms": null,
+      "maxMs": 1607.541685
+    },
+    {
+      "operation": "spawn.to_ready",
+      "count": 1,
+      "medianMs": 2619.489706,
+      "p95Ms": null,
+      "maxMs": 2619.489706
+    },
+    {
+      "operation": "terminal.list",
+      "count": 30,
+      "medianMs": 784.3467119999987,
+      "p95Ms": 988.3940769999754,
+      "maxMs": 1367.1852719999733
+    },
+    {
+      "operation": "agent.observe",
+      "count": 30,
+      "medianMs": 2430.252207999991,
+      "p95Ms": 2719.5564449999947,
+      "maxMs": 2891.960712000029
+    },
+    {
+      "operation": "orchestrator.status",
+      "count": 30,
+      "medianMs": 3798.711183999956,
+      "p95Ms": 4562.593258999987,
+      "maxMs": 4566.842432000005
+    },
+    {
+      "operation": "submit.to_marker",
+      "count": 30,
+      "medianMs": 6229.7680659999605,
+      "p95Ms": 7422.859571000008,
+      "maxMs": 8565.274810999981
+    },
+    {
+      "operation": "stop.shell",
+      "count": 1,
+      "medianMs": 2624.664640999981,
+      "p95Ms": null,
+      "maxMs": 2624.664640999981
+    }
+  ],
+  "server": [
+    {
+      "tool": "agent.observe",
+      "wait": false,
+      "count": 35,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 2429.13816100001,
+      "p95Ms": 2718.464341999963,
+      "maxMs": 2891.305387999979,
+      "accumulatedMs": 82520.87988999991,
+      "responseBytes": 45867,
+      "textBytes": 40425,
+      "maxResponseBytes": 1356
+    },
+    {
+      "tool": "agent.send",
+      "wait": false,
+      "count": 35,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 4037.4016009999905,
+      "p95Ms": 4679.478382000001,
+      "maxMs": 4844.73291999998,
+      "accumulatedMs": 139428.17239899992,
+      "responseBytes": 5565,
+      "textBytes": 3850,
+      "maxResponseBytes": 159
+    },
+    {
+      "tool": "agent.spawn",
+      "wait": false,
+      "count": 1,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 1606.007893,
+      "p95Ms": 1606.007893,
+      "maxMs": 1606.007893,
+      "accumulatedMs": 1606.007893,
+      "responseBytes": 174,
+      "textBytes": 119,
+      "maxResponseBytes": 174
+    },
+    {
+      "tool": "agent.stop",
+      "wait": false,
+      "count": 1,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 1971.6368889999576,
+      "p95Ms": 1971.6368889999576,
+      "maxMs": 1971.6368889999576,
+      "accumulatedMs": 1971.6368889999576,
+      "responseBytes": 57,
+      "textBytes": 16,
+      "maxResponseBytes": 57
+    },
+    {
+      "tool": "agent.wait_for_text",
+      "wait": true,
+      "count": 35,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 2296.2692000000097,
+      "p95Ms": 2784.195863000001,
+      "maxMs": 4050.655125999998,
+      "accumulatedMs": 81249.30278599987,
+      "responseBytes": 46154,
+      "textBytes": 40665,
+      "maxResponseBytes": 1354
+    },
+    {
+      "tool": "agent.wait_until_idle",
+      "wait": true,
+      "count": 36,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 2214.0350320000434,
+      "p95Ms": 2676.2344410000005,
+      "maxMs": 4171.5492409999715,
+      "accumulatedMs": 83369.90746999989,
+      "responseBytes": 47220,
+      "textBytes": 41618,
+      "maxResponseBytes": 1356
+    },
+    {
+      "tool": "orchestrator.status",
+      "wait": false,
+      "count": 35,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 3843.0800530000124,
+      "p95Ms": 4561.715971000027,
+      "maxMs": 4565.934011000005,
+      "accumulatedMs": 133328.9858359999,
+      "responseBytes": 32308,
+      "textBytes": 28287,
+      "maxResponseBytes": 926
+    },
+    {
+      "tool": "terminal.list",
+      "wait": false,
+      "count": 37,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 776.054243999999,
+      "p95Ms": 987.5203479999909,
+      "maxMs": 1365.8991800000076,
+      "accumulatedMs": 29212.621826999923,
+      "responseBytes": 119893,
+      "textBytes": 105190,
+      "maxResponseBytes": 3270
+    }
+  ],
+  "telemetryCoverage": {
+    "invalidLines": 0,
+    "droppedRecords": 0,
+    "truncated": false
+  }
+}

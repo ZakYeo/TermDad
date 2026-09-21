@@ -477,3 +477,47 @@ script before being fixed under a failing test:
 
 `npm run check`: 269 tests pass on Node 22.14.0. The same review also introduced `CodedError` (typed failure codes replacing message sniffing), a shared `toolCall` result helper with field-naming schema errors, an explicit shutdown list in `createServer`, and Prettier formatting (`npm run format:check` is part of `check`). No live GUI
 checks were run for these changes.
+
+## Local telemetry and performance baseline — 21 September 2026
+
+Implemented default-on local tool telemetry and deterministic response-size /
+backend-operation regression budgets. No performance optimizations were applied.
+
+- Final `npm run check`: **287 tests passed**, zero failed/cancelled/skipped;
+  TypeScript build and Prettier check passed. Tests ran with an isolated
+  `TERM_DAD_STATE_DIR` and local Unix sockets available. The final build is
+  current for newly started MCP clients.
+- All 53 MCP tools were exercised through simulated terminal/screenshot
+  dependencies, with five warm-up workflows and 30 measured workflows in each
+  telemetry-off/on mode. Each mode contributed 1,590 measured tool calls.
+  Only the deliberately timed-out outcome scenario returned a timeout; there
+  were no unexpected scenario errors. Separate 1/5/10-worker fixture passes
+  measured bytes and backend calls without launching any real AI workers.
+- A live stdio run on Windows/WSL WezTerm used one newly created shell pane,
+  isolated state, and five warm-ups plus 30 measured read/status and
+  submit-to-marker cycles. It verified cleanup of that owned pane. No
+  pre-existing pane/tab was closed and no Claude/Codex worker was launched.
+  Median / p95: pane listing **0.784 / 0.988 s**, worker observation
+  **2.430 / 2.720 s**, one-worker status **3.799 / 4.563 s**, shell
+  submit-to-marker **6.230 / 7.423 s**. The telemetry read reported zero malformed
+  lines, zero recorded drops, and no report truncation.
+- Restricted execution initially failed to complete the stdio/desktop path;
+  successful checks used local execution with the needed interoperability.
+  Simulated results do not claim real GUI or model latency.
+- The new stdio assertion verifies seven tool records, including four errors,
+  flush on client close. Additional tests cover privacy markers, UTF-8 sizes,
+  validation, images, unknown tools, concurrency, sink failure, storage bounds,
+  rotation, retention and explicit/environment disabling.
+- A full-run teardown race (`ENOTEMPTY` while removing a telemetry directory)
+  was corrected in the test harness by closing clients before deleting state.
+  A separate run intermittently failed the unchanged event-journal test
+  `cross-instance concurrent writers preserve every event and ack` (14 unique
+  sequences for 20 publishes). Its 17-test file passed in isolation, and the
+  final full suite passed. No event-journal fix was made; this remains a
+  reliability follow-up.
+
+See the [analysis and recommendations](performance-baseline-2026-09-21.md),
+[complete tool tables](benchmarks/2026-09-21/simulated.md),
+[simulated JSON](benchmarks/2026-09-21/simulated.json), and
+[live JSON](benchmarks/2026-09-21/live.json). Bytes are not model token counts;
+no token-cost savings or implementation speedup is claimed.

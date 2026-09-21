@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { readTelemetry } from '../src/telemetry-report.js';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -10,10 +11,12 @@ test('stdio MCP smoke: initialize, list tool schemas, validate calls and expose 
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: ['dist/index.js'],
-    env: { ...process.env, TERM_DAD_WEZTERM: '/nonexistent/wezterm', TERM_DAD_STATE_DIR: directory } as Record<
-      string,
-      string
-    >,
+    env: {
+      ...process.env,
+      TERM_DAD_TELEMETRY: '1',
+      TERM_DAD_WEZTERM: '/nonexistent/wezterm',
+      TERM_DAD_STATE_DIR: directory,
+    } as Record<string, string>,
     stderr: 'inherit',
   });
   const client = new Client({ name: 'test', version: '1' });
@@ -59,6 +62,11 @@ test('stdio MCP smoke: initialize, list tool schemas, validate calls and expose 
     assert.equal(failed.isError, true);
     const snapshot = await client.callTool({ name: 'orchestrator.status', arguments: {} });
     assert.equal(snapshot.isError, undefined);
+    await client.close();
+    const telemetry = await readTelemetry(join(directory, 'telemetry'));
+    assert.equal(telemetry.metrics.length, 7, 'each tools/call, including schema failures, is flushed on stdio close');
+    assert.equal(telemetry.metrics.filter((metric) => metric.outcome === 'error').length, 4);
+    assert.equal(telemetry.invalidLines, 0);
   } finally {
     await client.close();
     await rm(directory, { recursive: true, force: true });

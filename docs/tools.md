@@ -715,3 +715,12 @@ Calls arriving during selection also return busy. Recreate watches after switchi
 Worker mappings remain durable and workers in other GUIs become detached; switching
 back recovers matching live workers. No panes are closed and no tasks are replayed.
 Always list panes again after switching: pane IDs can overlap across GUIs.
+
+## Performance measurements
+
+All `tools/call` requests are measured locally by default, including validation
+failures and screenshots. No additional MCP tool or response fields are added.
+Use `npm run telemetry:report` to read timings, outcomes and response-byte totals;
+`TERM_DAD_TELEMETRY=0` disables collection. Wait durations include requested
+waiting. Response bytes are not model-token usage. See
+[telemetry and benchmark methodology](telemetry.md).

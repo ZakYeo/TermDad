@@ -1,12 +1,14 @@
 import test from 'node:test';
+import { trackClient, cleanupClients } from './protocol-cleanup.js';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 async function connect(directory: string, identity = 'fixture-instance') {
   const client = new Client({ name: 'worker-recovery-test', version: '1' });
+  trackClient(directory, client);
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: ['tests/fixtures/worker-server.mjs'],
@@ -29,7 +31,7 @@ async function connect(directory: string, identity = 'fixture-instance') {
 }
 test('separate MCP processes recover, share conflicts and input guards, and expose detached mappings', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'term-dad-worker-protocol-'));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => cleanupClients(dir));
   const first = await connect(dir);
   t.after(() => first.client.close());
   const spawned = await first.call('agent.spawn', { name: 'worker', cli: 'codex' });
@@ -69,7 +71,7 @@ test('separate MCP processes recover, share conflicts and input guards, and expo
 });
 test('agent.observe and agent.status accept a lines cap and report omitted lines', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'term-dad-worker-lines-'));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => cleanupClients(dir));
   const f = await connect(dir);
   t.after(() => f.client.close());
   await f.call('agent.spawn', { name: 'worker', cli: 'codex' });

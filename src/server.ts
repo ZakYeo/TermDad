@@ -25,6 +25,9 @@ import { stateDirectory, reapStaleLocks } from './journal.js';
 import { oneOf } from './arguments.js';
 import { toolCall, toolError } from './tool-result.js';
 import { CodedError } from './errors.js';
+import { join } from 'node:path';
+import { instrumentTools, type TelemetryOptions } from './telemetry.js';
+import { FileTelemetry } from './telemetry-storage.js';
 export function createServer(
   backend: TerminalBackend = new WezTermBackend(),
   screenshots: ScreenshotProvider = new CommandScreenshotProvider(),
@@ -32,9 +35,14 @@ export function createServer(
   eventQueue?: EventQueue,
   workerStorage: WorkerStorage = new FileWorkerStorage(),
   taskStorage: TaskStorage = new FileTaskStorage(),
+  telemetryOptions: TelemetryOptions = {},
 ) {
   const server = new McpServer({ name: 'term-dad', version: '0.1.0' }),
     tasks = new TaskBoard(taskStorage);
+  const telemetry =
+    telemetryOptions.telemetry ??
+    (process.env.TERM_DAD_TELEMETRY === '0' ? false : new FileTelemetry(join(stateDirectory(), 'telemetry')));
+  if (telemetry) instrumentTools(server, telemetry, telemetryOptions.now);
   const socketPath = pushSocketPath(stateDirectory());
   // A pushed event still publishes bounded metadata; `watches.confirm` then samples the pane
   // so the recorded status comes from the terminal rather than from the worker's claim.
@@ -407,7 +415,11 @@ export function createServer(
   let disposed: Promise<void> | undefined;
   const dispose = () =>
     (disposed ??= (async () => {
-      for (const step of shutdown) await step();
+      try {
+        for (const step of shutdown) await step();
+      } finally {
+        if (telemetry) await telemetry.close?.().catch(() => {});
+      }
     })());
   server.server.onclose = dispose;
   return {

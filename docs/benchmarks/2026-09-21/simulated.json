@@ -1,0 +1,2737 @@
+{
+  "generatedAt": "2026-09-21T16:13:00.557Z",
+  "commit": "62bbd97740c42117a26e8f41ebf3321ba7fec7cc",
+  "workingTree": "modified",
+  "node": "v22.14.0",
+  "platform": "linux",
+  "release": "6.18.33.2-microsoft-standard-WSL2",
+  "arch": "x64",
+  "warmups": 5,
+  "repetitions": 30,
+  "elapsedMs": 23657.681866,
+  "provenance": "In-memory MCP transport, simulated terminal and screenshot providers, memory worker/task/event storage. File telemetry enabled in paired runs; no model calls. Lifecycle scenarios reset with a fresh fixture each iteration. Timings include real configured paste delays. Push scenario measures disabling, not hook delivery.",
+  "disabled": [
+    {
+      "tool": "agent.adopt",
+      "count": 30,
+      "medianMs": 0.1499149999999645,
+      "p95Ms": 0.25747099999989587,
+      "maxMs": 0.3688579999998183,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 296,
+      "maxTextBytes": 229,
+      "maxBackendCalls": 2,
+      "maxOperations": {
+        "identity": 1,
+        "list": 1
+      }
+    },
+    {
+      "tool": "agent.broadcast",
+      "count": 30,
+      "medianMs": 101.28553199999988,
+      "p95Ms": 102.06065800000033,
+      "maxMs": 102.08736999999746,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 282,
+      "maxTextBytes": 223,
+      "maxBackendCalls": 10,
+      "maxOperations": {
+        "identity": 2,
+        "list": 2,
+        "get-text": 2,
+        "send-text": 4
+      }
+    },
+    {
+      "tool": "agent.collect_results",
+      "count": 30,
+      "medianMs": 0.3436550000005809,
+      "p95Ms": 0.5378079999973124,
+      "maxMs": 0.7817900000000009,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 3427,
+      "maxTextBytes": 3182,
+      "maxBackendCalls": 8,
+      "maxOperations": {
+        "identity": 3,
+        "list": 3,
+        "get-text": 2
+      }
+    },
+    {
+      "tool": "agent.forget",
+      "count": 30,
+      "medianMs": 0.39239099999758764,
+      "p95Ms": 0.9180649999998423,
+      "maxMs": 1.2146179999981541,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 59,
+      "maxTextBytes": 18,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    },
+    {
+      "tool": "agent.interrupt",
+      "count": 30,
+      "medianMs": 0.49614199999996345,
+      "p95Ms": 1.1282469999996465,
+      "maxMs": 2.044261999999435,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 61,
+      "maxTextBytes": 20,
+      "maxBackendCalls": 4,
+      "maxOperations": {
+        "identity": 1,
+        "list": 1,
+        "get-text": 1,
+        "send-text": 1
+      }
+    },
+    {
+      "tool": "agent.list",
+      "count": 30,
+      "medianMs": 0.09525700000085635,
+      "p95Ms": 0.267122000001109,
+      "maxMs": 0.28767099999822676,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 717,
+      "maxTextBytes": 602,
+      "maxBackendCalls": 2,
+      "maxOperations": {
+        "identity": 1,
+        "list": 1
+      }
+    },
+    {
+      "tool": "agent.observe",
+      "count": 30,
+      "medianMs": 0.2895109999990382,
+      "p95Ms": 0.47723000000041793,
+      "maxMs": 0.6526959999991959,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 1644,
+      "maxTextBytes": 1512,
+      "maxBackendCalls": 3,
+      "maxOperations": {
+        "identity": 1,
+        "list": 1,
+        "get-text": 1
+      }
+    },
+    {
+      "tool": "agent.reattach",
+      "count": 30,
+      "medianMs": 0.13339600000108476,
+      "p95Ms": 0.34499999999934516,
+      "maxMs": 0.4084050000001298,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 296,
+      "maxTextBytes": 229,
+      "maxBackendCalls": 2,
+      "maxOperations": {
+        "identity": 1,
+        "list": 1
+      }
+    },
+    {
+      "tool": "agent.screenshot",
+      "count": 30,
+      "medianMs": 0.10550300000068091,
+      "p95Ms": 0.20662600000105158,
+      "maxMs": 0.20910300000105053,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 155,
+      "maxTextBytes": 0,
+      "maxBackendCalls": 3,
+      "maxOperations": {
+        "identity": 1,
+        "list": 1,
+        "screenshot": 1
+      }
+    },
+    {
+      "tool": "agent.send",
+      "count": 30,
+      "medianMs": 101.02017799999976,
+      "p95Ms": 101.77343699999983,
+      "maxMs": 102.01546699999744,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 159,
+      "maxTextBytes": 110,
+      "maxBackendCalls": 5,
+      "maxOperations": {
+        "identity": 1,
+        "list": 1,
+        "get-text": 1,
+        "send-text": 2
+      }
+    },
+    {
+      "tool": "agent.spawn",
+      "count": 30,
+      "medianMs": 0.28364199999850825,
+      "p95Ms": 0.5463630000012927,
+      "maxMs": 0.882195000000138,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 165,
+      "maxTextBytes": 110,
+      "maxBackendCalls": 2,
+      "maxOperations": {
+        "identity": 1,
+        "spawn": 1
+      }
+    },
+    {
+      "tool": "agent.status",
+      "count": 30,
+      "medianMs": 0.25453399999969406,
+      "p95Ms": 0.36135899999862886,
+      "maxMs": 0.45539300000018557,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 1650,
+      "maxTextBytes": 1518,
+      "maxBackendCalls": 3,
+      "maxOperations": {
+        "identity": 1,
+        "list": 1,
+        "get-text": 1
+      }
+    },
+    {
+      "tool": "agent.stop",
+      "count": 30,
+      "medianMs": 0.38883500000156346,
+      "p95Ms": 1.0799990000014077,
+      "maxMs": 1.1460779999997612,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 57,
+      "maxTextBytes": 16,
+      "maxBackendCalls": 3,
+      "maxOperations": {
+        "identity": 1,
+        "list": 1,
+        "kill-pane": 1
+      }
+    },
+    {
+      "tool": "agent.wait_for_outcome",
+      "count": 30,
+      "medianMs": 1.9619280000006256,
+      "p95Ms": 2.432654000000184,
+      "maxMs": 2.5276519999970333,
+      "errors": 0,
+      "timeouts": 30,
+      "maxResponseBytes": 1858,
+      "maxTextBytes": 1708,
+      "maxBackendCalls": 6,
+      "maxOperations": {
+        "identity": 2,
+        "list": 2,
+        "get-text": 2
+      }
+    },
+    {
+      "tool": "agent.wait_for_text",
+      "count": 30,
+      "medianMs": 0.22226099999897997,
+      "p95Ms": 0.3885500000014872,
+      "maxMs": 0.4089379999995799,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 1650,
+      "maxTextBytes": 1518,
+      "maxBackendCalls": 3,
+      "maxOperations": {
+        "identity": 1,
+        "list": 1,
+        "get-text": 1
+      }
+    },
+    {
+      "tool": "agent.wait_until_idle",
+      "count": 30,
+      "medianMs": 0.20451300000058836,
+      "p95Ms": 0.4047419999988051,
+      "maxMs": 0.5090779999991355,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 1650,
+      "maxTextBytes": 1518,
+      "maxBackendCalls": 3,
+      "maxOperations": {
+        "identity": 1,
+        "list": 1,
+        "get-text": 1
+      }
+    },
+    {
+      "tool": "event.acknowledge",
+      "count": 30,
+      "medianMs": 0.09799599999678321,
+      "p95Ms": 0.1461220000001049,
+      "maxMs": 0.14750199999980396,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 291,
+      "maxTextBytes": 224,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    },
+    {
+      "tool": "event.list",
+      "count": 30,
+      "medianMs": 0.07037899999977526,
+      "p95Ms": 0.11831499999971129,
+      "maxMs": 0.13443300000290037,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 328,
+      "maxTextBytes": 257,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    },
+    {
+      "tool": "event.wait_for_event",
+      "count": 30,
+      "medianMs": 0.09306399999877613,
+      "p95Ms": 0.15948299999945448,
+      "maxMs": 0.18491700000049605,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 267,
+      "maxTextBytes": 200,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    },
+    {
+      "tool": "event.wake_command",
+      "count": 30,
+      "medianMs": 0.09362500000133878,
+      "p95Ms": 0.1311390000000756,
+      "maxMs": 0.13767600000210223,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 694,
+      "maxTextBytes": 623,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    },
+    {
+      "tool": "orchestrator.attention",
+      "count": 30,
+      "medianMs": 0.5776740000001155,
+      "p95Ms": 0.7240019999990182,
+      "maxMs": 0.8436890000002677,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 731,
+      "maxTextBytes": 620,
+      "maxBackendCalls": 8,
+      "maxOperations": {
+        "identity": 3,
+        "list": 3,
+        "get-text": 2
+      }
+    },
+    {
+      "tool": "orchestrator.status",
+      "count": 30,
+      "medianMs": 0.3569930000012391,
+      "p95Ms": 0.6643670000012207,
+      "maxMs": 0.7439939999994749,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 1609,
+      "maxTextBytes": 1426,
+      "maxBackendCalls": 8,
+      "maxOperations": {
+        "identity": 3,
+        "list": 3,
+        "get-text": 2
+      }
+    },
+    {
+      "tool": "push.set",
+      "count": 30,
+      "medianMs": 0.07033100000262493,
+      "p95Ms": 0.18908200000078068,
+      "maxMs": 0.18986799999947834,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 132,
+      "maxTextBytes": 85,
+      "maxBackendCalls": 1,
+      "maxOperations": {
+        "identity": 1
+      }
+    },
+    {
+      "tool": "push.status",
+      "count": 30,
+      "medianMs": 0.033791999998356914,
+      "p95Ms": 0.08488699999998062,
+      "maxMs": 0.4911790000005567,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 144,
+      "maxTextBytes": 95,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    },
+    {
+      "tool": "task.archive",
+      "count": 30,
+      "medianMs": 0.2656989999995858,
+      "p95Ms": 0.45760300000074494,
+      "maxMs": 0.5437680000031833,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 1094,
+      "maxTextBytes": 947,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    },
+    {
+      "tool": "task.assign",
+      "count": 30,
+      "medianMs": 0.18931200000042736,
+      "p95Ms": 0.4004580000000715,
+      "maxMs": 0.45121300000027986,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 661,
+      "maxTextBytes": 556,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    },
+    {
+      "tool": "task.create",
+      "count": 30,
+      "medianMs": 0.3514900000000125,
+      "p95Ms": 0.7935809999999037,
+      "maxMs": 2.439947000000757,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 627,
+      "maxTextBytes": 524,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    },
+    {
+      "tool": "task.get",
+      "count": 30,
+      "medianMs": 0.12944799999968382,
+      "p95Ms": 0.4294319999989966,
+      "maxMs": 0.4911129999982222,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 647,
+      "maxTextBytes": 542,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    },
+    {
+      "tool": "task.history",
+      "count": 30,
+      "medianMs": 0.09623300000021118,
+      "p95Ms": 0.14559299999928044,
+      "maxMs": 0.14740299999994022,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 923,
+      "maxTextBytes": 792,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    },
+    {
+      "tool": "task.list",
+      "count": 30,
+      "medianMs": 0.08161099999961152,
+      "p95Ms": 0.20772699999997712,
+      "maxMs": 0.25100100000054226,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 717,
+      "maxTextBytes": 604,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    },
+    {
+      "tool": "task.report_result",
+      "count": 30,
+      "medianMs": 0.48183500000050117,
+      "p95Ms": 0.6400510000003123,
+      "maxMs": 1.2052019999991899,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 976,
+      "maxTextBytes": 841,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    },
+    {
+      "tool": "task.start_attempt",
+      "count": 30,
+      "medianMs": 0.2123040000005858,
+      "p95Ms": 0.6162599999997838,
+      "maxMs": 0.6424210000004678,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 846,
+      "maxTextBytes": 727,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    },
+    {
+      "tool": "task.update",
+      "count": 30,
+      "medianMs": 0.2421359999989363,
+      "p95Ms": 0.514221000001271,
+      "maxMs": 0.5639420000006794,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 625,
+      "maxTextBytes": 522,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    },
+    {
+      "tool": "task.verify",
+      "count": 30,
+      "medianMs": 0.3486989999983052,
+      "p95Ms": 0.5420950000006997,
+      "maxMs": 0.7012590000013006,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 1095,
+      "maxTextBytes": 948,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    },
+    {
+      "tool": "terminal.close",
+      "count": 30,
+      "medianMs": 0.1389820000003965,
+      "p95Ms": 0.3143920000002254,
+      "maxMs": 0.4290789999995468,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 55,
+      "maxTextBytes": 14,
+      "maxBackendCalls": 3,
+      "maxOperations": {
+        "list": 1,
+        "kill-pane": 1,
+        "identity": 1
+      }
+    },
+    {
+      "tool": "terminal.focus",
+      "count": 30,
+      "medianMs": 0.10098999999900116,
+      "p95Ms": 0.2528089999996155,
+      "maxMs": 0.30965399999877263,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 52,
+      "maxTextBytes": 11,
+      "maxBackendCalls": 2,
+      "maxOperations": {
+        "list": 1,
+        "activate-pane": 1
+      }
+    },
+    {
+      "tool": "terminal.list",
+      "count": 30,
+      "medianMs": 0.14771699999982957,
+      "p95Ms": 0.30348200000025827,
+      "maxMs": 0.4599269999998796,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 164,
+      "maxTextBytes": 105,
+      "maxBackendCalls": 1,
+      "maxOperations": {
+        "list": 1
+      }
+    },
+    {
+      "tool": "terminal.list_instances",
+      "count": 30,
+      "medianMs": 0.04902899999979127,
+      "p95Ms": 0.10930000000007567,
+      "maxMs": 0.12828100000024278,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 203,
+      "maxTextBytes": 138,
+      "maxBackendCalls": 2,
+      "maxOperations": {
+        "list-instances": 1,
+        "identity": 1
+      }
+    },
+    {
+      "tool": "terminal.move",
+      "count": 30,
+      "medianMs": 0.041983999999501975,
+      "p95Ms": 0.14252099999794154,
+      "maxMs": 0.14256299999942712,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 52,
+      "maxTextBytes": 11,
+      "maxBackendCalls": 1,
+      "maxOperations": {
+        "move-pane-to-new-tab": 1
+      }
+    },
+    {
+      "tool": "terminal.read",
+      "count": 30,
+      "medianMs": 0.1365540000006149,
+      "p95Ms": 0.3342959999999948,
+      "maxMs": 0.3389360000001034,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 10241,
+      "maxTextBytes": 10101,
+      "maxBackendCalls": 1,
+      "maxOperations": {
+        "get-text": 1
+      }
+    },
+    {
+      "tool": "terminal.resize",
+      "count": 30,
+      "medianMs": 0.12804500000129337,
+      "p95Ms": 0.3030140000009851,
+      "maxMs": 0.370387999999366,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 52,
+      "maxTextBytes": 11,
+      "maxBackendCalls": 1,
+      "maxOperations": {
+        "adjust-pane-size": 1
+      }
+    },
+    {
+      "tool": "terminal.screenshot",
+      "count": 30,
+      "medianMs": 0.04957799999920098,
+      "p95Ms": 0.11370099999840022,
+      "maxMs": 0.1961380000011559,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 155,
+      "maxTextBytes": 0,
+      "maxBackendCalls": 2,
+      "maxOperations": {
+        "identity": 1,
+        "screenshot": 1
+      }
+    },
+    {
+      "tool": "terminal.select_instance",
+      "count": 30,
+      "medianMs": 0.03955600000335835,
+      "p95Ms": 0.08826299999964249,
+      "maxMs": 0.09083199999986391,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 104,
+      "maxTextBytes": 55,
+      "maxBackendCalls": 1,
+      "maxOperations": {
+        "select-instance": 1
+      }
+    },
+    {
+      "tool": "terminal.send_key",
+      "count": 30,
+      "medianMs": 0.16747700000087207,
+      "p95Ms": 0.4578750000000582,
+      "maxMs": 0.5983899999991991,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 52,
+      "maxTextBytes": 11,
+      "maxBackendCalls": 1,
+      "maxOperations": {
+        "send-text": 1
+      }
+    },
+    {
+      "tool": "terminal.send_keys",
+      "count": 30,
+      "medianMs": 0.08009500000116532,
+      "p95Ms": 0.1587760000002163,
+      "maxMs": 0.21338900000046124,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 52,
+      "maxTextBytes": 11,
+      "maxBackendCalls": 2,
+      "maxOperations": {
+        "send-text": 2
+      }
+    },
+    {
+      "tool": "terminal.send_text",
+      "count": 30,
+      "medianMs": 0.06967699999950128,
+      "p95Ms": 0.23158499999954074,
+      "maxMs": 0.4829069999996136,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 52,
+      "maxTextBytes": 11,
+      "maxBackendCalls": 1,
+      "maxOperations": {
+        "send-text": 1
+      }
+    },
+    {
+      "tool": "terminal.snapshot",
+      "count": 30,
+      "medianMs": 0.522568999998839,
+      "p95Ms": 1.0467009999993024,
+      "maxMs": 1.4513459999998304,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 15980,
+      "maxTextBytes": 15519,
+      "maxBackendCalls": 13,
+      "maxOperations": {
+        "list": 4,
+        "get-text": 6,
+        "identity": 3
+      }
+    },
+    {
+      "tool": "terminal.spawn",
+      "count": 30,
+      "medianMs": 0.06198899999981222,
+      "p95Ms": 0.1064089999999851,
+      "maxMs": 0.40103999999973894,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 40,
+      "maxTextBytes": 1,
+      "maxBackendCalls": 1,
+      "maxOperations": {
+        "spawn": 1
+      }
+    },
+    {
+      "tool": "terminal.split",
+      "count": 30,
+      "medianMs": 0.053375000001324224,
+      "p95Ms": 0.12191499999971711,
+      "maxMs": 0.20768599999973958,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 40,
+      "maxTextBytes": 1,
+      "maxBackendCalls": 1,
+      "maxOperations": {
+        "split-pane": 1
+      }
+    },
+    {
+      "tool": "terminal.submit",
+      "count": 30,
+      "medianMs": 100.56694500000049,
+      "p95Ms": 101.06468700000005,
+      "maxMs": 101.13252100000045,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 52,
+      "maxTextBytes": 11,
+      "maxBackendCalls": 2,
+      "maxOperations": {
+        "send-text": 2
+      }
+    },
+    {
+      "tool": "watch.create",
+      "count": 30,
+      "medianMs": 0.41253799999958574,
+      "p95Ms": 0.6904439999998431,
+      "maxMs": 0.7690160000001924,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 366,
+      "maxTextBytes": 295,
+      "maxBackendCalls": 5,
+      "maxOperations": {
+        "identity": 2,
+        "list": 2,
+        "get-text": 1
+      }
+    },
+    {
+      "tool": "watch.list",
+      "count": 30,
+      "medianMs": 0.07019900000068446,
+      "p95Ms": 0.09798700000010285,
+      "maxMs": 0.13979599999947823,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 368,
+      "maxTextBytes": 297,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    },
+    {
+      "tool": "watch.remove",
+      "count": 30,
+      "medianMs": 0.03830600000037521,
+      "p95Ms": 0.12404000000060478,
+      "maxMs": 0.15552500000194414,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 57,
+      "maxTextBytes": 16,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    }
+  ],
+  "enabled": [
+    {
+      "tool": "agent.adopt",
+      "count": 30,
+      "medianMs": 0.15887999999904423,
+      "p95Ms": 0.3031510000000708,
+      "maxMs": 0.33827500000006694,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 296,
+      "maxTextBytes": 229,
+      "maxBackendCalls": 2,
+      "maxOperations": {
+        "identity": 1,
+        "list": 1
+      }
+    },
+    {
+      "tool": "agent.broadcast",
+      "count": 30,
+      "medianMs": 101.30393700000059,
+      "p95Ms": 102.45551100000012,
+      "maxMs": 102.54670400000032,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 282,
+      "maxTextBytes": 223,
+      "maxBackendCalls": 10,
+      "maxOperations": {
+        "identity": 2,
+        "list": 2,
+        "get-text": 2,
+        "send-text": 4
+      }
+    },
+    {
+      "tool": "agent.collect_results",
+      "count": 30,
+      "medianMs": 0.3683409999994183,
+      "p95Ms": 0.7565039999972214,
+      "maxMs": 0.850003999999899,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 3427,
+      "maxTextBytes": 3182,
+      "maxBackendCalls": 8,
+      "maxOperations": {
+        "identity": 3,
+        "list": 3,
+        "get-text": 2
+      }
+    },
+    {
+      "tool": "agent.forget",
+      "count": 30,
+      "medianMs": 0.36711900000227615,
+      "p95Ms": 0.574679000001197,
+      "maxMs": 0.747787000000244,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 59,
+      "maxTextBytes": 18,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    },
+    {
+      "tool": "agent.interrupt",
+      "count": 30,
+      "medianMs": 0.5225480000008247,
+      "p95Ms": 0.6693350000023202,
+      "maxMs": 0.7966730000007374,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 61,
+      "maxTextBytes": 20,
+      "maxBackendCalls": 4,
+      "maxOperations": {
+        "identity": 1,
+        "list": 1,
+        "get-text": 1,
+        "send-text": 1
+      }
+    },
+    {
+      "tool": "agent.list",
+      "count": 30,
+      "medianMs": 0.11148800000046322,
+      "p95Ms": 0.28357099999993807,
+      "maxMs": 0.30785999999989144,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 717,
+      "maxTextBytes": 602,
+      "maxBackendCalls": 2,
+      "maxOperations": {
+        "identity": 1,
+        "list": 1
+      }
+    },
+    {
+      "tool": "agent.observe",
+      "count": 30,
+      "medianMs": 0.2945130000007339,
+      "p95Ms": 0.5033210000001418,
+      "maxMs": 0.576904999999897,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 1644,
+      "maxTextBytes": 1512,
+      "maxBackendCalls": 3,
+      "maxOperations": {
+        "identity": 1,
+        "list": 1,
+        "get-text": 1
+      }
+    },
+    {
+      "tool": "agent.reattach",
+      "count": 30,
+      "medianMs": 0.16689399999995658,
+      "p95Ms": 0.38727599999947415,
+      "maxMs": 0.4121800000002622,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 296,
+      "maxTextBytes": 229,
+      "maxBackendCalls": 2,
+      "maxOperations": {
+        "identity": 1,
+        "list": 1
+      }
+    },
+    {
+      "tool": "agent.screenshot",
+      "count": 30,
+      "medianMs": 0.11526400000002468,
+      "p95Ms": 0.33219499999904656,
+      "maxMs": 0.3490879999999379,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 155,
+      "maxTextBytes": 0,
+      "maxBackendCalls": 3,
+      "maxOperations": {
+        "identity": 1,
+        "list": 1,
+        "screenshot": 1
+      }
+    },
+    {
+      "tool": "agent.send",
+      "count": 30,
+      "medianMs": 101.14906200000041,
+      "p95Ms": 102.0750880000005,
+      "maxMs": 102.33236699999907,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 159,
+      "maxTextBytes": 110,
+      "maxBackendCalls": 5,
+      "maxOperations": {
+        "identity": 1,
+        "list": 1,
+        "get-text": 1,
+        "send-text": 2
+      }
+    },
+    {
+      "tool": "agent.spawn",
+      "count": 30,
+      "medianMs": 0.27579899999909685,
+      "p95Ms": 0.41697300000123505,
+      "maxMs": 0.42029100000036124,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 165,
+      "maxTextBytes": 110,
+      "maxBackendCalls": 2,
+      "maxOperations": {
+        "identity": 1,
+        "spawn": 1
+      }
+    },
+    {
+      "tool": "agent.status",
+      "count": 30,
+      "medianMs": 0.25454499999978,
+      "p95Ms": 0.4047239999999874,
+      "maxMs": 0.5007439999990311,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 1650,
+      "maxTextBytes": 1518,
+      "maxBackendCalls": 3,
+      "maxOperations": {
+        "identity": 1,
+        "list": 1,
+        "get-text": 1
+      }
+    },
+    {
+      "tool": "agent.stop",
+      "count": 30,
+      "medianMs": 0.35765900000114925,
+      "p95Ms": 0.6293910000003962,
+      "maxMs": 1.0095170000004146,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 57,
+      "maxTextBytes": 16,
+      "maxBackendCalls": 3,
+      "maxOperations": {
+        "identity": 1,
+        "list": 1,
+        "kill-pane": 1
+      }
+    },
+    {
+      "tool": "agent.wait_for_outcome",
+      "count": 30,
+      "medianMs": 2.04288600000109,
+      "p95Ms": 2.788988000000245,
+      "maxMs": 2.9198459999997795,
+      "errors": 0,
+      "timeouts": 30,
+      "maxResponseBytes": 1858,
+      "maxTextBytes": 1708,
+      "maxBackendCalls": 9,
+      "maxOperations": {
+        "identity": 3,
+        "list": 3,
+        "get-text": 3
+      }
+    },
+    {
+      "tool": "agent.wait_for_text",
+      "count": 30,
+      "medianMs": 0.23717600000236416,
+      "p95Ms": 0.46793799999977637,
+      "maxMs": 0.7664520000007542,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 1650,
+      "maxTextBytes": 1518,
+      "maxBackendCalls": 3,
+      "maxOperations": {
+        "identity": 1,
+        "list": 1,
+        "get-text": 1
+      }
+    },
+    {
+      "tool": "agent.wait_until_idle",
+      "count": 30,
+      "medianMs": 0.22868400000152178,
+      "p95Ms": 0.3721719999994093,
+      "maxMs": 0.5181320000001506,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 1650,
+      "maxTextBytes": 1518,
+      "maxBackendCalls": 3,
+      "maxOperations": {
+        "identity": 1,
+        "list": 1,
+        "get-text": 1
+      }
+    },
+    {
+      "tool": "event.acknowledge",
+      "count": 30,
+      "medianMs": 0.10552200000165612,
+      "p95Ms": 0.24244700000053854,
+      "maxMs": 0.31747400000131165,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 291,
+      "maxTextBytes": 224,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    },
+    {
+      "tool": "event.list",
+      "count": 30,
+      "medianMs": 0.08563100000174018,
+      "p95Ms": 0.2286579999999958,
+      "maxMs": 0.25951899999927264,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 328,
+      "maxTextBytes": 257,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    },
+    {
+      "tool": "event.wait_for_event",
+      "count": 30,
+      "medianMs": 0.11578900000131398,
+      "p95Ms": 0.24300699999912467,
+      "maxMs": 0.4396629999992001,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 267,
+      "maxTextBytes": 200,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    },
+    {
+      "tool": "event.wake_command",
+      "count": 30,
+      "medianMs": 0.10264899999856425,
+      "p95Ms": 0.25441399999908754,
+      "maxMs": 0.3003870000011375,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 694,
+      "maxTextBytes": 623,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    },
+    {
+      "tool": "orchestrator.attention",
+      "count": 30,
+      "medianMs": 0.6193849999981467,
+      "p95Ms": 0.9608989999996993,
+      "maxMs": 1.4400510000014037,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 731,
+      "maxTextBytes": 620,
+      "maxBackendCalls": 8,
+      "maxOperations": {
+        "identity": 3,
+        "list": 3,
+        "get-text": 2
+      }
+    },
+    {
+      "tool": "orchestrator.status",
+      "count": 30,
+      "medianMs": 0.32795400000031805,
+      "p95Ms": 0.7499489999991056,
+      "maxMs": 1.0588410000018484,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 1609,
+      "maxTextBytes": 1426,
+      "maxBackendCalls": 8,
+      "maxOperations": {
+        "identity": 3,
+        "list": 3,
+        "get-text": 2
+      }
+    },
+    {
+      "tool": "push.set",
+      "count": 30,
+      "medianMs": 0.07571400000051653,
+      "p95Ms": 0.15491500000007363,
+      "maxMs": 0.2138190000000577,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 132,
+      "maxTextBytes": 85,
+      "maxBackendCalls": 1,
+      "maxOperations": {
+        "identity": 1
+      }
+    },
+    {
+      "tool": "push.status",
+      "count": 30,
+      "medianMs": 0.04188100000101258,
+      "p95Ms": 0.06631800000013754,
+      "maxMs": 0.06920799999988958,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 144,
+      "maxTextBytes": 95,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    },
+    {
+      "tool": "task.archive",
+      "count": 30,
+      "medianMs": 0.32532799999899,
+      "p95Ms": 0.6676319999996849,
+      "maxMs": 0.8373800000008487,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 1094,
+      "maxTextBytes": 947,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    },
+    {
+      "tool": "task.assign",
+      "count": 30,
+      "medianMs": 0.20997800000259303,
+      "p95Ms": 0.37108599999919534,
+      "maxMs": 0.7212560000007215,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 661,
+      "maxTextBytes": 556,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    },
+    {
+      "tool": "task.create",
+      "count": 30,
+      "medianMs": 0.3789130000004661,
+      "p95Ms": 0.7246049999994284,
+      "maxMs": 0.7922539999999572,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 627,
+      "maxTextBytes": 524,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    },
+    {
+      "tool": "task.get",
+      "count": 30,
+      "medianMs": 0.1421649999992951,
+      "p95Ms": 0.3921790000003966,
+      "maxMs": 0.41171500000200467,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 647,
+      "maxTextBytes": 542,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    },
+    {
+      "tool": "task.history",
+      "count": 30,
+      "medianMs": 0.13297400000010384,
+      "p95Ms": 0.25995200000033947,
+      "maxMs": 0.2702209999988554,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 923,
+      "maxTextBytes": 792,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    },
+    {
+      "tool": "task.list",
+      "count": 30,
+      "medianMs": 0.09276300000055926,
+      "p95Ms": 0.18993199999749777,
+      "maxMs": 0.2730810000002748,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 717,
+      "maxTextBytes": 604,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    },
+    {
+      "tool": "task.report_result",
+      "count": 30,
+      "medianMs": 0.5329400000009628,
+      "p95Ms": 0.9026659999981348,
+      "maxMs": 0.9857790000000932,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 976,
+      "maxTextBytes": 841,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    },
+    {
+      "tool": "task.start_attempt",
+      "count": 30,
+      "medianMs": 0.24368999999933294,
+      "p95Ms": 0.6956520000003366,
+      "maxMs": 0.7205099999991944,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 846,
+      "maxTextBytes": 727,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    },
+    {
+      "tool": "task.update",
+      "count": 30,
+      "medianMs": 0.25662200000078883,
+      "p95Ms": 0.43517100000008213,
+      "maxMs": 0.6055899999992107,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 625,
+      "maxTextBytes": 522,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    },
+    {
+      "tool": "task.verify",
+      "count": 30,
+      "medianMs": 0.43919600000299397,
+      "p95Ms": 0.7603199999975914,
+      "maxMs": 1.377504999998564,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 1095,
+      "maxTextBytes": 948,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    },
+    {
+      "tool": "terminal.close",
+      "count": 30,
+      "medianMs": 0.14147099999900092,
+      "p95Ms": 0.1981330000003254,
+      "maxMs": 0.2527059999993071,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 55,
+      "maxTextBytes": 14,
+      "maxBackendCalls": 3,
+      "maxOperations": {
+        "list": 1,
+        "kill-pane": 1,
+        "identity": 1
+      }
+    },
+    {
+      "tool": "terminal.focus",
+      "count": 30,
+      "medianMs": 0.11294200000156707,
+      "p95Ms": 0.19020699999964563,
+      "maxMs": 0.21742800000083662,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 52,
+      "maxTextBytes": 11,
+      "maxBackendCalls": 2,
+      "maxOperations": {
+        "list": 1,
+        "activate-pane": 1
+      }
+    },
+    {
+      "tool": "terminal.list",
+      "count": 30,
+      "medianMs": 0.26149399999849265,
+      "p95Ms": 0.5812680000003638,
+      "maxMs": 0.592410999999629,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 164,
+      "maxTextBytes": 105,
+      "maxBackendCalls": 1,
+      "maxOperations": {
+        "list": 1
+      }
+    },
+    {
+      "tool": "terminal.list_instances",
+      "count": 30,
+      "medianMs": 0.08514000000104716,
+      "p95Ms": 0.22789400000328897,
+      "maxMs": 0.23044600000139326,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 203,
+      "maxTextBytes": 138,
+      "maxBackendCalls": 2,
+      "maxOperations": {
+        "list-instances": 1,
+        "identity": 1
+      }
+    },
+    {
+      "tool": "terminal.move",
+      "count": 30,
+      "medianMs": 0.045086999999512045,
+      "p95Ms": 0.13204900000073394,
+      "maxMs": 0.1673399999999674,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 52,
+      "maxTextBytes": 11,
+      "maxBackendCalls": 1,
+      "maxOperations": {
+        "move-pane-to-new-tab": 1
+      }
+    },
+    {
+      "tool": "terminal.read",
+      "count": 30,
+      "medianMs": 0.1828319999995074,
+      "p95Ms": 0.40789700000004814,
+      "maxMs": 0.5501129999975092,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 10241,
+      "maxTextBytes": 10101,
+      "maxBackendCalls": 1,
+      "maxOperations": {
+        "get-text": 1
+      }
+    },
+    {
+      "tool": "terminal.resize",
+      "count": 30,
+      "medianMs": 0.1335719999988214,
+      "p95Ms": 0.23628300000018498,
+      "maxMs": 0.34902599999986705,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 52,
+      "maxTextBytes": 11,
+      "maxBackendCalls": 1,
+      "maxOperations": {
+        "adjust-pane-size": 1
+      }
+    },
+    {
+      "tool": "terminal.screenshot",
+      "count": 30,
+      "medianMs": 0.05194300000221119,
+      "p95Ms": 0.2437499999996362,
+      "maxMs": 0.24942000000010012,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 155,
+      "maxTextBytes": 0,
+      "maxBackendCalls": 2,
+      "maxOperations": {
+        "identity": 1,
+        "screenshot": 1
+      }
+    },
+    {
+      "tool": "terminal.select_instance",
+      "count": 30,
+      "medianMs": 0.059116000000358326,
+      "p95Ms": 0.3020519999990938,
+      "maxMs": 0.3237540000009176,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 104,
+      "maxTextBytes": 55,
+      "maxBackendCalls": 1,
+      "maxOperations": {
+        "select-instance": 1
+      }
+    },
+    {
+      "tool": "terminal.send_key",
+      "count": 30,
+      "medianMs": 0.18861800000013318,
+      "p95Ms": 0.261808000000201,
+      "maxMs": 0.39876900000035675,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 52,
+      "maxTextBytes": 11,
+      "maxBackendCalls": 1,
+      "maxOperations": {
+        "send-text": 1
+      }
+    },
+    {
+      "tool": "terminal.send_keys",
+      "count": 30,
+      "medianMs": 0.08774100000118779,
+      "p95Ms": 0.211659999999938,
+      "maxMs": 0.2851619999992181,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 52,
+      "maxTextBytes": 11,
+      "maxBackendCalls": 2,
+      "maxOperations": {
+        "send-text": 2
+      }
+    },
+    {
+      "tool": "terminal.send_text",
+      "count": 30,
+      "medianMs": 0.07631899999978486,
+      "p95Ms": 0.14376000000265776,
+      "maxMs": 0.2278120000000854,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 52,
+      "maxTextBytes": 11,
+      "maxBackendCalls": 1,
+      "maxOperations": {
+        "send-text": 1
+      }
+    },
+    {
+      "tool": "terminal.snapshot",
+      "count": 30,
+      "medianMs": 0.6058290000000852,
+      "p95Ms": 0.9466119999997318,
+      "maxMs": 1.4295200000005934,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 15980,
+      "maxTextBytes": 15519,
+      "maxBackendCalls": 13,
+      "maxOperations": {
+        "list": 4,
+        "get-text": 6,
+        "identity": 3
+      }
+    },
+    {
+      "tool": "terminal.spawn",
+      "count": 30,
+      "medianMs": 0.07440800000040326,
+      "p95Ms": 0.20986600000014732,
+      "maxMs": 0.35535199999867473,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 40,
+      "maxTextBytes": 1,
+      "maxBackendCalls": 1,
+      "maxOperations": {
+        "spawn": 1
+      }
+    },
+    {
+      "tool": "terminal.split",
+      "count": 30,
+      "medianMs": 0.06582800000069255,
+      "p95Ms": 0.1813029999975697,
+      "maxMs": 0.27034700000058365,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 40,
+      "maxTextBytes": 1,
+      "maxBackendCalls": 1,
+      "maxOperations": {
+        "split-pane": 1
+      }
+    },
+    {
+      "tool": "terminal.submit",
+      "count": 30,
+      "medianMs": 100.63415199999872,
+      "p95Ms": 101.2292379999999,
+      "maxMs": 101.2542310000008,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 52,
+      "maxTextBytes": 11,
+      "maxBackendCalls": 2,
+      "maxOperations": {
+        "send-text": 2
+      }
+    },
+    {
+      "tool": "watch.create",
+      "count": 30,
+      "medianMs": 0.4431009999989328,
+      "p95Ms": 0.7096480000000156,
+      "maxMs": 1.2064049999999042,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 366,
+      "maxTextBytes": 295,
+      "maxBackendCalls": 5,
+      "maxOperations": {
+        "identity": 2,
+        "list": 2,
+        "get-text": 1
+      }
+    },
+    {
+      "tool": "watch.list",
+      "count": 30,
+      "medianMs": 0.07991899999979069,
+      "p95Ms": 0.1998329999987618,
+      "maxMs": 0.20733599999948638,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 368,
+      "maxTextBytes": 297,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    },
+    {
+      "tool": "watch.remove",
+      "count": 30,
+      "medianMs": 0.04776599999968312,
+      "p95Ms": 0.09019900000203052,
+      "maxMs": 0.1039890000001833,
+      "errors": 0,
+      "timeouts": 0,
+      "maxResponseBytes": 57,
+      "maxTextBytes": 16,
+      "maxBackendCalls": 0,
+      "maxOperations": {}
+    }
+  ],
+  "server": [
+    {
+      "tool": "agent.adopt",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.11388099999931,
+      "p95Ms": 0.17311699999845587,
+      "maxMs": 0.23753600000054576,
+      "accumulatedMs": 3.6971850000049926,
+      "responseBytes": 8880,
+      "textBytes": 6870,
+      "maxResponseBytes": 296
+    },
+    {
+      "tool": "agent.broadcast",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 101.15521499999886,
+      "p95Ms": 102.14337299999897,
+      "maxMs": 102.3186910000004,
+      "accumulatedMs": 3035.632950999996,
+      "responseBytes": 8460,
+      "textBytes": 6690,
+      "maxResponseBytes": 282
+    },
+    {
+      "tool": "agent.collect_results",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.30266800000026706,
+      "p95Ms": 0.6400500000017928,
+      "maxMs": 0.7813290000012785,
+      "accumulatedMs": 10.873205999994298,
+      "responseBytes": 102742,
+      "textBytes": 95392,
+      "maxResponseBytes": 3427
+    },
+    {
+      "tool": "agent.forget",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.2849180000011984,
+      "p95Ms": 0.46678700000120443,
+      "maxMs": 0.5146769999992102,
+      "accumulatedMs": 8.79636600000049,
+      "responseBytes": 1770,
+      "textBytes": 540,
+      "maxResponseBytes": 59
+    },
+    {
+      "tool": "agent.interrupt",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.40796899999986636,
+      "p95Ms": 0.5544300000001385,
+      "maxMs": 0.6047499999995125,
+      "accumulatedMs": 12.18705799999816,
+      "responseBytes": 1830,
+      "textBytes": 600,
+      "maxResponseBytes": 61
+    },
+    {
+      "tool": "agent.list",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.07062899999982619,
+      "p95Ms": 0.11437900000009904,
+      "maxMs": 0.1450810000005731,
+      "accumulatedMs": 2.2400009999887516,
+      "responseBytes": 21510,
+      "textBytes": 18060,
+      "maxResponseBytes": 717
+    },
+    {
+      "tool": "agent.observe",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.23879400000078022,
+      "p95Ms": 0.39521500000046217,
+      "maxMs": 0.47834899999998015,
+      "accumulatedMs": 7.5970579999998336,
+      "responseBytes": 49320,
+      "textBytes": 45360,
+      "maxResponseBytes": 1644
+    },
+    {
+      "tool": "agent.reattach",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.11818900000071153,
+      "p95Ms": 0.2908499999994092,
+      "maxMs": 0.3294630000000325,
+      "accumulatedMs": 4.186314999998103,
+      "responseBytes": 8880,
+      "textBytes": 6870,
+      "maxResponseBytes": 296
+    },
+    {
+      "tool": "agent.screenshot",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.06060799999977462,
+      "p95Ms": 0.10878599999978178,
+      "maxMs": 0.25336500000048545,
+      "accumulatedMs": 2.185378000003766,
+      "responseBytes": 4650,
+      "textBytes": 0,
+      "maxResponseBytes": 155
+    },
+    {
+      "tool": "agent.send",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 100.93907500000023,
+      "p95Ms": 101.76376100000016,
+      "maxMs": 102.06704200000058,
+      "accumulatedMs": 3030.3640640000076,
+      "responseBytes": 4770,
+      "textBytes": 3300,
+      "maxResponseBytes": 159
+    },
+    {
+      "tool": "agent.spawn",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.23872300000039104,
+      "p95Ms": 0.33261099999981525,
+      "maxMs": 0.33902499999931024,
+      "accumulatedMs": 7.384848000008333,
+      "responseBytes": 4950,
+      "textBytes": 3300,
+      "maxResponseBytes": 165
+    },
+    {
+      "tool": "agent.status",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.19968499999959022,
+      "p95Ms": 0.2906069999989995,
+      "maxMs": 0.31830300000001444,
+      "accumulatedMs": 6.072325999997247,
+      "responseBytes": 49416,
+      "textBytes": 45456,
+      "maxResponseBytes": 1650
+    },
+    {
+      "tool": "agent.stop",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.2723760000008042,
+      "p95Ms": 0.501763999999639,
+      "maxMs": 0.8984390000005078,
+      "accumulatedMs": 8.81734100000449,
+      "responseBytes": 1710,
+      "textBytes": 480,
+      "maxResponseBytes": 57
+    },
+    {
+      "tool": "agent.wait_for_outcome",
+      "wait": true,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 30,
+      "medianMs": 1.9011849999988044,
+      "p95Ms": 2.398149000000558,
+      "maxMs": 2.5524179999997614,
+      "accumulatedMs": 47.201776000003065,
+      "responseBytes": 55740,
+      "textBytes": 51240,
+      "maxResponseBytes": 1858
+    },
+    {
+      "tool": "agent.wait_for_text",
+      "wait": true,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.1847620000007737,
+      "p95Ms": 0.27256499999930384,
+      "maxMs": 0.37682199999926524,
+      "accumulatedMs": 5.934671000004528,
+      "responseBytes": 49456,
+      "textBytes": 45496,
+      "maxResponseBytes": 1650
+    },
+    {
+      "tool": "agent.wait_until_idle",
+      "wait": true,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.17317200000070443,
+      "p95Ms": 0.26881000000048516,
+      "maxMs": 0.3717790000000605,
+      "accumulatedMs": 5.54230399999733,
+      "responseBytes": 49492,
+      "textBytes": 45532,
+      "maxResponseBytes": 1650
+    },
+    {
+      "tool": "event.acknowledge",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.07305300000007264,
+      "p95Ms": 0.16759400000046298,
+      "maxMs": 0.238470000000234,
+      "accumulatedMs": 2.409914000002118,
+      "responseBytes": 8730,
+      "textBytes": 6720,
+      "maxResponseBytes": 291
+    },
+    {
+      "tool": "event.list",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.051301000003149966,
+      "p95Ms": 0.182809000000816,
+      "maxMs": 0.1886849999991682,
+      "accumulatedMs": 2.024400000010246,
+      "responseBytes": 9840,
+      "textBytes": 7710,
+      "maxResponseBytes": 328
+    },
+    {
+      "tool": "event.wait_for_event",
+      "wait": true,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.07658799999990151,
+      "p95Ms": 0.13035599999966507,
+      "maxMs": 0.2822839999998905,
+      "accumulatedMs": 2.4555369999993673,
+      "responseBytes": 8010,
+      "textBytes": 6000,
+      "maxResponseBytes": 267
+    },
+    {
+      "tool": "event.wake_command",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.06975099999908707,
+      "p95Ms": 0.14897800000017014,
+      "maxMs": 0.24218800000016927,
+      "accumulatedMs": 2.3063739999970494,
+      "responseBytes": 20820,
+      "textBytes": 18690,
+      "maxResponseBytes": 694
+    },
+    {
+      "tool": "orchestrator.attention",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.5488010000008217,
+      "p95Ms": 0.83734800000002,
+      "maxMs": 1.0671210000000428,
+      "accumulatedMs": 17.21328400000766,
+      "responseBytes": 21930,
+      "textBytes": 18600,
+      "maxResponseBytes": 731
+    },
+    {
+      "tool": "orchestrator.status",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.27957900000183145,
+      "p95Ms": 0.5061599999999089,
+      "maxMs": 0.6251199999987875,
+      "accumulatedMs": 9.705134999998336,
+      "responseBytes": 48270,
+      "textBytes": 42780,
+      "maxResponseBytes": 1609
+    },
+    {
+      "tool": "push.set",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.04729900000165799,
+      "p95Ms": 0.06984100000045146,
+      "maxMs": 0.07138899999972637,
+      "accumulatedMs": 1.478412000008575,
+      "responseBytes": 3960,
+      "textBytes": 2550,
+      "maxResponseBytes": 132
+    },
+    {
+      "tool": "push.status",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.016724000000976957,
+      "p95Ms": 0.028413000000000466,
+      "maxMs": 0.035504999999830034,
+      "accumulatedMs": 0.5407319999949323,
+      "responseBytes": 4320,
+      "textBytes": 2850,
+      "maxResponseBytes": 144
+    },
+    {
+      "tool": "task.archive",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.2703769999989163,
+      "p95Ms": 0.5036959999997634,
+      "maxMs": 0.5860560000000987,
+      "accumulatedMs": 8.625714999997399,
+      "responseBytes": 32820,
+      "textBytes": 28410,
+      "maxResponseBytes": 1094
+    },
+    {
+      "tool": "task.assign",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.16173200000048382,
+      "p95Ms": 0.3261999999995169,
+      "maxMs": 0.624363999999332,
+      "accumulatedMs": 5.549062999998569,
+      "responseBytes": 19830,
+      "textBytes": 16680,
+      "maxResponseBytes": 661
+    },
+    {
+      "tool": "task.create",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.2986929999988206,
+      "p95Ms": 0.4809930000001259,
+      "maxMs": 0.6823300000032759,
+      "accumulatedMs": 9.822738000006211,
+      "responseBytes": 18810,
+      "textBytes": 15720,
+      "maxResponseBytes": 627
+    },
+    {
+      "tool": "task.get",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.09037200000057055,
+      "p95Ms": 0.19344199999977718,
+      "maxMs": 0.33316999999806285,
+      "accumulatedMs": 3.1576230000041505,
+      "responseBytes": 19410,
+      "textBytes": 16260,
+      "maxResponseBytes": 647
+    },
+    {
+      "tool": "task.history",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.06588100000226405,
+      "p95Ms": 0.1093460000001869,
+      "maxMs": 0.143301999999494,
+      "accumulatedMs": 2.1253149999974994,
+      "responseBytes": 27690,
+      "textBytes": 23760,
+      "maxResponseBytes": 923
+    },
+    {
+      "tool": "task.list",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.055438999999751104,
+      "p95Ms": 0.10440899999957765,
+      "maxMs": 0.10615300000063144,
+      "accumulatedMs": 1.8789779999942766,
+      "responseBytes": 21510,
+      "textBytes": 18120,
+      "maxResponseBytes": 717
+    },
+    {
+      "tool": "task.report_result",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.42854199999965203,
+      "p95Ms": 0.712362000002031,
+      "maxMs": 0.8226150000000416,
+      "accumulatedMs": 13.78373599999668,
+      "responseBytes": 29280,
+      "textBytes": 25230,
+      "maxResponseBytes": 976
+    },
+    {
+      "tool": "task.start_attempt",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.18909399999756715,
+      "p95Ms": 0.3741570000001957,
+      "maxMs": 0.615708999999697,
+      "accumulatedMs": 6.62034500000118,
+      "responseBytes": 25380,
+      "textBytes": 21810,
+      "maxResponseBytes": 846
+    },
+    {
+      "tool": "task.update",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.2102099999992788,
+      "p95Ms": 0.3082560000002559,
+      "maxMs": 0.5332859999980428,
+      "accumulatedMs": 6.880429000004369,
+      "responseBytes": 18750,
+      "textBytes": 15660,
+      "maxResponseBytes": 625
+    },
+    {
+      "tool": "task.verify",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.35768300000199815,
+      "p95Ms": 0.6288580000000366,
+      "maxMs": 0.9921630000008008,
+      "accumulatedMs": 10.86954500000411,
+      "responseBytes": 32850,
+      "textBytes": 28440,
+      "maxResponseBytes": 1095
+    },
+    {
+      "tool": "terminal.close",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.08827699999892502,
+      "p95Ms": 0.11977399999977933,
+      "maxMs": 0.15855999999985215,
+      "accumulatedMs": 2.68200799999795,
+      "responseBytes": 1650,
+      "textBytes": 420,
+      "maxResponseBytes": 55
+    },
+    {
+      "tool": "terminal.focus",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.07807900000261725,
+      "p95Ms": 0.11424800000077084,
+      "maxMs": 0.12715699999989738,
+      "accumulatedMs": 2.384575000003224,
+      "responseBytes": 1560,
+      "textBytes": 330,
+      "maxResponseBytes": 52
+    },
+    {
+      "tool": "terminal.list",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.07920999999987544,
+      "p95Ms": 0.2027250000001004,
+      "maxMs": 0.25394299999970826,
+      "accumulatedMs": 2.810426999989886,
+      "responseBytes": 4920,
+      "textBytes": 3150,
+      "maxResponseBytes": 164
+    },
+    {
+      "tool": "terminal.list_instances",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.022948000001633773,
+      "p95Ms": 0.06430400000135705,
+      "maxMs": 0.06743199999982608,
+      "accumulatedMs": 0.9348450000043158,
+      "responseBytes": 6090,
+      "textBytes": 4140,
+      "maxResponseBytes": 203
+    },
+    {
+      "tool": "terminal.move",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.01806399999986752,
+      "p95Ms": 0.03627599999890663,
+      "maxMs": 0.04365899999993417,
+      "accumulatedMs": 0.5986929999935455,
+      "responseBytes": 1560,
+      "textBytes": 330,
+      "maxResponseBytes": 52
+    },
+    {
+      "tool": "terminal.read",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.12012599999980011,
+      "p95Ms": 0.2547729999996591,
+      "maxMs": 0.31532099999822094,
+      "accumulatedMs": 4.011098999994829,
+      "responseBytes": 307230,
+      "textBytes": 303030,
+      "maxResponseBytes": 10241
+    },
+    {
+      "tool": "terminal.resize",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.1046970000024885,
+      "p95Ms": 0.1705419999998412,
+      "maxMs": 0.2791370000013558,
+      "accumulatedMs": 3.34820600000603,
+      "responseBytes": 1560,
+      "textBytes": 330,
+      "maxResponseBytes": 52
+    },
+    {
+      "tool": "terminal.screenshot",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.013237999999546446,
+      "p95Ms": 0.019955999999183405,
+      "maxMs": 0.023913000000902684,
+      "accumulatedMs": 0.40732500000467553,
+      "responseBytes": 4650,
+      "textBytes": 0,
+      "maxResponseBytes": 155
+    },
+    {
+      "tool": "terminal.select_instance",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.021265999999741325,
+      "p95Ms": 0.054756000001361826,
+      "maxMs": 0.07078599999840662,
+      "accumulatedMs": 0.7946359999955348,
+      "responseBytes": 3120,
+      "textBytes": 1650,
+      "maxResponseBytes": 104
+    },
+    {
+      "tool": "terminal.send_key",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.0858860000007553,
+      "p95Ms": 0.13498599999729777,
+      "maxMs": 0.24878300000000309,
+      "accumulatedMs": 2.8438069999938307,
+      "responseBytes": 1560,
+      "textBytes": 330,
+      "maxResponseBytes": 52
+    },
+    {
+      "tool": "terminal.send_keys",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.05049700000017765,
+      "p95Ms": 0.1083939999989525,
+      "maxMs": 0.1702370000002702,
+      "accumulatedMs": 1.7069350000019767,
+      "responseBytes": 1560,
+      "textBytes": 330,
+      "maxResponseBytes": 52
+    },
+    {
+      "tool": "terminal.send_text",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.04436399999940477,
+      "p95Ms": 0.08164000000033411,
+      "maxMs": 0.11149999999997817,
+      "accumulatedMs": 1.4778369999935421,
+      "responseBytes": 1560,
+      "textBytes": 330,
+      "maxResponseBytes": 52
+    },
+    {
+      "tool": "terminal.snapshot",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.49199399999997695,
+      "p95Ms": 0.7819289999988541,
+      "maxMs": 1.03134399999999,
+      "accumulatedMs": 14.856164999996508,
+      "responseBytes": 479392,
+      "textBytes": 465562,
+      "maxResponseBytes": 15980
+    },
+    {
+      "tool": "terminal.spawn",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.04539400000066962,
+      "p95Ms": 0.10408800000004703,
+      "maxMs": 0.19088000000010652,
+      "accumulatedMs": 1.6820019999945544,
+      "responseBytes": 1200,
+      "textBytes": 30,
+      "maxResponseBytes": 40
+    },
+    {
+      "tool": "terminal.split",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.03380900000047404,
+      "p95Ms": 0.09805299999970885,
+      "maxMs": 0.1366520000001401,
+      "accumulatedMs": 1.290500000006432,
+      "responseBytes": 1200,
+      "textBytes": 30,
+      "maxResponseBytes": 40
+    },
+    {
+      "tool": "terminal.submit",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 100.41770200000019,
+      "p95Ms": 101.02088100000037,
+      "maxMs": 101.03887599999962,
+      "accumulatedMs": 3012.6979809999934,
+      "responseBytes": 1560,
+      "textBytes": 330,
+      "maxResponseBytes": 52
+    },
+    {
+      "tool": "watch.create",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.3609230000001844,
+      "p95Ms": 0.5929570000007516,
+      "maxMs": 1.100695000000087,
+      "accumulatedMs": 11.848468000007415,
+      "responseBytes": 10980,
+      "textBytes": 8850,
+      "maxResponseBytes": 366
+    },
+    {
+      "tool": "watch.list",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.0315069999996922,
+      "p95Ms": 0.05262299999958486,
+      "maxMs": 0.056692000000111875,
+      "accumulatedMs": 1.0242970000012974,
+      "responseBytes": 11040,
+      "textBytes": 8910,
+      "maxResponseBytes": 368
+    },
+    {
+      "tool": "watch.remove",
+      "wait": false,
+      "count": 30,
+      "errors": 0,
+      "timeouts": 0,
+      "medianMs": 0.016690000000380678,
+      "p95Ms": 0.05106400000022404,
+      "maxMs": 0.05906600000162143,
+      "accumulatedMs": 0.5871270000011464,
+      "responseBytes": 1710,
+      "textBytes": 480,
+      "maxResponseBytes": 57
+    }
+  ],
+  "scaling": [
+    {
+      "workers": 1,
+      "tools": [
+        {
+          "tool": "agent.collect_results",
+          "count": 30,
+          "medianMs": 0.1466760000002978,
+          "p95Ms": 0.22566800000277,
+          "maxMs": 0.36639999999897555,
+          "errors": 0,
+          "timeouts": 0,
+          "maxResponseBytes": 1665,
+          "maxTextBytes": 1523,
+          "maxBackendCalls": 5,
+          "maxOperations": {
+            "identity": 2,
+            "list": 2,
+            "get-text": 1
+          }
+        },
+        {
+          "tool": "observe.append",
+          "count": 30,
+          "medianMs": 0.11875900000086403,
+          "p95Ms": 0.25323999999818625,
+          "maxMs": 0.32808099999965634,
+          "errors": 0,
+          "timeouts": 0,
+          "maxResponseBytes": 909,
+          "maxTextBytes": 790,
+          "maxBackendCalls": 3,
+          "maxOperations": {
+            "identity": 1,
+            "list": 1,
+            "get-text": 1
+          }
+        },
+        {
+          "tool": "observe.full",
+          "count": 30,
+          "medianMs": 0.10277400000268244,
+          "p95Ms": 0.3777730000001611,
+          "maxMs": 1.1714779999965685,
+          "errors": 0,
+          "timeouts": 0,
+          "maxResponseBytes": 1582,
+          "maxTextBytes": 1450,
+          "maxBackendCalls": 3,
+          "maxOperations": {
+            "identity": 1,
+            "list": 1,
+            "get-text": 1
+          }
+        },
+        {
+          "tool": "observe.unchanged",
+          "count": 30,
+          "medianMs": 0.10240699999849312,
+          "p95Ms": 0.22508799999923212,
+          "maxMs": 0.9910329999984242,
+          "errors": 0,
+          "timeouts": 0,
+          "maxResponseBytes": 900,
+          "maxTextBytes": 783,
+          "maxBackendCalls": 3,
+          "maxOperations": {
+            "identity": 1,
+            "list": 1,
+            "get-text": 1
+          }
+        },
+        {
+          "tool": "orchestrator.status",
+          "count": 30,
+          "medianMs": 0.12854700000025332,
+          "p95Ms": 0.5481499999987136,
+          "maxMs": 0.6161399999982677,
+          "errors": 0,
+          "timeouts": 0,
+          "maxResponseBytes": 827,
+          "maxTextBytes": 716,
+          "maxBackendCalls": 5,
+          "maxOperations": {
+            "identity": 2,
+            "list": 2,
+            "get-text": 1
+          }
+        },
+        {
+          "tool": "terminal.snapshot",
+          "count": 30,
+          "medianMs": 0.193383999998332,
+          "p95Ms": 0.34533100000044215,
+          "maxMs": 0.49249500000223634,
+          "errors": 0,
+          "timeouts": 0,
+          "maxResponseBytes": 7767,
+          "maxTextBytes": 7515,
+          "maxBackendCalls": 8,
+          "maxOperations": {
+            "list": 3,
+            "get-text": 3,
+            "identity": 2
+          }
+        },
+        {
+          "tool": "watch.poll",
+          "count": 30,
+          "medianMs": 0.13293899999916903,
+          "p95Ms": 0.38837599999897066,
+          "maxMs": 0.5672240000021702,
+          "errors": 0,
+          "timeouts": 0,
+          "maxResponseBytes": 14,
+          "maxTextBytes": 0,
+          "maxBackendCalls": 5,
+          "maxOperations": {
+            "identity": 2,
+            "list": 2,
+            "get-text": 1
+          }
+        }
+      ]
+    },
+    {
+      "workers": 5,
+      "tools": [
+        {
+          "tool": "agent.collect_results",
+          "count": 30,
+          "medianMs": 0.48093100000187405,
+          "p95Ms": 0.6703850000012608,
+          "maxMs": 1.5011469999990368,
+          "errors": 0,
+          "timeouts": 0,
+          "maxResponseBytes": 8437,
+          "maxTextBytes": 7883,
+          "maxBackendCalls": 17,
+          "maxOperations": {
+            "identity": 6,
+            "list": 6,
+            "get-text": 5
+          }
+        },
+        {
+          "tool": "observe.append",
+          "count": 30,
+          "medianMs": 0.12013200000001234,
+          "p95Ms": 0.5098779999971157,
+          "maxMs": 1.354045000000042,
+          "errors": 0,
+          "timeouts": 0,
+          "maxResponseBytes": 909,
+          "maxTextBytes": 790,
+          "maxBackendCalls": 3,
+          "maxOperations": {
+            "identity": 1,
+            "list": 1,
+            "get-text": 1
+          }
+        },
+        {
+          "tool": "observe.full",
+          "count": 30,
+          "medianMs": 0.10932799999864073,
+          "p95Ms": 0.2122979999985546,
+          "maxMs": 0.21703300000081072,
+          "errors": 0,
+          "timeouts": 0,
+          "maxResponseBytes": 1582,
+          "maxTextBytes": 1450,
+          "maxBackendCalls": 3,
+          "maxOperations": {
+            "identity": 1,
+            "list": 1,
+            "get-text": 1
+          }
+        },
+        {
+          "tool": "observe.unchanged",
+          "count": 30,
+          "medianMs": 0.12327499999810243,
+          "p95Ms": 0.17781099999774597,
+          "maxMs": 0.3214540000008128,
+          "errors": 0,
+          "timeouts": 0,
+          "maxResponseBytes": 900,
+          "maxTextBytes": 783,
+          "maxBackendCalls": 3,
+          "maxOperations": {
+            "identity": 1,
+            "list": 1,
+            "get-text": 1
+          }
+        },
+        {
+          "tool": "orchestrator.status",
+          "count": 30,
+          "medianMs": 0.4470759999967413,
+          "p95Ms": 1.1373920000005455,
+          "maxMs": 1.6045699999995122,
+          "errors": 0,
+          "timeouts": 0,
+          "maxResponseBytes": 3975,
+          "maxTextBytes": 3576,
+          "maxBackendCalls": 17,
+          "maxOperations": {
+            "identity": 6,
+            "list": 6,
+            "get-text": 5
+          }
+        },
+        {
+          "tool": "terminal.snapshot",
+          "count": 30,
+          "medianMs": 0.6246879999998782,
+          "p95Ms": 0.7788040000014007,
+          "maxMs": 1.3524789999974018,
+          "errors": 0,
+          "timeouts": 0,
+          "maxResponseBytes": 27067,
+          "maxTextBytes": 26191,
+          "maxBackendCalls": 24,
+          "maxOperations": {
+            "list": 7,
+            "get-text": 11,
+            "identity": 6
+          }
+        },
+        {
+          "tool": "watch.poll",
+          "count": 30,
+          "medianMs": 0.7007229999981064,
+          "p95Ms": 1.6265060000005178,
+          "maxMs": 1.7912759999999253,
+          "errors": 0,
+          "timeouts": 0,
+          "maxResponseBytes": 14,
+          "maxTextBytes": 0,
+          "maxBackendCalls": 25,
+          "maxOperations": {
+            "identity": 10,
+            "list": 10,
+            "get-text": 5
+          }
+        }
+      ]
+    },
+    {
+      "workers": 10,
+      "tools": [
+        {
+          "tool": "agent.collect_results",
+          "count": 30,
+          "medianMs": 1.137870999998995,
+          "p95Ms": 2.1938589999990654,
+          "maxMs": 3.392271000000619,
+          "errors": 0,
+          "timeouts": 0,
+          "maxResponseBytes": 16904,
+          "maxTextBytes": 15835,
+          "maxBackendCalls": 32,
+          "maxOperations": {
+            "identity": 11,
+            "list": 11,
+            "get-text": 10
+          }
+        },
+        {
+          "tool": "observe.append",
+          "count": 30,
+          "medianMs": 0.14262500000040745,
+          "p95Ms": 0.283475999996881,
+          "maxMs": 0.43912299999647075,
+          "errors": 0,
+          "timeouts": 0,
+          "maxResponseBytes": 909,
+          "maxTextBytes": 790,
+          "maxBackendCalls": 3,
+          "maxOperations": {
+            "identity": 1,
+            "list": 1,
+            "get-text": 1
+          }
+        },
+        {
+          "tool": "observe.full",
+          "count": 30,
+          "medianMs": 0.14103700000123354,
+          "p95Ms": 0.537478000002011,
+          "maxMs": 0.8397289999993518,
+          "errors": 0,
+          "timeouts": 0,
+          "maxResponseBytes": 1582,
+          "maxTextBytes": 1450,
+          "maxBackendCalls": 3,
+          "maxOperations": {
+            "identity": 1,
+            "list": 1,
+            "get-text": 1
+          }
+        },
+        {
+          "tool": "observe.unchanged",
+          "count": 30,
+          "medianMs": 0.14330300000074203,
+          "p95Ms": 0.5069900000016787,
+          "maxMs": 1.7239349999981641,
+          "errors": 0,
+          "timeouts": 0,
+          "maxResponseBytes": 900,
+          "maxTextBytes": 783,
+          "maxBackendCalls": 3,
+          "maxOperations": {
+            "identity": 1,
+            "list": 1,
+            "get-text": 1
+          }
+        },
+        {
+          "tool": "orchestrator.status",
+          "count": 30,
+          "medianMs": 1.0489520000010089,
+          "p95Ms": 2.1769419999982347,
+          "maxMs": 2.3464160000003176,
+          "errors": 0,
+          "timeouts": 0,
+          "maxResponseBytes": 7912,
+          "maxTextBytes": 7153,
+          "maxBackendCalls": 32,
+          "maxOperations": {
+            "identity": 11,
+            "list": 11,
+            "get-text": 10
+          }
+        },
+        {
+          "tool": "terminal.snapshot",
+          "count": 30,
+          "medianMs": 1.3757850000001781,
+          "p95Ms": 2.114086999998108,
+          "maxMs": 2.330933000001096,
+          "errors": 0,
+          "timeouts": 0,
+          "maxResponseBytes": 51198,
+          "maxTextBytes": 49542,
+          "maxBackendCalls": 44,
+          "maxOperations": {
+            "list": 12,
+            "get-text": 21,
+            "identity": 11
+          }
+        },
+        {
+          "tool": "watch.poll",
+          "count": 30,
+          "medianMs": 1.7435850000001665,
+          "p95Ms": 3.2257340000032855,
+          "maxMs": 3.3540030000003753,
+          "errors": 0,
+          "timeouts": 0,
+          "maxResponseBytes": 14,
+          "maxTextBytes": 0,
+          "maxBackendCalls": 50,
+          "maxOperations": {
+            "identity": 20,
+            "list": 20,
+            "get-text": 10
+          }
+        }
+      ]
+    }
+  ]
+}

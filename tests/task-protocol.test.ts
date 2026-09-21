@@ -1,7 +1,8 @@
 import test from 'node:test';
+import { trackClient, cleanupClients } from './protocol-cleanup.js';
 import { completeViaTools } from './task-support.js';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, access } from 'node:fs/promises';
+import { mkdtemp, access } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -9,6 +10,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 
 async function connect(directory: string, fixture = false, identity = 'fixture-instance') {
   const client = new Client({ name: 'task-protocol-test', version: '1' });
+  trackClient(directory, client);
   await client.connect(
     new StdioClientTransport({
       command: process.execPath,
@@ -34,7 +36,7 @@ async function connect(directory: string, fixture = false, identity = 'fixture-i
 
 test('production stdio task tools persist across restart and serialize conflicting multi-process edits without a GUI', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'term-dad-task-protocol-'));
-  t.after(() => rm(directory, { recursive: true, force: true }));
+  t.after(() => cleanupClients(directory));
   const first = await connect(directory);
   t.after(() => first.client.close());
   assert.equal((await first.client.listTools()).tools.length, 53);
@@ -76,7 +78,7 @@ test('production stdio task tools persist across restart and serialize conflicti
 
 test('worker joins survive restart, detachment, forgetting and reassignment without sending terminal input', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'term-dad-task-worker-'));
-  t.after(() => rm(directory, { recursive: true, force: true }));
+  t.after(() => cleanupClients(directory));
   const first = await connect(directory, true);
   t.after(() => first.client.close());
   const worker = await first.call('agent.adopt', { name: 'assigned', paneId: 7, cli: 'codex' });
@@ -110,7 +112,7 @@ test('worker joins survive restart, detachment, forgetting and reassignment with
 
 test('stdio managed turns associate current attempts, preserve timeout semantics and reject stale dispatch', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'term-dad-turn-protocol-'));
-  t.after(() => rm(directory, { recursive: true, force: true }));
+  t.after(() => cleanupClients(directory));
   const f = await connect(directory, true);
   t.after(() => f.client.close());
   const worker = await f.call('agent.adopt', {
@@ -147,7 +149,7 @@ test('stdio managed turns associate current attempts, preserve timeout semantics
 
 test('attention MCP refreshes task queues, pages frozen changes and resets cursors after restart', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'term-dad-attention-protocol-'));
-  t.after(() => rm(directory, { recursive: true, force: true }));
+  t.after(() => cleanupClients(directory));
   const first = await connect(directory, true);
   t.after(() => first.client.close());
   const worker = await first.call('agent.adopt', { name: 'attention-worker', paneId: 7, cli: 'codex' });
@@ -189,7 +191,7 @@ test('attention MCP refreshes task queues, pages frozen changes and resets curso
 });
 test('orchestrator.status summarises attached workers without screen text', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'term-dad-status-summary-'));
-  t.after(() => rm(directory, { recursive: true, force: true }));
+  t.after(() => cleanupClients(directory));
   const f = await connect(directory, true);
   t.after(() => f.client.close());
   await f.call('agent.spawn', { name: 'worker', cli: 'codex' });
@@ -202,7 +204,7 @@ test('orchestrator.status summarises attached workers without screen text', asyn
 });
 test('agent.wait_for_outcome accepts since and lines', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'term-dad-wait-since-'));
-  t.after(() => rm(directory, { recursive: true, force: true }));
+  t.after(() => cleanupClients(directory));
   const f = await connect(directory, true);
   t.after(() => f.client.close());
   const worker = await f.call('agent.spawn', { name: 'worker', cli: 'codex' }),

@@ -423,3 +423,18 @@ calls remain concurrent. Selection additionally requires no registered watches,
 watch creations, or polling pass, so unmanaged pane watches cannot follow a reused
 pane ID in another GUI. Durable workers continue using their existing identity
 checks and are never rebound or deleted merely because the target changes.
+
+## Tool telemetry
+
+`instrumentTools` wraps the SDK's public request-handler registration before
+any tool is registered. It measures `tools/call` outside SDK validation and the
+GUI selection gate, covering every registrar and screenshot response exactly
+once. No SDK private fields are accessed. The optional seventh `createServer`
+argument supplies a sink/monotonic clock or disables instrumentation. Otherwise
+local file telemetry is enabled unless `TERM_DAD_TELEMETRY=0`.
+
+The asynchronous bounded file writer is separate from durable application
+journals and has no influence on tool success. Disposal closes it after the
+worker/task/event services drain. Protocol responses and the tool inventory are
+unchanged. Storage, retention, privacy, measurement boundaries and benchmark
+methodology are documented in [telemetry](telemetry.md).
