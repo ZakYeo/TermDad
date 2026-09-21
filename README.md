@@ -252,3 +252,9 @@ outcomes by default; no prompts or terminal output are stored. Disable with
 `npm run bench` for all-tool simulated baselines, or `npm run bench:live` for
 shell-only live latency checks. Neither benchmark launches paid model workers.
 See [telemetry and benchmark details](docs/telemetry.md).
+
+For a staged study of background polling and push backoff, opt in with
+`TERM_DAD_MONITORING=1` in a fresh server session and run
+`npm run monitoring:report`. This separate bounded stream contains timing and
+status metadata only. Polling defaults remain unchanged pending representative
+session evidence; see the [collection protocol](docs/telemetry.md#staged-normal-session-polling-study).

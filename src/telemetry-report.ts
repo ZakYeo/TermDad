@@ -54,8 +54,12 @@ export function summarize(metrics: Metric[]) {
       };
     });
 }
-export async function readTelemetry(directory: string) {
-  const metrics: Metric[] = [];
+export function readTelemetry(directory: string) {
+  return readTelemetryRecords(directory, (value) => metricSchema.parse(value));
+}
+/** Both diagnostic streams share the same bounded file-reading and loss accounting. */
+export async function readTelemetryRecords<T>(directory: string, parse: (value: unknown) => T) {
+  const metrics: T[] = [];
   let invalidLines = 0,
     droppedRecords = 0,
     bytesRead = 0,
@@ -101,7 +105,7 @@ export async function readTelemetry(directory: string) {
             value.count >= 0
           ) {
             droppedRecords += value.count;
-          } else metrics.push(metricSchema.parse(value));
+          } else metrics.push(parse(value));
         } catch {
           invalidLines++;
         }

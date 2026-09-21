@@ -93,3 +93,75 @@ have their actual smaller sample counts. No Claude/Codex workers launch.
 Unavailable WezTerm/desktop interoperability produces an explicit incomplete
 report and nonzero exit. Only owned panes are mutated or closed; GUI selection
 and screenshots remain simulated in this benchmark.
+
+## Staged normal-session polling study
+
+No polling defaults have changed. Opt in for a new server session with
+`TERM_DAD_MONITORING=1`; it writes a separate `monitoring` directory alongside
+`telemetry`. Turn it off by removing the variable and restarting the server.
+`TERM_DAD_TELEMETRY=0` controls tool metrics only; omit the monitoring opt-in to
+disable both streams. Library callers may pass `monitoring: false` or an injected
+`Monitoring` recorder in the existing seventh `createServer` options argument.
+
+Monitoring records only session/watch UUIDs, pane IDs, timestamps, backend
+operation names/counts/durations/outcomes, watch lifecycle and sample source,
+changed/unchanged flags, effective interval, push deliverability/proof, and
+server-authored delivery kinds/timings/outcomes. It records no output hashes,
+terminal text, titles, prompts, commands, credentials or raw errors. It shares
+the diagnostic writer's bounded queue, retention, permissions, drop reporting
+and failure isolation. Its schemas and files are separate from version-1 tool
+telemetry, whose report remains compatible.
+
+Collect at least three ordinary supervised sessions, preferably at least
+15 minutes each: polling-only shell workers, Claude/Codex workers with confirmed
+push delivery, and a session with unavailable or interrupted push. Use normal
+assignments and existing user authorization; the report does not launch workers
+or induce outages. Record worker mix, duration, configured intervals, build commit
+and whether the session was interrupted in a short companion note. Do not use
+fixture or live-smoke timing as normal-session evidence.
+
+```sh
+npm run monitoring:report -- /path/to/state/monitoring
+npm run telemetry:report -- /path/to/state/telemetry --json
+```
+
+The monitoring report is JSON grouped by session. It reports all read-backend
+operations (identity/list/read, including setup and supervisor calls), divided
+by the union of watch lifetimes per pane: overlapping watches do not inflate
+watched-worker minutes. This is session overhead per watched-worker minute,
+not exclusive attribution of shared checks to a worker. Zero coverage yields
+null. Missing lifecycle/session boundaries, drops, malformed records and report
+truncation must be disclosed; incomplete data cannot establish a safe tuning
+change. Use the paired tool report to identify repeated supervisor status,
+observation and snapshot calls. Unchanged watch samples identify candidates for
+redundant work, but are not proof that a sample was unnecessary.
+
+`enqueueToDelivery` measures watch event age until its configured sinks finish,
+including cooldown and retry time. It is not terminal-transition detection delay,
+OS notification display latency or evidence that a supervisor handled the event.
+Accepted push sink outcomes and push-confirmation samples are reported separately.
+`pushBackedUnprovenSamples` highlights slower polling before any successful hook
+has been observed; it does not itself prove lost notifications.
+
+To measure detection delay, record independent reference transitions using a
+synchronized wall clock and the report's session UUID, pane ID and expected watch
+event kind. A timestamp must describe the observed terminal transition, not a
+later poll. Save an array such as:
+
+```json
+[{"session":"11111111-2222-4333-8444-555555555555","paneId":7,"eventKind":"input_required","timestamp":"2026-09-21T12:00:00.000Z"}]
+```
+
+Pass the file as the report's second positional argument. The report matches each
+reference to the next successful watch delivery of that kind/pane in the same
+session, before the next matching reference. It reports unmatched references;
+a failed delivery is never counted as detection. Without independent references,
+`detectionDelay` stays null. Clock uncertainty and missing reference transitions
+must be noted separately. The reference input is capped at 1 MiB/10,000 entries.
+
+After collecting the baseline, propose a specific interval/backoff change only
+if redundant polling or ineffective push use is demonstrated. Repeat comparable
+sessions on the candidate build: require lower calls per watched-worker minute,
+no additional unmatched reference transitions or delivery failures, and no worse
+median/p95/max reference-to-delivery delay. Keep the baseline, candidate reports
+and session notes together; do not update defaults from simulated savings alone.

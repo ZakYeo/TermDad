@@ -29,7 +29,8 @@
     "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\" \"scripts/*.ts\"",
     "telemetry:report": "node --import tsx scripts/telemetry-report.ts",
     "bench": "node --import tsx scripts/benchmark.ts",
-    "bench:live": "node --import tsx scripts/benchmark-live.ts"
+    "bench:live": "node --import tsx scripts/benchmark-live.ts",
+    "monitoring:report": "node --import tsx scripts/monitoring-report.ts"
   },
   "engines": {
     "node": ">=22"
