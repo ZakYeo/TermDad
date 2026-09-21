@@ -309,3 +309,32 @@ test('a sweep against an absent state directory neither throws nor creates it', 
   assert.equal(await queue.sweep(), 0);
   await assert.rejects(access(absent));
 });
+
+test('independent processes preserve published events and acknowledgments after reopen', async (t) => {
+  const { directory, queue } = await fixture(t, 50);
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const run = promisify(execFile);
+  const source = `
+    import { EventQueue, FileEventStorage } from ${JSON.stringify(new URL('../src/events.ts', import.meta.url).href)};
+    const q = new EventQueue(new FileEventStorage(process.argv[1]), 50);
+    const events = [];
+    try {
+      for (let i = 0; i < 10; i++) events.push(await q.publish({kind:'ready',paneId:i,occurredAt:new Date().toISOString(),summary:'Worker status changed'}));
+      console.log(JSON.stringify(events));
+    } finally { await q.close(); }
+  `;
+  const outputs = await Promise.all(
+    [0, 1].map(() =>
+      run(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', source, directory], { timeout: 10000 }),
+    ),
+  );
+  const published = outputs.flatMap((o) => JSON.parse(o.stdout));
+  assert.equal(new Set(published.map((e) => e.sequence)).size, 20);
+  assert.deepEqual(new Set((await queue.list()).events.map((e) => e.id)), new Set(published.map((e) => e.id)));
+  await queue.acknowledge(published.map((e) => e.id));
+  const reopened = new EventQueue(new FileEventStorage(directory), 50);
+  t.after(() => reopened.close());
+  assert.equal((await reopened.list()).pendingCount, 0);
+  assert.equal((await reopened.list({}, true)).events.length, 20);
+});

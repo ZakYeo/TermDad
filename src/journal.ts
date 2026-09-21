@@ -33,11 +33,11 @@ export async function lockIsStale(path: string) {
     if (contents.trim() && Number.isInteger(pid) && pid > 0) return !alive(pid);
     return Date.now() - info.mtimeMs > PIDLESS_LOCK_GRACE_MS;
   } catch (e) {
-    return errno(e) === 'ENOENT';
+    // Absence is not evidence that the name is safe to unlink: another writer
+    // may have acquired it before this failed read completes.
+    return false;
   }
 }
-/** How long the reclaim lock may exist before it too counts as abandoned; a live reclaimer holds it for milliseconds. */
-const RECLAIM_LOCK_MAX_AGE_MS = 30000;
 /**
  * Removes `path` only if it is still stale, and only one reclaimer at a time: without the
  * serialisation two processes that both judged the same dead lock stale could unlink each
@@ -45,22 +45,16 @@ const RECLAIM_LOCK_MAX_AGE_MS = 30000;
  */
 async function reclaimStale(path: string) {
   const guard = join(dirname(path), 'reclaim.lock');
-  let lease: Awaited<ReturnType<typeof open>> | undefined;
-  for (let attempt = 0; !lease && attempt < 2; attempt++) {
-    try {
-      lease = await open(guard, 'wx', 0o600);
-    } catch (e) {
-      if (errno(e) !== 'EEXIST') return false;
-      const info = await stat(guard).catch(() => undefined);
-      const abandoned =
-        info !== undefined && ((await lockIsStale(guard)) || Date.now() - info.mtimeMs > RECLAIM_LOCK_MAX_AGE_MS);
-      if (!abandoned || attempt > 0) return false;
-      await unlink(guard).catch(() => {});
-    }
-  }
-  if (!lease) return false;
+  let lease;
   try {
-    await lease.writeFile(String(process.pid)).catch(() => {});
+    lease = await open(guard, 'wx', 0o600);
+  } catch {
+    // The guard cannot safely reclaim itself: concurrent reclaimers could unlink
+    // a replacement guard. A crashed guard requires explicit offline recovery.
+    return false;
+  }
+  try {
+    await lease.writeFile(String(process.pid));
     if (!(await lockIsStale(path))) return false;
     await unlink(path);
     return true;

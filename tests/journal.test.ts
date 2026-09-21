@@ -111,3 +111,17 @@ test('concurrent acquirers over one dead lock end with exactly one holder', asyn
   await (holders[0] as PromiseFulfilledResult<Awaited<ReturnType<typeof acquireLock>>>).value.close();
   assert.equal(await stat(join(d, 'reclaim.lock')).catch(() => null), null, 'the reclaim guard is released');
 });
+
+test('a reclamation guard is never stolen, including an old dead-holder guard', async (t) => {
+  const d = await directory(t);
+  const lock = join(d, 'demo.lock'),
+    guard = join(d, 'reclaim.lock');
+  await writeFile(lock, String(await deadPid()), { mode: 0o600 });
+  await writeFile(guard, String(await deadPid()), { mode: 0o600 });
+  const old = (Date.now() - 120000) / 1000;
+  await utimes(guard, old, old);
+  const before = await stat(guard);
+  await assert.rejects(acquireLock(lock), { code: 'EEXIST' });
+  assert.equal((await stat(guard)).ino, before.ino);
+  assert.deepEqual(await reapStaleLocks(d), []);
+});
