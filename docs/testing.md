@@ -521,3 +521,45 @@ See the [analysis and recommendations](performance-baseline-2026-09-21.md),
 [simulated JSON](benchmarks/2026-09-21/simulated.json), and
 [live JSON](benchmarks/2026-09-21/live.json). Bytes are not model token counts;
 no token-cost savings or implementation speedup is claimed.
+
+## Monitoring optimization and journal reliability — 21 September 2026
+
+The journal race was reproduced independently of the performance changes using
+controlled filesystem scheduling: two successful publishers returned sequence 1,
+and one event was absent from the final journal. The new exclusion regression
+failed before the fix and passes after it. Forty isolated runs of the previous
+concurrent-writer test had passed, demonstrating why stress alone was insufficient.
+See [the investigation and recovery guidance](journal-concurrency-2026-09-21.md).
+Independent child processes now also verify event retention and acknowledgment
+across reopening. No assertions or retry limits were relaxed.
+
+The simulated all-tool benchmark ran five warm-up and 30 measured workflows per
+telemetry mode, plus 1/5/10-worker scaling sweeps. At ten workers:
+
+| Operation | Previous backend operations | Current backend operations |
+|---|---:|---:|
+| Status | 32 | 12 |
+| Watch pass | 50 | 12 |
+| Terminal snapshot | 44 | 13 |
+
+Snapshots perform 11 screen reads across 11 panes, previously 21. Fixture response
+sizes remain 7,912 bytes for status and 51,198 for snapshots: status is 84.5%
+smaller. This demonstrates tool-selection savings, not smaller snapshot responses
+or measured token savings. The simulator's push socket could not bind inside the
+sandbox; these workflows disable push and do not measure hook reliability. See
+[optimized tables](benchmarks/2026-09-21-optimized/simulated.md) and
+[raw simulated measurements](benchmarks/2026-09-21-optimized/simulated.json).
+
+Both `npm run test:live` and `npm run test:recovery` passed against Windows/WSL
+WezTerm after building, with isolated state and shell workers only. They exercised
+snapshots, input/readiness, lifecycle and MCP restart recovery. Cleanup targeted
+only pane IDs returned by the tests' own spawn calls. No pre-existing panes were
+closed. The recovery run was initially rejected by automatic approval review;
+inspection established that its adopted pane was newly spawned by the test, and
+the same check was approved and passed. No authenticated model workers or
+screenshot checks were run.
+
+Normal-session polling collection is staged, not completed. No interval defaults
+changed. The opt-in monitoring report separates enqueue-to-delivery age from
+independently referenced detection delay and reports missing/drop/truncation
+coverage. See [collection protocol](telemetry.md#staged-normal-session-polling-study).
