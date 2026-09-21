@@ -15,6 +15,7 @@ import {
   type TerminalInstance,
 } from './worker-storage.js';
 import { CodedError, hasCode } from './errors.js';
+import { TerminalRead } from './terminal-read.js';
 export const hashOutput = (text: string) => createHash('sha256').update(text).digest('hex');
 /** Screen text as the caller should see it: no per-line padding to the pane width, no runs of blank lines. */
 export function normalizeScreen(text: string) {
@@ -184,14 +185,14 @@ export class Agents {
   // Identity is resolved once per operation: the resolver pins the first GUI it saw and throws
   // if that ever changes, so a second resolution after the pane listing could only agree or
   // throw, while costing a host subprocess under the worker lock on every observation.
-  private async checked(w: WorkerRecord) {
-    const instance = await this.identity();
+  private async checked(w: WorkerRecord, read?: TerminalRead) {
+    const instance = await (read ? read.identity() : this.identity());
     if (!this.attached(w, instance))
       throw new Error(
         'WORKER_DETACHED: terminal identity differs or cannot be verified; use agent.reattach explicitly',
       );
     const a = this.cache(w),
-      pane = (await this.backend.list()).find((p) => p.pane_id === a.paneId);
+      pane = (await (read ? read.panes() : this.backend.list())).find((p) => p.pane_id === a.paneId);
     if (!pane) {
       await this.remove(a.agentId);
       throw new CodedError('WORKER_PANE_DISAPPEARED', `pane ${a.paneId} disappeared; agent ${a.name} removed`);
@@ -389,53 +390,66 @@ export class Agents {
     };
   }
   list() {
-    return this.run(async () => {
-      const workers = await this.saved();
-      for (const key of this.records.keys()) if (!workers.some((w) => w.agentId === key)) this.records.delete(key);
-      if (!workers.length) return [];
-      let instance: TerminalInstance | null;
-      try {
-        instance = await this.identity();
-      } catch {
-        return workers.map((w) => this.view(w, 'detached', 'Terminal identity unavailable'));
-      }
-      let panes;
-      try {
-        panes = await this.backend.list();
-      } catch {
-        return workers.map((w) => this.view(w, 'detached', 'Terminal transport unavailable'));
-      }
-      const result = [];
-      for (const w of workers) {
-        if (w.paneId !== null && this.attached(w, instance) && !panes.some((p) => p.pane_id === w.paneId)) {
-          try {
-            await this.locked(w.agentId, (current) => this.checked(current));
-          } catch (e) {
-            if (hasCode(e, 'WORKER_PANE_DISAPPEARED')) continue;
-            result.push(this.view(w, 'detached', 'Recovery could not verify pane; retry'));
-            continue;
-          }
-        }
-        result.push(
-          this.view(
-            w,
-            w.paneId !== null && this.attached(w, instance) ? 'attached' : 'detached',
-            w.paneId === null
-              ? 'Spawn reservation needs explicit recovery'
-              : this.attached(w, instance)
-                ? null
-                : 'Terminal identity differs or is unverified',
-          ),
-        );
-      }
-      return result;
+    return this.run(() =>
+      TerminalRead.run(this.backend, async (read) => (await this.listed(read)).map((entry) => entry.view)),
+    );
+  }
+  private sameBinding(current: WorkerRecord, expected: WorkerRecord) {
+    if (current.revision !== expected.revision || current.paneId !== expected.paneId)
+      throw new Error('Worker was reattached during observation; retry or recreate its watch');
+  }
+  private async listed(read: TerminalRead) {
+    const workers = await this.saved();
+    const entry = (worker: WorkerRecord, attachment: string, reason: string | null) => ({
+      worker,
+      view: this.view(worker, attachment, reason),
     });
+    if (!workers.length) return [];
+    let instance: TerminalInstance | null;
+    try {
+      instance = await read.identity();
+    } catch {
+      return workers.map((w) => entry(w, 'detached', 'Terminal identity unavailable'));
+    }
+    let panes;
+    try {
+      panes = await read.panes();
+    } catch {
+      return workers.map((w) => entry(w, 'detached', 'Terminal transport unavailable'));
+    }
+    const result = [];
+    for (const w of workers) {
+      if (w.paneId !== null && this.attached(w, instance) && !panes.some((p) => p.pane_id === w.paneId)) {
+        try {
+          await this.locked(w.agentId, (current) => {
+            this.sameBinding(current, w);
+            return this.checked(current, read);
+          });
+        } catch (e) {
+          if (hasCode(e, 'WORKER_PANE_DISAPPEARED')) continue;
+          result.push(entry(w, 'detached', 'Recovery could not verify pane; retry'));
+          continue;
+        }
+      }
+      result.push(
+        entry(
+          w,
+          w.paneId !== null && this.attached(w, instance) ? 'attached' : 'detached',
+          w.paneId === null
+            ? 'Spawn reservation needs explicit recovery'
+            : this.attached(w, instance)
+              ? null
+              : 'Terminal identity differs or is unverified',
+        ),
+      );
+    }
+    return result;
   }
   private async screen(paneId: number) {
     return normalizeScreen((await this.backend.read(paneId, 150)).slice(-24000));
   }
-  private async sample(w: WorkerRecord, record = true) {
-    const { a, pane } = await this.checked(w);
+  private async sample(w: WorkerRecord, record = true, read?: TerminalRead) {
+    const { a, pane } = await this.checked(w, read);
     const text = await this.screen(a.paneId),
       hash = hashOutput(text),
       changed = hash !== a.outputHash;
@@ -752,29 +766,27 @@ export class Agents {
       return { reason: 'timeout', lastObservation: shown() };
     });
   }
-  /** Board view: every observation field except the screen text, so polling all workers stays cheap. */
-  async summaries() {
-    const workers = await this.list();
-    return Promise.all(
-      workers.map(async (w) => {
-        if (w.attachment === 'detached') return w;
-        try {
-          return await this.peek(w.agentId);
-        } catch (e) {
-          return { ...w, error: String(e) };
-        }
-      }),
-    );
+  /** Board view: every observation field except text; summary samples never evict delta baselines. */
+  summaries() {
+    return this.run(() => TerminalRead.run(this.backend, (read) => this.collect(read, false)));
   }
-  async snapshot() {
-    const workers = await this.list();
+  snapshot() {
+    return this.run(() => TerminalRead.run(this.backend, (read) => this.collect(read, true)));
+  }
+  private async collect(read: TerminalRead, record: boolean) {
     return Promise.all(
-      workers.map(async (w) => {
-        if (w.attachment === 'detached') return w;
+      (await this.listed(read)).map(async ({ worker, view }) => {
+        if (view.attachment === 'detached') return view;
         try {
-          return await this.observe(w.agentId);
+          return await this.retrying(() =>
+            this.locked(worker.agentId, async (current) => {
+              this.sameBinding(current, worker);
+              const sample = await this.sample(current, record, read);
+              return record ? this.present(sample, undefined, 20) : sample.observation;
+            }),
+          );
         } catch (e) {
-          return { ...w, error: String(e) };
+          return { ...view, error: String(e) };
         }
       }),
     );

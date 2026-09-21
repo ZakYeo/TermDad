@@ -438,3 +438,13 @@ journals and has no influence on tool success. Disposal closes it after the
 worker/task/event services drain. Protocol responses and the tool inventory are
 unchanged. Storage, retention, privacy, measurement boundaries and benchmark
 methodology are documented in [telemetry](telemetry.md).
+
+## Operation-scoped terminal reads
+
+`TerminalRead` shares identity and pane-list promises, including failures, only
+within one read sweep. Status/result collection refreshes durable records under
+worker locks and rejects changed bindings before using those transport facts.
+Successful matching-instance listings alone authorize disappearance cleanup;
+failed identity/list/read operations never establish disappearance. The scope
+expires when its operation settles. Input and lifecycle operations continue to
+perform fresh checks, and summary samples still leave observation history alone.
