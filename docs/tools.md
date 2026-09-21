@@ -45,6 +45,15 @@ Keys (case-insensitive): ENTER, ESC, TAB, SPACE, UP, DOWN, LEFT, RIGHT, PAGEUP, 
 
 Text is capped at 100,000 characters; key sequences at 100 keys. Wait timeout defaults to 30,000ms, maximum 120,000ms. Screenshots require `TERM_DAD_SCREENSHOT_COMMAND`. `newWindow` and `windowId` are mutually exclusive.
 
+For repeated monitoring, start with `orchestrator.status`, compare worker IDs,
+status/input flags, errors and output hashes, then observe only workers needing
+details. Unresolved input still needs attention when the hash is unchanged.
+Keep the last targeted observation ID per worker for `since`; summary/watch IDs
+are not retained baselines. Handle `deltaReset` by accepting the replacement.
+Use `terminal.snapshot` only when the whole terminal view is needed. The fixed
+10-worker benchmark returned 84.5% fewer bytes for status than for a snapshot;
+this is fixture evidence, not a universal response-size guarantee.
+
 `terminal.close` can close your master session too: select IDs deliberately. Broadcast operates only on explicit agent IDs. Observations can report errors individually in workspace snapshots when panes vanish during polling.
 
 ## Persistent workers

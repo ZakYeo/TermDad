@@ -56,11 +56,17 @@ on a pass. Reopen and start a new attempt when requirements or the work change.
 
 ## Observing cheaply
 
-Poll the board with `orchestrator.status` (no screen text). Read one worker
-with `agent.status`, passing the previous `observationId` as `since`; pass
-`since` to `agent.wait_for_outcome` too. Observations return 20 lines; raise
-`lines` only to read a screen. Never poll with `terminal.snapshot` or
-`terminal.read`. Drive a menu with one `terminal.send_keys` batch and one read.
+Monitor with `orchestrator.status` (no screen text). Compare worker membership,
+status, input flags, errors and output hashes with the previous sweep. Inspect
+new or changed workers and unresolved input requests with targeted `agent.observe`
+or `agent.status`; unchanged output never means a request has been handled.
+Keep each worker's last targeted `observationId` and pass it as `since` on the
+next observation or `agent.wait_for_outcome`. Summary and watch samples do not
+retain delta baselines. On `deltaReset`, accept the replacement and retain its ID.
+
+Observations return 20 lines; increase `lines` when more context is needed.
+Reserve `terminal.snapshot` for a whole-terminal view, not routine monitoring.
+Use a targeted read to resolve a menu, batching its keys with `terminal.send_keys`.
 
 ## Waiting and waking
 

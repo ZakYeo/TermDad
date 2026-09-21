@@ -104,3 +104,34 @@ test('default telemetry writes locally and environment opt-out leaves no files',
     else process.env.TERM_DAD_TELEMETRY = original;
   }
 });
+
+test('summary-led monitoring detects input and worker changes without snapshots', async () => {
+  const f = await benchmarkFixture();
+  try {
+    const workers = await prepareScaling(f, 10);
+    const asking = await f.call('agent.adopt', { name: 'asking', paneId: 1, cli: 'codex' });
+    const baseline = await f.call('agent.observe', { agentId: asking.agentId });
+    const before = await f.call('orchestrator.status');
+    f.panes.set(1, 'Working (esc to interrupt)\nPermission required\n› ');
+    f.panes.set(workers[0].paneId, 'new output\n$ ');
+    f.panes.delete(workers[1].paneId);
+    const statusResult = await f.raw('orchestrator.status', {});
+    const rows = JSON.parse((statusResult as any).content[0].text);
+    const changed = rows.filter((row: any) => {
+      const old = before.find((w: any) => w.agentId === row.agentId);
+      return !old || row.inputRequired || row.outputHash !== old.outputHash || row.status !== old.status;
+    });
+    assert.ok(changed.some((row: any) => row.agentId === workers[0].agentId));
+    assert.ok(!rows.some((row: any) => row.agentId === workers[1].agentId));
+    assert.equal(rows.find((row: any) => row.agentId === asking.agentId).permissionPrompt, true);
+    const detail = await f.call('agent.observe', { agentId: asking.agentId, since: baseline.observationId });
+    assert.equal(detail.inputRequired, true);
+    const repeat = await f.call('agent.observe', { agentId: asking.agentId, since: detail.observationId });
+    assert.equal(repeat.outputMode, 'unchanged');
+    assert.equal(repeat.inputRequired, true);
+    const snapshot = await f.raw('terminal.snapshot', {});
+    assert.ok(Buffer.byteLength(JSON.stringify(statusResult)) < Buffer.byteLength(JSON.stringify(snapshot)) * 0.25);
+  } finally {
+    await f.close();
+  }
+});
