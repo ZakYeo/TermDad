@@ -448,3 +448,11 @@ Successful matching-instance listings alone authorize disappearance cleanup;
 failed identity/list/read operations never establish disappearance. The scope
 expires when its operation settles. Input and lifecycle operations continue to
 perform fresh checks, and summary samples still leave observation history alone.
+
+Watch passes use the same verification scope, retaining each watch's original
+binding and sampling without recording history. No due samples means no terminal
+checks. Snapshot scopes additionally retain raw screen-read promises: managed
+screens are acquired at 150 lines under the worker lock, then projected to the
+pane's 30-line tail and the worker's normalized bounded observation. Unmanaged
+panes need only 30 lines. Screen reuse is limited to snapshots, so separate watch
+samples cannot reuse text across intervening input operations.

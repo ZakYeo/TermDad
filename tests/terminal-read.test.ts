@@ -123,3 +123,57 @@ test('a failed watch listing is shared without removing workers or declaring dis
     await f.close();
   }
 });
+
+test('snapshots read every pane once and preserve the separate text projections', async () => {
+  const f = await benchmarkFixture();
+  try {
+    const workers = await prepareScaling(f, 10);
+    const special =
+      Array.from({ length: 175 }, (_, i) => `line ${i}\t  `).join('\r\n') +
+      '\r\n\u001b[32m' +
+      'x'.repeat(25000) +
+      '\r\n\r\n\r\nfinished   \r\n$   \r\n';
+    f.panes.set(workers[0].paneId, special);
+    const expectedPane = await f.app.agents.backend.read(workers[0].paneId, 30);
+    const expectedWorker = await f.call('agent.observe', { agentId: workers[0].agentId });
+    f.calls.length = 0;
+    const snapshot = await f.call('terminal.snapshot');
+    assert.equal(f.calls.filter((c) => c === 'get-text').length, 11);
+    assert.equal(f.calls.filter((c) => c === 'list').length, 1);
+    assert.equal(f.calls.filter((c) => c === 'identity').length, 1);
+    assert.equal(snapshot.panes.find((p: any) => p.pane_id === workers[0].paneId).recentText, expectedPane);
+    const observed = snapshot.agents.find((w: any) => w.agentId === workers[0].agentId);
+    for (const key of ['recentText', 'outputHash', 'status', 'linesOmitted', 'inputRequired'])
+      assert.equal(observed[key], expectedWorker[key], key);
+    const next = await f.call('agent.observe', { agentId: workers[0].agentId, since: observed.observationId });
+    assert.equal(next.outputMode, 'unchanged');
+    assert.equal(next.deltaReset, false);
+  } finally {
+    await f.close();
+  }
+});
+
+test('snapshot classification retains cues outside its default worker text tail', async () => {
+  const f = await benchmarkFixture();
+  try {
+    const worker = await f.call('agent.adopt', { name: 'permission', paneId: 1, cli: 'codex' });
+    f.panes.set(1, ['Permission required', ...Array.from({ length: 22 }, () => 'context'), '› '].join('\n'));
+    const snapshot = await f.call('terminal.snapshot');
+    assert.equal(snapshot.agents[0].permissionPrompt, true);
+    assert.equal(snapshot.agents[0].inputRequired, true);
+    assert.ok(!snapshot.agents[0].recentText.includes('Permission required'));
+    assert.ok(snapshot.panes[0].recentText.includes('Permission required'));
+    const original = f.app.agents.backend.read;
+    let calls = 0;
+    f.app.agents.backend.read = async () => {
+      calls++;
+      throw new Error('transport read failed');
+    };
+    await assert.rejects(f.app.agents.workspaceSnapshot(), /transport read failed/);
+    assert.equal(calls, 1);
+    assert.ok(await f.app.agents.resolveOptional(worker.agentId));
+    f.app.agents.backend.read = original;
+  } finally {
+    await f.close();
+  }
+});

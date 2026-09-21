@@ -210,12 +210,10 @@ export function createServer(
       return backend.move(a.paneId, a.newWindow, a.windowId);
     },
   );
-  register('terminal.snapshot', 'Workspace panes with recent text and managed agents.', {}, async () => ({
-    panes: await Promise.all(
-      (await backend.list()).map(async (p) => ({ ...p, recentText: await backend.read(p.pane_id, 30) })),
-    ),
-    agents: await withWorkerTasks(await agents.snapshot(), tasks),
-  }));
+  register('terminal.snapshot', 'Workspace panes with recent text and managed agents.', {}, async () => {
+    const snapshot = await agents.workspaceSnapshot();
+    return { ...snapshot, agents: await withWorkerTasks(snapshot.agents, tasks) };
+  });
   register(
     'agent.spawn',
     'Start a visible interactive worker. Codex receives the Term Dad worker skill with its first task. Readiness timeout leaves pane available for diagnosis; never auto-approves permissions.',

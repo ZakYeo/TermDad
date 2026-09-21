@@ -178,6 +178,10 @@ export function terminalEnvironment(endpoint?: string): NodeJS.ProcessEnv {
     ...(endpoint ? { WEZTERM_UNIX_SOCKET: endpoint, WSLENV: [...forwarded, 'WEZTERM_UNIX_SOCKET'].join(':') } : {}),
   };
 }
+/** Preserve terminal padding while applying the CLI read's newline and tail conventions. */
+export const terminalText = (text: string, lines: number) =>
+  text.replace(/\r\n/g, '\n').trimEnd().split('\n').slice(-lines).join('\n');
+
 export class WezTermBackend implements TerminalBackend {
   readonly run: Runner;
   readonly instance: () => Promise<TerminalInstance | null>;
@@ -235,7 +239,7 @@ export class WezTermBackend implements TerminalBackend {
     id.parse(paneId);
     z.number().int().min(1).max(5000).parse(lines);
     const text = await this.run(['get-text', '--pane-id', String(paneId), '--start-line', String(-lines)]);
-    return text.replace(/\r\n/g, '\n').trimEnd().split('\n').slice(-lines).join('\n');
+    return terminalText(text, lines);
   }
   async sendText(paneId: number, text: string, raw = false) {
     id.parse(paneId);

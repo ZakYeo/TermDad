@@ -450,7 +450,7 @@ export class Agents {
   }
   private async sample(w: WorkerRecord, record = true, read?: TerminalRead) {
     const { a, pane } = await this.checked(w, read);
-    const text = await this.screen(a.paneId),
+    const text = read ? normalizeScreen((await read.screen(a.paneId, 150)).slice(-24000)) : await this.screen(a.paneId),
       hash = hashOutput(text),
       changed = hash !== a.outputHash;
     if (changed) a.lastOutputAt = Date.now();
@@ -793,6 +793,25 @@ export class Agents {
   }
   snapshot() {
     return this.run(() => TerminalRead.run(this.backend, (read) => this.collect(read, true)));
+  }
+  /** One deep managed read feeds both the pane tail and its guarded observation. */
+  workspaceSnapshot() {
+    return this.run(() =>
+      TerminalRead.run(
+        this.backend,
+        async (read) => {
+          const panes = await read.panes();
+          const agents = await this.collect(read, true);
+          return {
+            panes: await Promise.all(
+              panes.map(async (pane) => ({ ...pane, recentText: await read.screen(pane.pane_id, 30) })),
+            ),
+            agents,
+          };
+        },
+        'snapshot',
+      ),
+    );
   }
   private async collect(read: TerminalRead, record: boolean) {
     return Promise.all(
