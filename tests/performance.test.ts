@@ -10,14 +10,14 @@ import type { Metric } from '../src/telemetry.js';
 // Measured September 2026 with the fixed 100-line fixture. These are explicit ceilings,
 // not auto-generated snapshots: review any increase, and tighten after an optimization.
 const budgets = {
-  1: { statusBytes: 950, collectBytes: 1900, snapshotBytes: 8600, statusCalls: 3, snapshotCalls: 6, watchCalls: 5 },
+  1: { statusBytes: 950, collectBytes: 1900, snapshotBytes: 8600, statusCalls: 3, snapshotCalls: 6, watchCalls: 3 },
   5: {
     statusBytes: 4400,
     collectBytes: 9300,
     snapshotBytes: 30000,
     statusCalls: 7,
     snapshotCalls: 14,
-    watchCalls: 25,
+    watchCalls: 7,
   },
   10: {
     statusBytes: 8800,
@@ -25,7 +25,7 @@ const budgets = {
     snapshotBytes: 56500,
     statusCalls: 12,
     snapshotCalls: 24,
-    watchCalls: 50,
+    watchCalls: 12,
   },
 };
 for (const count of [1, 5, 10] as const)

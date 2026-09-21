@@ -5,6 +5,7 @@ import { adapters, type Status } from './adapters.js';
 import { Agents, hashOutput, normalizeScreen } from './agents.js';
 import type { WorkerRecord } from './worker-storage.js';
 import { id, type TerminalBackend } from './backend.js';
+import { TerminalRead } from './terminal-read.js';
 import type { NotificationProvider } from './notifications.js';
 
 export interface WatchEventInput {
@@ -114,7 +115,7 @@ export class WatchManager {
     };
     this.records.set(w.watchId, w);
     try {
-      await this.sample(w, true);
+      await TerminalRead.run(this.backend, (read) => this.sample(w, true, read));
       if (w.disappeared) throw new Error('Pane not found');
     } catch {
       this.records.delete(w.watchId);
@@ -183,14 +184,16 @@ export class WatchManager {
    * happened, the sample decides what the pane's state actually is.
    */
   async confirm(paneId: number) {
-    for (const w of [...this.records.values()])
-      if (w.paneId === paneId && this.active(w) && !w.disappeared) await this.visit(w);
+    await TerminalRead.run(this.backend, async (read) => {
+      for (const w of [...this.records.values()])
+        if (w.paneId === paneId && this.active(w) && !w.disappeared) await this.visit(w, read);
+    });
   }
   /** One sample-then-deliver pass over a watch, shared by the poll timer and pushed confirmations. */
-  private async visit(w: Watch) {
+  private async visit(w: Watch, read: TerminalRead) {
     if (!w.disappeared) {
       try {
-        await this.sample(w, false);
+        await this.sample(w, false, read);
         w.backendError = undefined;
       } catch {
         w.backendError = 'Observation failed; retrying on the next poll.';
@@ -217,8 +220,10 @@ export class WatchManager {
     return this.running;
   }
   private async pass() {
-    for (const w of this.records.values())
-      if (this.active(w) && this.now() - w.lastPoll >= this.interval(w)) await this.visit(w);
+    await TerminalRead.run(this.backend, async (read) => {
+      for (const w of this.records.values())
+        if (this.active(w) && this.now() - w.lastPoll >= this.interval(w)) await this.visit(w, read);
+    });
   }
   private enqueue(w: Watch, kind: string) {
     if (!this.active(w) || (kind !== attention && w.pending.has(kind))) return;
@@ -236,39 +241,28 @@ export class WatchManager {
     });
     w.lastEvent = { ...w.pending.get(kind)!.event };
   }
-  private async sample(w: Watch, baseline: boolean) {
-    if (w.agentId) {
-      const target = await this.agents.resolveOptional(w.agentId);
-      if (!target) {
-        // Another server may have reconciled disappearance before this watch polls.
-        // Verify the original instance; never follow a replacement binding by pane ID.
-        if (w.agentBinding && !(await this.agents.bindingPaneExists(w.agentBinding))) {
-          w.disappeared = true;
-          if (!baseline) this.enqueue(w, 'pane_disappeared');
-          return;
-        }
-        throw new Error('Worker is no longer managed; recreate its watch');
-      }
-      await this.agents.requireAttachment(w.agentId);
-      if (target.paneId !== w.paneId || target.revision !== w.agentBinding?.revision)
-        throw new Error('Worker was reattached; recreate its watch');
-    }
-    const panes = await this.backend.list();
-    if (!this.active(w)) return;
-    if (!panes.some((p) => p.pane_id === w.paneId)) {
-      if (w.agentId) await this.agents.reconcileClosed(w.paneId);
-      w.disappeared = true;
-      if (!baseline) this.enqueue(w, 'pane_disappeared');
-      return;
-    }
+  private async sample(w: Watch, baseline: boolean, read: TerminalRead) {
     let hash: string, status: Status;
-    // Peek rather than observe: a watch samples every couple of seconds and must not push the
-    // supervisor's `since` baseline out of the worker's bounded observation history.
-    if (w.agentId) {
-      const o = await this.agents.peek(w.agentId);
-      hash = o.outputHash;
-      status = o.status;
+    if (w.agentBinding) {
+      // Managed sampling verifies the original binding and refreshes input state under
+      // the worker lock. It never records history or evicts a supervisor's baseline.
+      const observation = await this.agents.peekBinding(w.agentBinding, read);
+      if (!this.active(w)) return;
+      if (!observation) {
+        w.disappeared = true;
+        if (!baseline) this.enqueue(w, 'pane_disappeared');
+        return;
+      }
+      hash = observation.outputHash;
+      status = observation.status;
     } else {
+      const panes = await read.panes();
+      if (!this.active(w)) return;
+      if (!panes.some((p) => p.pane_id === w.paneId)) {
+        w.disappeared = true;
+        if (!baseline) this.enqueue(w, 'pane_disappeared');
+        return;
+      }
       const text = normalizeScreen((await this.backend.read(w.paneId, 150)).slice(-24000));
       hash = hashOutput(text);
       status = adapters[w.adapter!].classify(text);

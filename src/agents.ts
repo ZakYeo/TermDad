@@ -539,6 +539,27 @@ export class Agents {
       this.retrying(() => this.locked(agentId, async (w) => (await this.sample(w, false)).observation)),
     );
   }
+  /** A watch follows its original binding; absence requires verification against that identity. */
+  peekBinding(binding: WorkerRecord, read: TerminalRead) {
+    return this.run(() =>
+      this.retrying(async () => {
+        if (!(await this.resolveOptional(binding.agentId))) {
+          if (!this.attached(binding, await read.identity())) throw new Error('WORKER_DETACHED');
+          if (!(await read.panes()).some((p) => p.pane_id === binding.paneId)) return undefined;
+          throw new Error('Worker is no longer managed; recreate its watch');
+        }
+        try {
+          return await this.locked(binding.agentId, async (current) => {
+            this.sameBinding(current, binding);
+            return (await this.sample(current, false, read)).observation;
+          });
+        } catch (e) {
+          if (hasCode(e, 'WORKER_PANE_DISAPPEARED')) return undefined;
+          throw e;
+        }
+      }),
+    );
+  }
   send(agentId: string, text: string, attempt?: z.infer<typeof attemptReferenceSchema>) {
     return this.run(() =>
       this.locked(agentId, async (w) => {

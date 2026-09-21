@@ -78,3 +78,48 @@ test('a binding changed after a sweep listing cannot be sampled or removed using
     await f.close();
   }
 });
+
+test('watch passes share checks only among due samples and refresh them on the next pass', async () => {
+  const f = await benchmarkFixture();
+  try {
+    const workers = await prepareScaling(f, 5);
+    f.calls.length = 0;
+    await f.app.watches.poll();
+    assert.deepEqual(f.calls, []);
+    f.advance();
+    await f.app.watches.poll();
+    assert.equal(f.calls.filter((c) => c === 'identity').length, 1);
+    assert.equal(f.calls.filter((c) => c === 'list').length, 1);
+    assert.equal(f.calls.filter((c) => c === 'get-text').length, 5);
+    f.panes.delete(workers[0].paneId);
+    f.calls.length = 0;
+    f.advance();
+    await f.app.watches.poll();
+    assert.equal(f.calls.filter((c) => c === 'identity').length, 1);
+    assert.equal(f.calls.filter((c) => c === 'list').length, 1);
+    assert.equal(f.calls.filter((c) => c === 'get-text').length, 4);
+    assert.equal(f.app.watches.list().find((w) => w.agentId === workers[0].agentId)?.disappeared, true);
+    assert.equal(await f.app.agents.resolveOptional(workers[0].agentId), undefined);
+  } finally {
+    await f.close();
+  }
+});
+
+test('a failed watch listing is shared without removing workers or declaring disappearance', async () => {
+  const f = await benchmarkFixture();
+  try {
+    const workers = await prepareScaling(f, 5);
+    let calls = 0;
+    f.app.agents.backend.list = async () => {
+      calls++;
+      throw new Error('unavailable');
+    };
+    f.advance();
+    await f.app.watches.poll();
+    assert.equal(calls, 1);
+    assert.ok(f.app.watches.list().every((w) => w.backendError && !w.disappeared));
+    for (const w of workers) assert.ok(await f.app.agents.resolveOptional(w.agentId));
+  } finally {
+    await f.close();
+  }
+});
