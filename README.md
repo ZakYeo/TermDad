@@ -44,8 +44,18 @@ claude mcp add --scope user term-dad -- "$PWD/scripts/launch-local"
 
 Restart your client, then ask:
 
+> Activate Term Dad and list your capabilities as Term Dad.
+
+Or ask:
+
 > Use Term Dad to list my terminal panes, start a shell worker in a new tab,
 > run `pwd`, and show its output.
+
+Or ask:
+
+> Activate TermDad and launch one Claude tab and one Codex tab. Start them both
+> in plan mode and ask them to review the current codebase. Monitor their plans
+> and accept them once they are ready.
 
 For other clients, use `node` with the absolute path to `dist/index.js` as the
 stdio server command. These setup commands assume a POSIX shell, including WSL.
