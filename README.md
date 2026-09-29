@@ -5,6 +5,10 @@ open, close, control, and monitor panes in WezTerm. Use it to coordinate Claude,
 Codex, and Copilot sessions across tabs, keep work moving, and supervise everything
 from one place.
 
+<div align="center">
+  <video src="https://github.com/user-attachments/assets/73713c38-565d-4fb6-93b0-2742b80ccef4" width="800" controls></video>
+</div>
+
 ## Features
 
 - **Visible workers:** see what each worker is doing and step in when needed.
