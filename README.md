@@ -1,12 +1,9 @@
 # Term Dad
 
-**Give your AI assistant a team of visible terminal workers.**
-
-## Introduction
-
-Term Dad connects an MCP-compatible assistant to your running WezTerm terminal.
-Your assistant can start Claude Code, Codex, or shell workers, assign tasks, and
-follow their progress while you watch the work in ordinary tabs and splits.
+Term Dad is the “_Dad_” of your terminal: an MCP server that lets your AI assistant
+open, close, control, and monitor panes in WezTerm. Use it to coordinate Claude,
+Codex, and Copilot sessions across tabs, keep work moving, and supervise everything
+from one place.
 
 ## Features
 
