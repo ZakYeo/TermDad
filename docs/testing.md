@@ -575,3 +575,29 @@ correctness review. Its timestamp-precision finding and subsequent confirmation
 of disappeared-worker lifetime inflation were fixed with regression coverage.
 The reviewer rechecked the fixes, ran focused monitoring/watch/read-scope tests
 and approved with no remaining actionable findings. Polling defaults are unchanged.
+
+## Historical call ergonomics and wait contention (2026-09-30)
+
+`npm run check` passed the TypeScript build, formatting check, and all 312 tests.
+The sandboxed attempt encountered socket/state-access restrictions; the complete
+suite passed with host execution. Regression coverage includes historical argument
+aliases, conflicting targets with no terminal side effects, all nine rejected key
+spellings and raw bytes, whole-sequence validation, timeout-unit conversion,
+persistent worker/journal contention (including initial and post-observation
+reads), cancellation, shutdown, and telemetry classification without contents.
+The supervisor skill passed `quick_validate.py`.
+
+`npm run test:live` passed against the visible WezTerm GUI: managed shell startup,
+initial/follow-up input, marker reads, split/resize/focus/move, broadcast, snapshots,
+task attention/verification, new window, interrupt, and owned-pane cleanup.
+No authenticated Claude/Codex worker test was run.
+
+Both installed clients' configured MCP launch commands were exercised with
+isolated temporary state using the MCP SDK. Each initialized, advertised 53 tools,
+exposed the new aliases, and rejected a conflicting close target without touching
+a terminal. Both registrations resolve through `scripts/launch-local` to this
+checkout's rebuilt `dist`. Claude and Codex supervisor/worker skill links resolve
+to the repository's corresponding `skills/` directories; no registration or link
+repair was necessary. These checks establish fresh-launch behavior, not reload of
+already-running client sessions. Existing clients must reconnect/restart their MCP
+connection and reload the skill context to use the changes.

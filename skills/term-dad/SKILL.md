@@ -54,6 +54,49 @@ was actually reported (unknown exit codes stay null; distinguish worker-reported
 from your own checks); `task.verify` decides, and `complete:true` completes only
 on a pass. Reopen and start a new attempt when requirements or the work change.
 
+## Call parameters and keys
+
+Prefer canonical names; aliases exist for compatibility. Use numeric pane IDs
+from `terminal.list` and worker IDs/names from `agent.list`.
+
+| Call | Canonical arguments | Accepted aliases |
+| --- | --- | --- |
+| `terminal.read` | `paneId`, `lines` | `pane_id`, `max_lines` |
+| `terminal.close` / `terminal.focus` | `id`, `target` (defaults to `pane`) | `paneId` for panes only |
+| `agent.send` | `agentId`, `text` | `to`, `message` |
+| `agent.broadcast` | `agentIds`, `text` | `message` |
+| `event.acknowledge` | `ids` | `eventIds` |
+| worker/event waits | `timeoutMs` | `timeoutSeconds` (seconds) |
+
+Wait budgets use milliseconds: `timeoutMs:60000` is one minute; the maximum
+is 120000. Aliases must agree when both are supplied. `watch.create` takes
+exactly one `agentId` or `paneId`, never an `agentIds` array; unmanaged panes
+also need `adapter`. `agent.reattach` needs both `agentId` and `paneId`.
+On validation failure, read the tool schema and named field, then correct the
+call; do not repeat unchanged arguments or guess successive spellings.
+
+`terminal.send_text` pastes without Enter. `terminal.submit` pastes and presses
+Enter; omit `text` to press Enter only. Navigation uses raw keys, for example
+`terminal.send_keys({paneId:7,keys:["DOWN","ENTER"]})`. Canonical names include
+`ENTER`, `ESC`, `TAB`, `SPACE`, `UP`, `DOWN`, `LEFT`, `RIGHT`, `PAGEUP`,
+`PAGEDOWN`, `HOME`, `END`, `BACKSPACE`, `DELETE`, and `CTRL_C`. Names are
+case-insensitive; `Escape`, `ArrowDown`, `DownArrow`, and `Ctrl+C` work.
+The key tools advertise the full list. An unsupported name rejects the whole
+sequence before input: use the returned choices to correct it once. Never
+paste escape sequences to navigate or automatically approve a prompt.
+
+## Lock contention
+
+`WORKER_BUSY` means another operation holds a lock, not that the worker is
+necessarily processing a task. Serialize operations for that worker. Writes
+fail fast; observations retry briefly, and wait tools absorb contention until
+their deadline. Use `agent.wait_for_outcome` when the current `turnId` is known;
+otherwise pause before one targeted observation. If contention persists, back
+off 1, 2, then 4 seconds, then diagnose/report the blocker instead of looping.
+Do independent work while blocked. Never bypass a lock with raw terminal input,
+delete a live holder's lock, or replay a task after uncertain delivery. An outcome
+timeout is not completion; a timed-out wait can have no observation at all.
+
 ## Observing cheaply
 
 Monitor with `orchestrator.status` (no screen text). Compare worker membership,

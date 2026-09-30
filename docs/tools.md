@@ -111,10 +111,12 @@ following reattachment. On a changed binding, old input hashes are cleared.
 Skill state is preserved unless `workerSkillInitialized` is supplied.
 
 Managed input/lifecycle operations use exclusive per-worker locks. A concurrent
-write returns `WORKER_BUSY`; retry after the active operation finishes. Reads
-(`agent.observe`, `agent.status`, the wait tools) retry through a bounded back-off
-of about 1.5 seconds before surfacing `WORKER_BUSY` or `WORKER_STORAGE_BUSY`, and
-`agent.wait_for_outcome` keeps polling through the lock until its deadline. Raw
+write returns `WORKER_BUSY`; retry after the active operation finishes. Standalone reads (`agent.observe`, `agent.status`) retry through a bounded
+back-off of about 1.5 seconds. All worker waits absorb worker/journal contention
+through their original deadline, including initial lookup. Outcome waits return
+`reason:timeout` with the last observation or null; idle/text waits report a
+timeout error and whether contention prevented observation. Polling delays
+respond to cancellation and server shutdown. Raw
 terminal tools remain explicit low-level operations and do not acquire these
 input locks. `WORKER_DELIVERY_UNCERTAIN` means a paste, Enter or interrupt may
 have reached the pane even though completion could not be recorded. Further
@@ -733,3 +735,25 @@ Use `npm run telemetry:report` to read timings, outcomes and response-byte total
 `TERM_DAD_TELEMETRY=0` disables collection. Wait durations include requested
 waiting. Response bytes are not model-token usage. See
 [telemetry and benchmark methodology](telemetry.md).
+
+## Argument compatibility and contention
+
+Prefer canonical names in new calls. `terminal.read` accepts `pane_id` for
+`paneId` and `max_lines` for `lines`. `agent.send` accepts `to` for `agentId`.
+Worker waits, `agent.spawn`, and `event.wait_for_event` accept `timeoutSeconds`
+as an alternative to `timeoutMs`; conversion must yield whole milliseconds
+between 1 and 120000. Defaults apply only after alias resolution. Equivalent
+values may be supplied twice; disagreements return `ARGUMENT_CONFLICT`.
+Missing alias groups return `ARGUMENT_MISSING`; unsupported keys return
+`UNSUPPORTED_KEY` with the supported names. These codes are classified in telemetry.
+
+Close/focus accept numeric IDs or decimal digit strings. `paneId` always means
+a pane and cannot be combined with a tab/window target; use `id` for those.
+Validation and key-sequence checks happen before terminal side effects.
+
+On persistent worker contention, serialize operations and use an outcome wait
+when a turn ID is known. Otherwise pause before a targeted observation, backing
+off 1, 2, then 4 seconds before diagnosing/reporting the blocker. Do not bypass
+managed locks with raw input or replay uncertain delivery. Successful summary
+responses may contain individual worker errors; count these separately from
+failed tool calls when reviewing telemetry or chat history.
