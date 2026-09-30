@@ -22,7 +22,7 @@ import { WorkerPushRegistry } from './push-workers.js';
 import { registerPushTools } from './push-tools.js';
 import { notifyCommand } from './worker-hooks.js';
 import { stateDirectory, reapStaleLocks } from './journal.js';
-import { oneOf } from './arguments.js';
+import { oneOf, waitShape, waitTimeout } from './arguments.js';
 import { toolCall, toolError } from './tool-result.js';
 import { CodedError } from './errors.js';
 import { join } from 'node:path';
@@ -94,11 +94,15 @@ export function createServer(
   const pane = { paneId: id },
     agent = { agentId: z.string().min(1) },
     text = { text: z.string().max(100000) },
-    wait = { timeoutMs: z.number().int().min(1).max(120000).default(30000) };
+    wait = waitShape;
   // `text` or `message`: both spellings were used for days, so both are accepted and one is required.
   const textOrMessage = {
     text: z.string().max(100000).optional().describe('the text to submit (alias: message)'),
-    message: z.string().max(100000).optional(),
+    message: z
+      .string()
+      .max(100000)
+      .optional()
+      .describe('Alias for text; provide text or message, with matching values if both are present.'),
   };
   const body = (a: { text?: string; message?: string }) => oneOf<string>(a, ['text', 'message']);
   register('terminal.list', 'List live WezTerm windows, tabs and panes.', {}, () => backend.list());
@@ -149,9 +153,14 @@ export function createServer(
   );
   register(
     'terminal.read',
-    'Read last N lines of visible text and scrollback.',
-    { ...pane, lines: z.number().int().min(1).max(5000).default(100) },
-    (a) => backend.read(a.paneId, a.lines),
+    'Read visible text and scrollback: paneId (alias pane_id), lines (alias max_lines, default 100).',
+    {
+      paneId: id.optional().describe('Pane ID (alias pane_id).'),
+      pane_id: id.optional().describe('Alias for paneId.'),
+      lines: z.number().int().min(1).max(5000).optional().describe('Tail lines, default 100 (alias max_lines).'),
+      max_lines: z.number().int().min(1).max(5000).optional().describe('Alias for lines.'),
+    },
+    (a) => backend.read(oneOf(a, ['paneId', 'pane_id']), oneOf(a, ['lines', 'max_lines'], 100)),
   );
   register('terminal.send_text', 'Paste text into an interactive PTY without Enter.', { ...pane, ...text }, (a) =>
     backend.sendText(a.paneId, a.text),
@@ -175,15 +184,26 @@ export function createServer(
     (a) => sendKeys(backend, a.paneId, a.keys),
   );
   // `paneId` alone is the common case and was rejected for days; it selects target 'pane'.
+  const targetId = z.union([
+    id,
+    z
+      .string()
+      .regex(/^[0-9]+$/)
+      .transform(Number)
+      .pipe(id),
+  ]);
   const target = {
     target: z.enum(['pane', 'tab', 'window']).default('pane'),
-    id: id.optional().describe('the pane, tab or window ID for target (alias: paneId, which implies target pane)'),
-    paneId: id.optional(),
+    id: targetId
+      .optional()
+      .describe('the pane, tab or window ID for target (alias: paneId, which implies target pane)'),
+    paneId: targetId.optional().describe('Pane ID alias for id; only valid with target pane.'),
   };
   const selected = async (a: { target: 'pane' | 'tab' | 'window'; id?: number; paneId?: number }) => {
+    if (a.paneId !== undefined && a.target !== 'pane')
+      throw new CodedError('ARGUMENT_CONFLICT', 'paneId requires target pane; use id for a tab or window');
     const chosen = oneOf<number>(a, ['id', 'paneId']);
-    const kind = a.paneId !== undefined && a.id === undefined ? 'pane' : a.target;
-    return (await backend.list()).filter((p) => p[`${kind}_id`] === chosen);
+    return (await backend.list()).filter((p) => p[`${a.target}_id`] === chosen);
   };
   register(
     'terminal.close',
@@ -243,7 +263,7 @@ export function createServer(
       prompt: z.string().max(100000).optional(),
       ...wait,
     },
-    (a) => agents.spawn(a),
+    (a) => agents.spawn({ ...a, timeoutMs: waitTimeout(a) }),
   );
   register(
     'agent.list',
@@ -259,22 +279,28 @@ export function createServer(
   );
   register(
     'agent.reattach',
-    'Explicitly bind a saved worker to a pane; inspect uncertain delivery before acknowledging it.',
+    'Bind a saved worker using both agentId and paneId; inspect uncertain delivery before acknowledging it.',
     reattachSchema.shape,
     (a) => agents.reattach(a),
   );
   register('agent.forget', 'Remove a saved mapping without closing its pane.', agent, (a) => agents.forget(a.agentId));
   register(
     'agent.send',
-    'Submit a task (text, alias message) to the existing worker; initializes the Codex worker skill if no task has been sent yet.',
-    { ...agent, ...textOrMessage, attempt: attemptReferenceSchema.optional() },
+    'Submit text (alias message) to agentId (alias to); initializes the Codex worker skill if no task has been sent yet.',
+    {
+      agentId: agent.agentId.optional().describe('Worker ID or name (alias to).'),
+      to: agent.agentId.optional().describe('Alias for agentId.'),
+      ...textOrMessage,
+      attempt: attemptReferenceSchema.optional(),
+    },
     async (a) => {
       const task = body(a);
+      const agentId = oneOf<string>(a, ['agentId', 'to']);
       if (a.attempt) {
-        const worker = await agents.resolve(a.agentId);
+        const worker = await agents.resolve(agentId);
         await tasks.validateAttempt(a.attempt.taskId, a.attempt.attemptId, worker.agentId);
       }
-      return agents.send(a.agentId, task, a.attempt);
+      return agents.send(agentId, task, a.attempt);
     },
   );
   for (const name of ['observe', 'status'])
@@ -302,24 +328,35 @@ export function createServer(
     },
     (a, extra) =>
       toolCall('agent.wait_for_outcome', () =>
-        agents.waitForOutcome(a.agentId, a.turnId, a.timeoutMs, a.quietMs, extra.signal, {
+        agents.waitForOutcome(a.agentId, a.turnId, waitTimeout(a), a.quietMs, extra.signal, {
           since: a.since,
           lines: a.lines,
         }),
       ),
   );
-  register(
-    'agent.wait_for_text',
-    'Wait for literal text in recent output.',
-    { ...agent, text: z.string().min(1), ...wait },
-    (a) => agents.wait(a.agentId, (o) => o.recentText.includes(a.text), a.timeoutMs),
-  );
-  register(
-    'agent.wait_until_idle',
-    'Wait for a recognized prompt; silence alone never counts.',
-    { ...agent, ...wait },
-    (a) => agents.wait(a.agentId, (o) => ['READY_FOR_PROMPT', 'IDLE'].includes(o.status), a.timeoutMs),
-  );
+  for (const kind of ['text', 'idle'] as const) {
+    server.registerTool(
+      kind === 'text' ? 'agent.wait_for_text' : 'agent.wait_until_idle',
+      {
+        description:
+          kind === 'text'
+            ? 'Wait for literal text; lock contention is retried within timeoutMs (alias timeoutSeconds).'
+            : 'Wait for a recognized prompt; silence never counts. Lock contention is retried within timeoutMs (alias timeoutSeconds).',
+        inputSchema: { ...agent, ...wait, ...(kind === 'text' ? { text: z.string().min(1) } : {}) },
+      },
+      (a, extra) =>
+        toolCall(kind === 'text' ? 'agent.wait_for_text' : 'agent.wait_until_idle', () =>
+          agents.wait(
+            a.agentId,
+            kind === 'text'
+              ? (o) => o.recentText.includes(a.text as string)
+              : (o) => ['READY_FOR_PROMPT', 'IDLE'].includes(o.status),
+            waitTimeout(a),
+            extra.signal,
+          ),
+        ),
+    );
+  }
   register(
     'agent.broadcast',
     'Submit a message (text, alias message) to explicit workers; returns per-agent outcomes.',

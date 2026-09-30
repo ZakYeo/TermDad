@@ -85,7 +85,7 @@ export class FileWorkerStorage extends FileJournal<WorkerState> implements Worke
     } catch {
       throw new CodedError(
         'WORKER_BUSY',
-        'Input already in progress or lifecycle operation locked; retry. A lock left by a process that has exited is reclaimed automatically',
+        'Another operation holds the worker lock. Serialize calls for this worker and wait before retrying; use agent.wait_for_outcome when a turnId is known. Never bypass the lock with raw input. Exited-process locks are reclaimed automatically',
       );
     }
     try {
@@ -111,7 +111,11 @@ export class MemoryWorkerStorage implements WorkerStorage {
     return value.result;
   }
   async exclusive<T>(agentId: string, fn: () => Promise<T>) {
-    if (this.locks.has(agentId)) throw new CodedError('WORKER_BUSY', 'Input already in progress');
+    if (this.locks.has(agentId))
+      throw new CodedError(
+        'WORKER_BUSY',
+        'Another operation holds the worker lock. Serialize calls and wait before retrying; use agent.wait_for_outcome when a turnId is known. Never bypass the lock with raw input.',
+      );
     this.locks.add(agentId);
     try {
       return await fn();

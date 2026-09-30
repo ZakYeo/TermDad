@@ -25,6 +25,8 @@ export interface TelemetryOptions {
 }
 const codes = new Set([
   'ARGUMENT_INVALID',
+  'ARGUMENT_MISSING',
+  'UNSUPPORTED_KEY',
   'ARGUMENT_CONFLICT',
   'WORKER_BUSY',
   'WORKER_STORAGE_BUSY',

@@ -9,7 +9,7 @@ export function registerWatchTools(server: McpServer, watches: WatchManager) {
     );
   register(
     'watch.create',
-    'Watch an existing pane or managed worker. Ready and inactivity never establish success.',
+    'Watch exactly one target: agentId or paneId, never agentIds. Unmanaged panes require adapter. Ready and inactivity never establish success.',
     watchShape,
     (a) => watches.create(a),
   );

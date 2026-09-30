@@ -330,7 +330,8 @@ export function canonicalKey(key: string) {
 export async function sendKeys(b: TerminalBackend, paneId: number, sequence: string[]) {
   const encoded = sequence.map((key) => {
     const canonical = canonicalKey(key);
-    if (!Object.hasOwn(keys, canonical)) throw new Error(`Unsupported key: ${key}. ${keyDescription}`);
+    if (!Object.hasOwn(keys, canonical))
+      throw new CodedError('UNSUPPORTED_KEY', `Unsupported key: ${key}. ${keyDescription}`);
     return keys[canonical];
   });
   for (const input of encoded) await b.sendText(paneId, input, true);

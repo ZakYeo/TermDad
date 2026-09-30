@@ -204,3 +204,17 @@ test('report handles truncated lines and computes nearest-rank percentiles', asy
   assert.equal(summary.p95Ms, 29);
   assert.equal(summary.accumulatedMs, 465);
 });
+
+test('argument/key failures have closed codes while embedded worker errors remain successful calls', () => {
+  for (const errorCode of ['ARGUMENT_MISSING', 'ARGUMENT_CONFLICT', 'UNSUPPORTED_KEY']) {
+    const metric = resultMetadata({ isError: true, content: [{ type: 'text', text: `${errorCode}: private-input` }] });
+    assert.equal(metric.errorCode, errorCode);
+    assert.equal(metric.outcome, 'error');
+    assert.ok(!JSON.stringify(metric).includes('private-input'));
+  }
+  const metric = resultMetadata({
+    content: [{ type: 'text', text: JSON.stringify([{ error: 'WORKER_BUSY: held' }]) }],
+  });
+  assert.equal(metric.outcome, 'success');
+  assert.equal(metric.errorCode, undefined);
+});

@@ -1,3 +1,7 @@
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { EventQueue, FileEventStorage } from '../src/events.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -23,11 +27,12 @@ async function fixture(t: any) {
     },
     async () => null,
   );
+  const directory = await mkdtemp(join(tmpdir(), 'term-dad-ergonomics-'));
   const app = createServer(
     backend,
     undefined,
     { automatic: false },
-    undefined,
+    new EventQueue(new FileEventStorage(directory)),
     new MemoryWorkerStorage(),
     new MemoryTaskStorage(),
   );
@@ -38,6 +43,7 @@ async function fixture(t: any) {
   t.after(async () => {
     await client.close();
     await app.dispose();
+    await rm(directory, { recursive: true, force: true });
   });
   const raw = (name: string, args: Record<string, unknown> = {}) => client.callTool({ name, arguments: args });
   const call = async (name: string, args: Record<string, unknown> = {}) => {
@@ -112,4 +118,71 @@ test('terminal.send_key accepts everyday key spellings', async (t) => {
     assert.equal(f.sent().at(-1)!.input, bytes, key);
   }
   await f.fails('terminal.send_key', { paneId: 7, key: 'Bogus' }, /Unsupported key/);
+});
+
+test('historical read and send aliases normalize before defaults and reject conflicts', async (t) => {
+  const f = await fixture(t);
+  await f.call('terminal.read', { pane_id: 7, max_lines: 12 });
+  assert.ok(f.calls.some((c) => c.args[0] === 'get-text' && c.args.includes('-12')));
+  await f.call('terminal.read', { paneId: 7, pane_id: 7, lines: 12, max_lines: 12 });
+  await f.fails('terminal.read', { paneId: 7, pane_id: 8 }, /ARGUMENT_CONFLICT/);
+  await f.fails('terminal.read', { paneId: 7, lines: 12, max_lines: 13 }, /ARGUMENT_CONFLICT/);
+  const { agentId } = await f.call('agent.adopt', { name: 'w', cli: 'shell', paneId: 7 });
+  await f.call('agent.send', { to: agentId, message: 'hello' });
+  const before = f.sent().length;
+  await f.fails('agent.send', { agentId, to: 'other', text: 'hello' }, /ARGUMENT_CONFLICT/);
+  await f.fails('agent.send', { agentId, text: 'hello', message: 'different' }, /ARGUMENT_CONFLICT/);
+  assert.equal(f.sent().length, before);
+});
+
+test('close/focus normalize decimal IDs and reject ambiguous targets without side effects', async (t) => {
+  const f = await fixture(t);
+  await f.call('terminal.focus', { id: 7, paneId: '007' });
+  await f.call('terminal.close', { paneId: '7' });
+  const before = f.calls.length;
+  for (const tool of ['terminal.close', 'terminal.focus']) {
+    for (const target of ['tab', 'window']) {
+      await f.fails(tool, { target, paneId: 7 }, /ARGUMENT_CONFLICT/);
+      await f.fails(tool, { target, id: 7, paneId: 7 }, /ARGUMENT_CONFLICT/);
+    }
+    for (const id of ['7x', '-1', '1.5', '', '9007199254740992'])
+      await f.fails(tool, { id }, /Invalid|invalid|Too big/);
+  }
+  assert.equal(f.calls.length, before);
+});
+
+test('all nine historically rejected keys work through both key tools', async (t) => {
+  const f = await fixture(t);
+  const keys = ['Enter', 'enter', 'DownArrow', 'down', 'ArrowDown', 'Down', 'escape', 'Escape', 'Tab'];
+  const bytes = ['\r', '\r', '\x1b[B', '\x1b[B', '\x1b[B', '\x1b[B', '\x1b', '\x1b', '\t'];
+  for (const key of keys) await f.call('terminal.send_key', { paneId: 7, key });
+  await f.call('terminal.send_keys', { paneId: 7, keys });
+  assert.deepEqual(
+    f.sent().map((c) => c.input),
+    [...bytes, ...bytes],
+  );
+  assert.ok(f.sent().every((c) => c.args.includes('--no-paste')));
+  const before = f.sent().length;
+  await f.fails('terminal.send_keys', { paneId: 7, keys: ['Enter', 'Bogus'] }, /UNSUPPORTED_KEY.*ENTER/);
+  assert.equal(f.sent().length, before);
+});
+
+test('wait aliases convert seconds before validation and defaults', async (t) => {
+  const f = await fixture(t);
+  const { agentId } = await f.call('agent.adopt', { name: 'w', cli: 'shell', paneId: 7 });
+  await f.call('agent.wait_until_idle', { agentId, timeoutSeconds: 0.01 });
+  await f.call('agent.wait_for_text', { agentId, text: '$', timeoutMs: 10, timeoutSeconds: 0.01 });
+  const outcome = await f.call('event.wait_for_event', { timeoutSeconds: 0.01 });
+  assert.equal(outcome.status, 'timeout');
+  for (const tool of [
+    'agent.wait_for_text',
+    'agent.wait_until_idle',
+    'agent.wait_for_outcome',
+    'event.wait_for_event',
+  ]) {
+    const args = { agentId, text: '$', turnId: randomUUID() };
+    await f.fails(tool, { ...args, timeoutMs: 10, timeoutSeconds: 1 }, /ARGUMENT_CONFLICT/);
+    await f.fails(tool, { ...args, timeoutSeconds: 121 }, /120/);
+    await f.fails(tool, { ...args, timeoutSeconds: 0.0001 }, /int|integer/);
+  }
 });

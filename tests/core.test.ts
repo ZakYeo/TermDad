@@ -199,7 +199,7 @@ test('failed Codex input keeps initialization pending; concurrent input cannot d
   await a.reattach({ agentId: 'worker', paneId: 7, acknowledgeUncertainDelivery: true, workerSkillInitialized: false });
   assert.notEqual(a.get('worker').workerSkillSent, true);
   const first = a.send('worker', 'retry');
-  await assert.rejects(a.send(a.get('worker').agentId, 'concurrent'), /Input already in progress/);
+  await assert.rejects(a.send(a.get('worker').agentId, 'concurrent'), /WORKER_BUSY/);
   await first;
   await a.send('worker', 'follow-up');
   const inputs = f.calls.filter((c) => c.args[0] === 'send-text' && !c.args.includes('--no-paste')).map((c) => c.input);

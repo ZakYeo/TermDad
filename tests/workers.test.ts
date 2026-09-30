@@ -648,3 +648,92 @@ test('one managed operation resolves terminal identity once, so no lock is held 
   await agents.send('w', 'echo hi');
   assert.equal(resolutions, 1);
 });
+
+test('persistent contention ends as timeout in every worker wait, including initial journal lookup', async () => {
+  for (const journal of [false, true]) {
+    const memory = new MemoryWorkerStorage();
+    let busy = false;
+    const storage: WorkerStorage = {
+      transaction: (write, fn) =>
+        busy && journal ? Promise.reject(new Error('WORKER_STORAGE_BUSY: held')) : memory.transaction(write, fn),
+      exclusive: (id, fn) =>
+        busy && !journal ? Promise.reject(new Error('WORKER_BUSY: held')) : memory.exclusive(id, fn),
+    };
+    const f = fixture(storage);
+    await f.agents.adopt({ name: 'worker', cli: 'shell', paneId: 7 });
+    const sent = await f.agents.send('worker', 'task');
+    busy = true;
+    assert.deepEqual(await f.agents.waitForOutcome('worker', sent.turnId, 20), {
+      reason: 'timeout',
+      lastObservation: null,
+    });
+    await assert.rejects(
+      f.agents.wait('worker', () => true, 20),
+      /Timed out.*lock contention/,
+    );
+  }
+});
+
+test('legacy waits survive contention and cancellation/shutdown interrupts wait delays', async () => {
+  const f = fixture();
+  const w = await f.agents.adopt({ name: 'worker', cli: 'shell', paneId: 7 });
+  const sent = await f.agents.send('worker', 'task');
+  let release!: () => void;
+  const held = f.storage.exclusive(
+    w.agentId,
+    () =>
+      new Promise<void>((r) => {
+        release = r;
+      }),
+  );
+  setTimeout(() => release(), 50);
+  await f.agents.wait('worker', () => true, 2000);
+  await held;
+  const heldAgain = f.storage.exclusive(
+    w.agentId,
+    () =>
+      new Promise<void>((r) => {
+        release = r;
+      }),
+  );
+  try {
+    for (const outcome of [false, true]) {
+      const controller = new AbortController();
+      const waiting = outcome
+        ? f.agents.waitForOutcome('worker', sent.turnId, 120000, undefined, controller.signal)
+        : f.agents.wait('worker', () => false, 120000, controller.signal);
+      const rejected = assert.rejects(waiting, /WORKER_WAIT_CANCELLED/);
+      setTimeout(() => controller.abort(), 20);
+      await rejected;
+    }
+    const waiting = f.agents.wait('worker', () => false, 120000);
+    const rejected = assert.rejects(waiting, /WORKER_CLOSED/);
+    await f.agents.close();
+    await rejected;
+  } finally {
+    release();
+    await heldAgain;
+  }
+});
+
+test('outcome timeout preserves its last sample when the post-observation journal stays busy', async () => {
+  const memory = new MemoryWorkerStorage();
+  let busy = false;
+  const storage: WorkerStorage = {
+    transaction: (write, fn) =>
+      busy && !write ? Promise.reject(new Error('WORKER_STORAGE_BUSY: held')) : memory.transaction(write, fn),
+    exclusive: (id, fn) => memory.exclusive(id, fn),
+  };
+  const f = fixture(storage);
+  await f.agents.adopt({ name: 'worker', cli: 'shell', paneId: 7 });
+  const sent = await f.agents.send('worker', 'task');
+  const read = f.backend.read.bind(f.backend);
+  f.backend.read = async (...args) => {
+    const text = await read(...args);
+    busy = true;
+    return text;
+  };
+  const outcome = await f.agents.waitForOutcome('worker', sent.turnId, 30);
+  assert.equal(outcome.reason, 'timeout');
+  assert.equal(outcome.lastObservation?.turnId, sent.turnId);
+});

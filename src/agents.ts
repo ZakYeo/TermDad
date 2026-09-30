@@ -1,3 +1,4 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { adapters, type Status } from './adapters.js';
@@ -80,6 +81,7 @@ export class Agents {
   private readonly sessionId = randomUUID();
   private operations = new Set<Promise<unknown>>();
   private closed = false;
+  private readonly waitShutdown = new AbortController();
   /** Back-off between read retries when another operation holds the worker or journal lock. Reads only: writes still fail fast. */
   busyRetryMs = [50, 100, 200, 400, 800];
   constructor(
@@ -97,6 +99,7 @@ export class Agents {
   }
   async close() {
     this.closed = true;
+    this.waitShutdown.abort();
     await Promise.allSettled([...this.operations]);
   }
   private async saved() {
@@ -678,23 +681,66 @@ export class Agents {
         if (!hasCode(e, 'WORKER_PANE_DISAPPEARED')) throw e;
       });
   }
-  wait(agentId: string, predicate: (o: Awaited<ReturnType<Agents['observe']>>) => boolean, timeoutMs = 30000) {
+  private checkWait(signal?: AbortSignal) {
+    if (this.closed) throw new Error('WORKER_CLOSED');
+    if (signal?.aborted) throw new Error('WORKER_WAIT_CANCELLED');
+  }
+  private async pauseWait(deadline: number, signal?: AbortSignal) {
+    this.checkWait(signal);
+    const combined = signal ? AbortSignal.any([signal, this.waitShutdown.signal]) : this.waitShutdown.signal;
+    try {
+      await delay(Math.min(250, Math.max(0, deadline - Date.now())), undefined, { signal: combined });
+    } catch (e) {
+      this.checkWait(signal);
+      throw e;
+    }
+    this.checkWait(signal);
+  }
+  /** Retry only contention, under the caller's original deadline. No input is replayed. */
+  private async waitRead<T>(read: () => Promise<T>, deadline: number, signal?: AbortSignal): Promise<T | undefined> {
+    do {
+      this.checkWait(signal);
+      try {
+        const value = await read();
+        this.checkWait(signal);
+        return value;
+      } catch (e) {
+        this.checkWait(signal);
+        if (!Agents.busy(e)) throw e;
+        if (Date.now() >= deadline) break;
+        await this.pauseWait(deadline, signal);
+      }
+    } while (Date.now() < deadline);
+    return undefined;
+  }
+  wait(
+    agentId: string,
+    predicate: (o: Awaited<ReturnType<Agents['observe']>>) => boolean,
+    timeoutMs = 30000,
+    signal?: AbortSignal,
+  ) {
     return this.run(async () => {
+      z.number().int().min(1).max(120000).parse(timeoutMs);
       const deadline = Date.now() + timeoutMs;
       let last;
+      let contended = false;
       do {
-        // Poll without recording: a wait must not evict a baseline the caller holds. Only the
-        // sample it returns is kept, so that one's ID still works as a later `since`.
-        const sample = await this.retrying(() => this.locked(agentId, (w) => this.sample(w, false)));
+        const sample = await this.waitRead(() => this.locked(agentId, (w) => this.sample(w, false)), deadline, signal);
+        if (!sample) {
+          contended = true;
+          break;
+        }
         last = this.present(sample, undefined, 150);
         if (predicate(last)) {
           this.keep(sample);
           return this.present(sample, undefined, linesSchema.parse(undefined));
         }
         if (Date.now() >= deadline) break;
-        await new Promise((r) => setTimeout(r, Math.min(250, deadline - Date.now())));
-      } while (Date.now() <= deadline);
-      throw new Error(`Timed out waiting for ${agentId}; last status ${last?.status}`);
+        await this.pauseWait(deadline, signal);
+      } while (Date.now() < deadline);
+      throw new Error(
+        `Timed out waiting for ${agentId}; last status ${last?.status ?? 'unavailable'}${contended ? '; lock contention prevented observation' : ''}`,
+      );
     });
   }
   waitForOutcome(
@@ -710,8 +756,9 @@ export class Agents {
       const lines = linesSchema.parse(view.lines);
       z.number().int().min(1).max(120000).parse(timeoutMs);
       if (quietMs !== undefined) z.number().int().min(1000).max(3600000).parse(quietMs);
-      const binding = await this.lookup(agentId),
-        deadline = Date.now() + timeoutMs;
+      const deadline = Date.now() + timeoutMs;
+      const binding = await this.waitRead(() => this.lookup(agentId), deadline, signal);
+      if (!binding) return { reason: 'timeout', lastObservation: null };
       const assertTurn = (w: WorkerRecord) => {
         if (w.revision !== binding.revision || w.turn?.bindingRevision !== w.revision)
           throw new Error('WORKER_BINDING_CHANGED');
@@ -729,17 +776,18 @@ export class Agents {
         this.keep(last);
         return this.present(last, view.since, lines, base);
       };
-      const pause = () => new Promise((r) => setTimeout(r, Math.min(250, Math.max(0, deadline - Date.now()))));
+      const pause = () => this.pauseWait(deadline, signal);
       // A held worker or journal lock is contention, not an outcome: poll again until the deadline.
-      const contended = (e: unknown) => Agents.busy(e) && Date.now() < deadline;
+      const contended = (e: unknown) => Agents.busy(e);
       do {
-        if (signal?.aborted) throw new Error('WORKER_WAIT_CANCELLED');
-        if (this.closed) throw new Error('WORKER_CLOSED');
+        this.checkWait(signal);
         let current: WorkerRecord | undefined;
         try {
           current = await this.resolveOptional(binding.agentId);
         } catch (e) {
+          this.checkWait(signal);
           if (contended(e)) {
+            if (Date.now() >= deadline) break;
             await pause();
             continue;
           }
@@ -754,7 +802,9 @@ export class Agents {
         try {
           last = await this.locked(binding.agentId, (w) => this.sample(w, false));
         } catch (e) {
+          this.checkWait(signal);
           if (contended(e)) {
+            if (Date.now() >= deadline) break;
             await pause();
             continue;
           }
@@ -767,7 +817,9 @@ export class Agents {
         try {
           after = await this.resolveOptional(binding.agentId);
         } catch (e) {
+          this.checkWait(signal);
           if (contended(e)) {
+            if (Date.now() >= deadline) break;
             await pause();
             continue;
           }
@@ -775,6 +827,7 @@ export class Agents {
         }
         if (after) assertTurn(after);
         else continue;
+        this.checkWait(signal);
         const o = last.observation;
         if (o.turnId !== turnId) throw new Error('WORKER_TURN_SUPERSEDED');
         if (o.inputRequired) return { reason: 'input_required', lastObservation: shown() };

@@ -1,5 +1,5 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { oneOf } from './arguments.js';
+import { oneOf, waitShape, waitTimeout } from './arguments.js';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
@@ -72,12 +72,14 @@ export function registerEventTools(server: McpServer, queue: EventQueue) {
         'Wait for an event matching all supplied filters. Fresh by default: only events published after the wait arms, so a pending backlog cannot fire as new. Pass freshOnly:false to drain history. Never infers worker success and does not acknowledge.',
       inputSchema: {
         ...eventFilterSchema.shape,
-        timeoutMs: z.number().int().min(1).max(120000).default(30000),
+        ...waitShape,
         freshOnly: z.boolean().default(true),
       },
     },
-    ({ timeoutMs, freshOnly, ...filter }, extra) =>
-      toolCall('event.wait_for_event', () => queue.wait(filter, timeoutMs, extra.signal, freshOnly)),
+    ({ timeoutMs, timeoutSeconds, freshOnly, ...filter }, extra) =>
+      toolCall('event.wait_for_event', () =>
+        queue.wait(filter, waitTimeout({ timeoutMs, timeoutSeconds }), extra.signal, freshOnly),
+      ),
   );
   server.registerTool(
     'event.wake_command',
