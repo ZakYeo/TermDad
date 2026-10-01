@@ -274,3 +274,12 @@ For a staged study of background polling and push backoff, opt in with
 `npm run monitoring:report`. This separate bounded stream contains timing and
 status metadata only. Polling defaults remain unchanged pending representative
 session evidence; see the [collection protocol](telemetry.md#staged-normal-session-polling-study).
+
+## Usage monitoring and repository-owned hooks
+
+Account allowance monitoring is opt-in through `usage.configure`. Install the
+supervisor's context hooks separately using the repository's `hooks install`
+command; managed-worker lifecycle push hooks remain launch-time configuration.
+See [usage policies and provider capabilities](usage.md) and the
+[hook inventory and installation guide](hooks.md). The README includes the quick
+start. No personal hook configuration is modified by building or starting Term Dad.

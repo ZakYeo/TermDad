@@ -170,3 +170,23 @@ a message under about 1,500 characters. Once the user has granted autopilot,
 never end with an offer: act, or arm the waiter. An authorized approval is one
 `terminal.submit` call reported in that line. A retraction is two sentences:
 what was wrong, and what is true.
+
+## Account usage
+
+When usage monitoring is configured, inspect `usage.status` before dispatching a
+large batch. Bind worker UUIDs explicitly through `usage.configure`, or pass the
+account reference to `agent.spawn`; never infer an account from a client name.
+Warnings at 80/90/95% are account-wide, not per-worker balances. Keep unknown or
+stale limits unknown. Advisory mode does not promise automatic stopping or wake-up.
+
+If a verified account policy requests a pause, record the task/attempt and a
+concise continuation checkpoint, stop dispatching on that account, and end the
+turn at the next safe boundary. Preserve panes and task state. While paused, wait
+for account recovery rather than rearming ordinary worker-ready wake-ups. Resume
+only after fresh short-window and all applicable weekly limits have more than
+5% remaining (or the configured reserves). A reset timestamp alone is insufficient.
+On continuation, inspect pending results, current assignments and permission
+screens; never replay uncertain input or revive canceled work.
+
+Hook code, templates, and installation instructions are in this repository; see
+`docs/hooks.md`. Do not invent local-only hook scripts or bypass client hook trust.

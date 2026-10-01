@@ -456,3 +456,42 @@ screens are acquired at 150 lines under the worker lock, then projected to the
 pane's 30-line tail and the worker's normalized bounded observation. Unmanaged
 panes need only 30 lines. Screen reuse is limited to snapshots, so separate watch
 samples cannot reuse text across intervening input operations.
+
+## Account usage and client hooks
+
+Usage monitoring has a separate provider boundary and private bounded journal.
+`UsageService` normalizes observations, evaluates reserves and threshold crossings,
+and publishes account-scoped events through the existing durable queue. It never
+estimates subscription allowance from token counts. Codex collection uses a
+bounded read-only app-server exchange; Claude uses an explicit status-line feed;
+unsupported Copilot quota data stays unknown. Background work is enabled only for
+configured accounts and ends with the hosting process.
+
+Dedicated collector locks exclude duplicate reads across local MCP processes;
+provider I/O never holds the usage journal lock. Freshness and provider reset
+metadata gate recovery. Failed reads retain last-known values and expose errors.
+Automatic policy is an explicit capability gate covering collection, account
+identity, pause, wake, and live verification. Built-in adapters currently fail
+that gate and remain advisory. Tests inject verified capabilities without making
+claims about real client behavior.
+
+For eligible integrations the worker boundary checks reserve policy immediately
+before managed submission, including deferred first prompts. Raw terminal control
+remains deliberate user control. Hooks bind sessions to explicit accounts, carry
+bounded context into a client, record cooperative parking, and cancel continuation
+on interruption/end. A per-session resume claim avoids duplicate automatic input;
+claiming is not proof a client received it. Task state remains separate, and no
+terminal input is replayed by the usage monitor.
+
+Event journal version 2 permits account subjects and bounded producer delivery
+keys. Both MCP and the independent waiter validate old records without discarding
+IDs or acknowledgments; old binaries cannot read newly written journals. Pending
+usage events use an outbox and retry publication, with deduplication while the
+queue retains the matching delivery key. Desktop delivery remains at-least-once
+across its commit boundary.
+
+Repository-owned client templates and an explicit installer preserve unrelated
+configuration and existing Claude renderers. Runtime hooks consume only selected
+metadata, never persist full hook stdin, and have bounded input/output/subprocess
+lifetimes. See [usage](usage.md) and [hooks](hooks.md) for capabilities, installation,
+and the complete lifecycle hook inventory.

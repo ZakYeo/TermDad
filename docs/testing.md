@@ -601,3 +601,41 @@ to the repository's corresponding `skills/` directories; no registration or link
 repair was necessary. These checks establish fresh-launch behavior, not reload of
 already-running client sessions. Existing clients must reconnect/restart their MCP
 connection and reload the skill context to use the changes.
+
+## Usage monitoring and hook installation — 2026-10-01
+
+- `npm run check`: passed TypeScript build, formatting, and **332 tests**. The
+  restricted sandbox initially broke subprocess pipes in existing backend and
+  stdio tests; rerunning outside that restriction passed. Final detailed output
+  was retained locally in `/tmp/term-dad-usage-check.log`.
+- Deterministic coverage includes account threshold deduplication/hysteresis,
+  maximum-sized warning batches, collector exclusion and failure backoff, stale
+  or missing weekly readings, identity/source changes, pending-event retries,
+  per-session hook delivery/cancellation, pause/reset/weekly-gate transitions,
+  and event journal migration with standalone waiter filtering.
+- MCP tests verify blocked sends and spawns, partial broadcast results for
+  affected/unaffected accounts, supervisor usage summaries, and an allowance
+  gate closing during the initial prompt's readiness wait without closing its
+  pane or sending input.
+- Installer tests use temporary configuration: preserve unrelated hooks and
+  status-line output, repeated-install idempotence, uninstall restoration,
+  preservation of manually edited hooks, path quoting, and omission of prompt
+  text from persisted quota data. No personal client hook configuration was
+  installed or changed by these checks.
+- `npm run test:usage -- codex`: passed against the installed signed-in Codex CLI
+  0.159.0. The documented account API returned a weekly allowance; it did not
+  return a five-hour window. No model turn or inference request was sent; no
+  account identifier or credential was printed. This verifies acquisition only.
+- `npm run test:live`: passed the existing live WezTerm shell/MCP round trip,
+  including initial/follow-up input, broadcast, task attention/verification,
+  interruption, pane operations, and cleanup.
+- `npm pack --dry-run --json --cache /tmp/term-dad-npm-cache`: verified inclusion
+  of the built usage helpers, hook templates/installer, README, and usage/hook
+  documentation in the distributable package.
+
+No live client automatic pause/idle-wake cycle was established. The synthetic
+verified adapter tests are not evidence of Claude, Codex, or Copilot support for
+that complete cycle. Built-in integrations remain advisory and reject automatic
+mode. Claude collection was exercised with synthetic documented status-line
+payloads, not an authenticated Claude session; Copilot quota acquisition remains
+unsupported. Recovery and screenshot live suites were not rerun for this change.

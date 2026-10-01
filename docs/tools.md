@@ -20,7 +20,7 @@ Tool names use dots. All arguments are JSON objects. Omitted arguments below use
 | terminal.submit | `paneId, text?` → paste then Enter; with no text, Enter only |
 | terminal.screenshot | `paneId` → MCP PNG image via provider |
 | terminal.snapshot | `{}` → panes, 30-line tails and managed agents |
-| agent.spawn | `name, cli: claude\|codex\|shell, prompt?, timeoutMs?` plus terminal.spawn options → mapped worker; prompt waits for readiness; first Codex task includes the worker skill |
+| agent.spawn | `name, cli: claude\|codex\|shell, prompt?, timeoutMs?, accountRef?` plus terminal.spawn options → mapped worker; optional explicit usage account binding; prompt waits for readiness; first Codex task includes the worker skill |
 | agent.list | `{}` → saved metadata, attachment state, recovery reason and storage warning; no terminal text |
 | agent.adopt | `name, paneId, cli, workerSkillInitialized?` → register an existing pane; no input sent |
 | agent.reattach | `agentId, paneId, acknowledgeUncertainDelivery?, workerSkillInitialized?` → explicitly bind a saved worker; no input sent |
@@ -38,7 +38,7 @@ Tool names use dots. All arguments are JSON objects. Omitted arguments below use
 | agent.wait_until_idle | `agentId, timeoutMs?` → recognized ready/idle state; no silence heuristic |
 | agent.broadcast | `agentIds: string[], text` (alias `message`) → per-worker send success/error |
 | agent.collect_results | `{}` → current observations, no inferred task success |
-| orchestrator.status | `{}` → per-worker status, activity, hash and task summary with no screen text; metadata for detached workers |
+| orchestrator.status | `{}` → per-worker status, activity, hash and task summary with no screen text; metadata for detached workers; bound accounts add a compact `usage` field |
 | orchestrator.attention | Task-focused decisions, eligibility, verification, and cursor-based changes; see below |
 
 Keys (case-insensitive): ENTER, ESC, TAB, SPACE, UP, DOWN, LEFT, RIGHT, PAGEUP, PAGEDOWN, CTRL_C, CTRL_D, CTRL_A, CTRL_E, CTRL_U, BACKSPACE, DELETE, HOME, END. Aliases: Escape → ESC, Return/CR/Newline → ENTER, ArrowUp/UpArrow → UP, ArrowDown/DownArrow → DOWN, ArrowLeft/LeftArrow → LEFT, ArrowRight/RightArrow → RIGHT, PgUp/PgDn → PAGEUP/PAGEDOWN, Del → DELETE, BS → BACKSPACE. The separators `+`, `-` and space are accepted, so `Ctrl+C`, `ctrl-c` and `Page Down` resolve. For example, `terminal.send_key({"paneId":7,"key":"ArrowDown"})` sends a down arrow. Both key tools send raw control bytes without bracketed paste; use them for menu navigation. `terminal.send_text` pastes text, so escape sequences sent through it may be treated as pasted content instead of navigation. Unsupported names report accepted keys, and a sequence containing any unsupported name sends no input.
@@ -158,8 +158,8 @@ filesystems, including WSL; disconnect never kills worker panes.
 `event.list`, `event.acknowledge`, and `event.wait_for_event` expose the durable
 local event journal. Background watches publish to this queue by default; there
 is deliberately no MCP publish/injection tool. Internal producers use
-`await events.publish(input)`. The server exposes 53 tools, including the three
-watch tools and four event tools.
+`await events.publish(input)`. The server exposes 58 tools, including five usage
+tools, three watch tools, and four event tools.
 
 | Tool | Arguments | Result |
 | --- | --- | --- |
@@ -168,7 +168,7 @@ watch tools and four event tools.
 | `event.wait_for_event` | Optional filters; `timeoutMs` (1–120000, default 30000); `freshOnly` (default true) | `{status:"event",event}` or `{status:"timeout"}`, `{status:"cancelled"}`, `{status:"closed"}` |
 | `event.wake_command` | none | `command` (argv of the bundled waiter), `stateDir`, `kinds`, and a runnable `example`; read-only |
 
-Filters are `paneIds`, `agentIds`, `watchIds`, `kinds` (each 1–64 values),
+Filters are `paneIds`, `agentIds`, `watchIds`, `accountRefs`, `kinds` (each 1–64 values),
 `afterSequence` (exclusive), `notBefore` (ISO, compared against `occurredAt`) and
 `maxAgeMs` (1–604800000). Values within a filter are alternatives; supplied
 filters are combined with AND. Omit filters to match any pending event.
@@ -187,11 +187,17 @@ can receive the same event. MCP request cancellation settles the wait; disconnec
 settles all waits without touching panes. A timeout conveys no worker outcome —
 it means re-arm, not that nothing happened.
 
-Events contain only `kind`, `paneId`, optional `watchId`/`agentId`, ISO `occurredAt`,
+Events contain `kind`, exactly one of `paneId` or `accountRef`, optional
+`watchId`/`agentId`/`deliveryKey`, ISO `occurredAt`,
 and a short producer-authored `summary`, plus queue-owned UUID `id`, monotonic
 `sequence`, and nullable `acknowledgedAt`. Producers must use static metadata
 summaries, never terminal output, prompts, error strings, or secrets. IDs and
 summaries are bounded; extra payload fields are rejected.
+
+Account usage events require event journal version 2. New readers retain version-1
+records and new publications write version 2; restart all clients sharing a state
+directory on the same build. The standalone waiter accepts `--accounts` as well
+as existing pane/worker filters. A retained `deliveryKey` deduplicates producer retries.
 
 Pending entries replay after restart. Repeated acknowledgments preserve the
 original timestamp. Acknowledged records remain until space is needed; an ID
@@ -757,3 +763,22 @@ off 1, 2, then 4 seconds before diagnosing/reporting the blocker. Do not bypass
 managed locks with raw input or replay uncertain delivery. Successful summary
 responses may contain individual worker errors; count these separately from
 failed tool calls when reviewing telemetry or chat history.
+
+## Account usage tools
+
+| Tool | Arguments and behavior |
+| --- | --- |
+| `usage.configure` | `accountRef`, `provider: codex\|claude\|copilot`, `mode?: advisory\|automatic` (advisory), `enabled?` (true), `reservePercent?` (5), `weeklyReservePercent?` (5), `codexHome?` (absolute path), `profile?`, `workerIds?` (registered UUIDs). Replaces configuration and cancels previous continuation intents; rejects automatic mode without verified capabilities. |
+| `usage.status` | `accountRef?` → account snapshots, policy, freshness, pause reason, next check, session hook deliveries, capabilities, and storage/monitor diagnostics. |
+| `usage.refresh` | `accountRef` → bounded read without inference, at most once a minute. Passive/unavailable sources return `USAGE_REFRESH_UNSUPPORTED`; provider failures remain observable in status. |
+| `usage.watch` | `accountRef`, `thresholdsUsedPercent?` (80, 90, 95), `notifyOnReset?` (true). Events describe threshold crossings and confirmed resets, with hysteresis and durable retry deduplication. |
+| `usage.unwatch` | `accountRef` → remove warning subscription without removing the policy or observations. |
+
+`orchestrator.attention` adds a usage snapshot. `orchestrator.status` preserves its
+array response and adds compact usage information only to bound workers. Quotas
+are account-wide, not sums of worker percentages. Every applicable short and
+weekly limit must have more than its reserve remaining before automatic dispatch;
+stale, expired, missing, and failed readings cannot authorize recovery.
+
+Current built-in integrations are advisory only. See [usage support](usage.md)
+and [hook installation](hooks.md) for exact limitations and installation commands.

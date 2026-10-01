@@ -34,3 +34,13 @@ and duration when known, and where its evidence lives. Leave unknown values
 explicitly unknown; never infer an exit code from returning to a prompt. Your
 response is a report for the supervisor to verify, not proof of acceptance.
 Surface required permissions, authentication and open questions as blockers.
+
+## Usage reserve
+
+A Term Dad usage hook can request a safe-boundary pause. Save a concise report of
+finished work, current task/attempt, remaining steps and uncertain outcomes, then
+end the turn without closing the pane or claiming the task is complete. Do not
+start additional model work to poll a reset timer. Continue only when the
+supervisor resumes the assignment after fresh quota checks; inspect existing
+state instead of replaying the last command. Advisory warnings alone are not
+proof that automatic pause/wake is installed or verified.
