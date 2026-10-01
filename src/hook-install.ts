@@ -8,7 +8,7 @@ import { acquireLock, stateDirectory } from './journal.js';
 import { providerName, usageId } from './usage-model.js';
 import { hookConfiguration, mergeHooks, removeOwned, type HookConfig, type HookInstallOptions } from './hook-config.js';
 
-async function readJson(path: string): Promise<HookConfig | undefined> {
+async function readJson(path: string, maxBytes = 1024 * 1024): Promise<HookConfig | undefined> {
   let file;
   try {
     file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -18,7 +18,7 @@ async function readJson(path: string): Promise<HookConfig | undefined> {
   }
   try {
     const stat = await file.stat();
-    if (!stat.isFile() || stat.size > 1024 * 1024) throw new Error('HOOK_CONFIG_INVALID');
+    if (!stat.isFile() || stat.size > maxBytes) throw new Error('HOOK_CONFIG_INVALID');
     const value = JSON.parse(await file.readFile('utf8'));
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('HOOK_CONFIG_INVALID');
     return value;
@@ -38,12 +38,32 @@ async function atomicJson(path: string, value: unknown) {
 
 export async function manageHooks(action: string, path: string, options: HookInstallOptions) {
   if (!['preview', 'install', 'status', 'doctor', 'uninstall'].includes(action)) throw new Error('HOOK_ACTION_INVALID');
+  const intentPath = `${path}.term-dad-intent.json`;
   const manifestPath = `${path}.term-dad.json`,
     rendererFile = `${path}.term-dad-renderer.json`;
   const mutate = action === 'install' || action === 'uninstall';
   if (mutate) await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   const lease = mutate ? await acquireLock(`${path}.term-dad.lock`) : undefined;
   try {
+    // Recover an interrupted commit before deriving ownership or wrapping a renderer.
+    // A concurrent/manual edit is preserved and reported instead of overwritten.
+    const intent = await readJson(intentPath, 3 * 1024 * 1024);
+    if (intent) {
+      if (!mutate) throw new Error('HOOK_INSTALL_INCOMPLETE: rerun install or uninstall');
+      const current = (await readJson(path)) ?? {};
+      const same = (value: unknown) => JSON.stringify(current) === JSON.stringify(value);
+      if (!same(intent.before) && !same(intent.after))
+        throw new Error(
+          'HOOK_INSTALL_CONFLICT: config changed during interrupted install; preserve intent for recovery',
+        );
+      if (!same(intent.after)) await atomicJson(path, intent.after);
+      if (intent.manifest) await atomicJson(manifestPath, intent.manifest);
+      else
+        await unlink(manifestPath).catch((e) => {
+          if (e.code !== 'ENOENT') throw e;
+        });
+      await unlink(intentPath);
+    }
     const original = (await readJson(path)) ?? {};
     const manifest = await readJson(manifestPath);
     const previous = manifest?.installed as HookConfig | undefined;
@@ -78,8 +98,10 @@ export async function manageHooks(action: string, path: string, options: HookIns
         else delete cleaned.statusLine;
       }
       await atomicJson(`${path}.term-dad-backup.json`, original);
+      await atomicJson(intentPath, { before: original, after: cleaned, manifest: null });
       await atomicJson(path, cleaned);
       await unlink(manifestPath);
+      await unlink(intentPath);
       // Keep a renderer if the user edited a wrapper that might still refer to it.
       if (ownStatusline) await unlink(rendererFile).catch(() => {});
       return { changed: true, config: path };
@@ -88,14 +110,16 @@ export async function manageHooks(action: string, path: string, options: HookIns
     if (JSON.stringify(merged) === JSON.stringify(original) && previous) return { changed: false, config: path };
     await atomicJson(`${path}.term-dad-backup.json`, original);
     if (priorStatusline) await atomicJson(rendererFile, { command: priorStatusline.command });
-    // Write ownership before config: after a crash, repeating install removes exact owned entries.
-    await atomicJson(manifestPath, {
+    const nextManifest = {
       version: 1,
       client: options.client,
       installed,
       originalStatusLine: priorStatusline ?? null,
-    });
+    };
+    await atomicJson(intentPath, { before: original, after: merged, manifest: nextManifest });
     await atomicJson(path, merged);
+    await atomicJson(manifestPath, nextManifest);
+    await unlink(intentPath);
     return {
       changed: true,
       config: path,

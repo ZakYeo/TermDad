@@ -73,7 +73,11 @@ wake support.
 The installer merges only its own entries and records their exact definitions in
 `<config>.term-dad.json`. It saves the prior configuration to
 `<config>.term-dad-backup.json` before changes. Repeat installation is idempotent;
-rerun it after moving this checkout or changing Node installations. Keep these
+rerun it after moving this checkout or changing Node installations. Changes also
+use `<config>.term-dad-intent.json` to recover interrupted config/ownership commits.
+Rerun install or uninstall to finish recovery. If the config was manually edited
+in the meantime, recovery reports a conflict and preserves both files; reconcile
+the intent with those edits before retrying. Keep these
 local metadata files private and outside commits that expose personal settings.
 
 A previous Claude status-line command is saved in a private renderer file. The

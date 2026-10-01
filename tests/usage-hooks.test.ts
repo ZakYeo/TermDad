@@ -126,3 +126,38 @@ test('built helper forwards quota metadata, preserves renderer output and does n
   assert.ok(!(await readFile(join(dir, 'usage.json'), 'utf8')).includes('PRIVATE_PROMPT'));
   await usage.close();
 });
+
+for (const configCommitted of [false, true]) {
+  test(`interrupted hook upgrade recovers ownership without duplicate hooks or recursive renderer (config committed: ${configCommitted})`, async (t) => {
+    const dir = await mkdtemp(join(tmpdir(), 'term-dad-hook-upgrade-'));
+    t.after(() => rm(dir, { recursive: true, force: true }));
+    const path = join(dir, 'settings.json');
+    const original = { hooks: {}, statusLine: { type: 'command', command: 'printf original' } };
+    await writeFile(path, JSON.stringify(original));
+    const options = {
+      client: 'claude' as const,
+      accountRef: 'old',
+      stateDir: dir,
+      entry: '/old/index.js',
+      runtime: process.execPath,
+    };
+    await manageHooks('install', path, options);
+    const before = JSON.parse(await readFile(path, 'utf8'));
+    const oldManifest = await readFile(`${path}.term-dad.json`, 'utf8');
+    const changed = { ...options, accountRef: 'new', entry: '/new/index.js' };
+    await manageHooks('install', path, changed);
+    const after = JSON.parse(await readFile(path, 'utf8'));
+    const manifest = JSON.parse(await readFile(`${path}.term-dad.json`, 'utf8'));
+    await writeFile(path, JSON.stringify(configCommitted ? after : before));
+    await writeFile(`${path}.term-dad.json`, oldManifest);
+    await writeFile(`${path}.term-dad-intent.json`, JSON.stringify({ before, after, manifest }));
+    await manageHooks('install', path, changed);
+    assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), after);
+    assert.equal(after.hooks.SessionStart.length, 1);
+    assert.deepEqual(JSON.parse(await readFile(`${path}.term-dad-renderer.json`, 'utf8')), {
+      command: 'printf original',
+    });
+    await manageHooks('uninstall', path, changed);
+    assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), original);
+  });
+}
