@@ -2,7 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { eligibility, type UsageAccount } from './usage-model.js';
 
 export function usageEvent(a: UsageAccount, kind: string, summary: string, now: number) {
-  if (a.pending.length >= 64) throw new Error('USAGE_EVENT_BACKLOG_FULL');
+  if (a.pending.length >= 64) {
+    const delivered = a.pending.findIndex((p) => p.published);
+    if (delivered < 0) throw new Error('USAGE_EVENT_BACKLOG_FULL');
+    // Desktop is best-effort: retain event-journal guarantees without letting an
+    // unavailable optional destination prevent observation commits indefinitely.
+    a.pending.splice(delivered, 1);
+    a.notificationDropped = Math.min(Number.MAX_SAFE_INTEGER, a.notificationDropped + 1);
+  }
   a.pending.push({ kind, summary, at: now, key: randomUUID(), published: false });
 }
 

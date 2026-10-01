@@ -522,3 +522,34 @@ test('publication failure after a successful read never becomes a provider error
   assert.equal(account.error, null);
   assert.equal(account.failures, 0);
 });
+
+test('desktop retry saturation evicts only published notifications and cannot block fresh quotas', async (t) => {
+  const f = await fixture(t);
+  const service = new UsageService(new FileUsageStorage(f.dir), f.events, f.providers, f.now, {
+    notify: async () => {
+      throw new Error('desktop unavailable');
+    },
+  });
+  t.after(() => service.close());
+  await service.configure({ accountRef: 'a', provider: 'codex' });
+  const { usageEvent } = await import('../src/usage-policy.js');
+  await service.mutate('a', (a) => {
+    for (let i = 0; i < 64; i++) usageEvent(a, 'usage.threshold', 'retry saturation fixture', f.now());
+  });
+  await service.flush();
+  assert.equal((await service.account('a')).pending.length, 64);
+  f.sample(f.observation(95));
+  await service.refresh('a');
+  const state = (await service.status('a')).accounts[0];
+  assert.equal(state.observation!.windows[0].usedPercent, 95);
+  assert.equal(state.notificationDropped, 1);
+  assert.equal(state.error, null);
+  await service.mutate('a', (a) => {
+    for (const p of a.pending) p.published = false;
+  });
+  await assert.rejects(
+    service.mutate('a', (a) => usageEvent(a, 'usage.threshold', 'must retain existing unpublished events', f.now())),
+    /USAGE_EVENT_BACKLOG_FULL/,
+  );
+  assert.equal((await service.account('a')).pending.length, 64);
+});

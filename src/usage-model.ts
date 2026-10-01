@@ -88,6 +88,7 @@ export const usageAccountSchema = z
     cycle: z.number().int().nonnegative(),
     nextCheckAt: z.number().nullable(),
     lastAttemptAt: z.number().nullable(),
+    notificationDropped: z.number().int().nonnegative().safe().default(0),
     failures: z.number().int().nonnegative().max(20),
     error: z.string().max(100).nullable(),
     fired: z.array(z.string().max(200)).max(320),
