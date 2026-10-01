@@ -795,3 +795,9 @@ milliseconds, and whether notified). At reserve, known five-hour and weekly rese
 times arm alerts independently of provider polling. `usage.reset_due` is included
 in the default supervisor waiter; it requests fresh quota checks, never authorizes
 resumption. Disabling an account or reset notifications cancels future alerts.
+
+Spawned workers retain `accountRef` on their worker record; the configured
+`workerIds` list contains only explicit existing-worker bindings. Usage projection
+failures in orchestration views report `usage.available: false` and an error while
+preserving the worker/task results. `usage.status.notificationError` reports
+optional desktop delivery failures separately from provider/monitor errors.

@@ -515,3 +515,10 @@ changes no quota reading or dispatch eligibility. Overdue deadlines survive
 restart, but nothing runs while all MCP processes are closed. Older usage journals
 load with an empty deadline list; obtain a fresh observation after upgrading.
 Restart all clients together: older binaries reject the added journal field.
+
+Collection fencing uses a source-configuration revision, separate from the
+model-context revision. Spawn account ownership is persisted on the worker record;
+explicit existing-worker bindings remain in account configuration. Optional usage
+projection failures leave worker/task status available with explicit unavailable
+usage metadata. Event publication and bounded desktop retries run independently;
+an idle timer performs no durable write when no reset deadline is due.

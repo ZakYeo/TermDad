@@ -649,3 +649,22 @@ capabilities, Stop/unsupported callbacks do not consume pending warnings, and th
 default supervisor waiter receives newly published usage threshold events.
 The weekly-only exhausted allowance case is included. These verify helper output
 and event delivery, not a live client's model reaction or idle wake behavior.
+
+### Reset-deadline alerts and review fixes — 2026-10-01
+
+`npm run check` passed build, formatting, and **349 tests**. Added deterministic
+coverage for persisted overdue resets, restart and competing-server deduplication,
+unknown reset times, cancellation, provider I/O blocking, and outbox retry without
+implicit resumption. Review regressions cover source-version fencing, worker-owned
+account bindings, optional usage failures in orchestration views, idle timer write
+avoidance, desktop failure isolation and bounded retry eviction, and interrupted
+hook upgrades on either side of the config commit.
+
+A fresh subagent applied the thermonuclear code quality review skill to the full
+session diff. All six findings were implemented and the reviewer signed off after
+checking the fixes. No live client idle-wake or model-controlled resume cycle was
+established; reset delivery tests use controlled clocks and quota observations.
+
+`npm run test:live` also passed against the running WezTerm GUI after the review
+fixes: shell spawn/input, broadcast, snapshots, task attention and verification,
+pane operations, interruption, and cleanup. No model inference was requested.

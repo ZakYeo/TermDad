@@ -57,6 +57,9 @@ IDs when updating it. Worker IDs must be real registered UUIDs. One worker canno
 belong to two configured accounts. Account names are local opaque identifiers,
 not login credentials. Hooks bind the supervising session explicitly through
 `--account`; `agent.spawn` accepts an explicit `accountRef` for a new worker.
+That binding lives on the worker record and ends with its removal, without growing
+`usage.configure.workerIds`. The latter explicitly binds already-existing workers;
+conflicting launch bindings are rejected.
 No account identity is inferred from the model/client name.
 
 Codex accepts an absolute `codexHome` and optional CLI `profile`. These select the
@@ -135,6 +138,14 @@ cross-process retries. Once a record is acknowledged and evicted, the queue
 cannot guarantee deduplication across an old interrupted producer retry.
 Configured desktop notification commands receive the same bounded metadata;
 delivery can repeat after a crash between notification and outbox cleanup.
+Event publication and desktop delivery have separate retry stages. Desktop work
+is bounded to eight concurrent notifications and cannot hold up quota collection
+or reset-event publication. `usage.status.notificationError` reports desktop
+failures. If the 64-entry account outbox fills, only the oldest already-published
+desktop retry may be evicted; `usage.status.accounts[].notificationDropped` exposes
+the count. Unpublished events are never discarded. Successfully published events are not republished just to retry desktop
+delivery. Notification context revisions are separate from source-configuration
+revisions, so a reset alert does not invalidate an in-flight quota read.
 When one observation crosses several thresholds for a window, one event reports
 the highest crossed threshold and the number crossed; every threshold is still
 tracked individually for deduplication and hysteresis.
