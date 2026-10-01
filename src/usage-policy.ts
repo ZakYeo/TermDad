@@ -47,14 +47,24 @@ export function evaluateWarnings(a: UsageAccount, now: number) {
   const retained: string[] = [];
   for (const w of a.observation.windows) {
     if (w.usedPercent === null) continue;
+    const crossed: number[] = [];
     for (const threshold of a.watch.thresholdsUsedPercent) {
       const key = `${w.bucketId}:${w.kind}:${w.resetsAt}:${threshold}`;
       const fired = a.fired.includes(key);
       if (w.usedPercent >= threshold || (fired && w.usedPercent > threshold - 2)) retained.push(key);
       if (w.usedPercent >= threshold && !fired) {
-        usageEvent(a, 'usage.threshold', `${w.kind} allowance ${w.usedPercent}% used; crossed ${threshold}%`, now);
-        a.revision++;
+        crossed.push(threshold);
       }
+    }
+    // One bounded event per window, even when the first sample crosses all ten thresholds.
+    if (crossed.length) {
+      usageEvent(
+        a,
+        'usage.threshold',
+        `${w.bucketId} ${w.kind}: ${w.usedPercent}% used; crossed ${Math.max(...crossed)}% (${crossed.length} thresholds)`,
+        now,
+      );
+      a.revision++;
     }
   }
   a.fired = retained;

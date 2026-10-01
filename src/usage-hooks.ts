@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { eligibility, providerName, usageId } from './usage-model.js';
+import { eligibility, freshness, providerName, usageId } from './usage-model.js';
 import { evaluateUsage } from './usage-policy.js';
 import { normalizeClaude } from './usage-providers.js';
 import type { UsageService } from './usage.js';
@@ -53,8 +53,13 @@ export async function usageHook(usage: UsageService, accountRef: string, client:
     if (session.lastRevision === a.revision) return {};
     session.lastRevision = a.revision;
     const windows =
-      a.observation?.windows.map((w) => `${w.kind}: ${w.usedPercent ?? 'unknown'}% used`).join('; ') || 'quota unknown';
-    const message = `Term Dad usage (${accountRef}): ${windows}. ${
+      a.observation?.windows
+        .map(
+          (w) =>
+            `${w.kind}: ${w.usedPercent ?? 'unknown'}% used, reset ${w.resetsAt === null ? 'unknown' : new Date(w.resetsAt).toISOString()}`,
+        )
+        .join('; ') || 'quota unknown';
+    const message = `Term Dad usage (${accountRef}, ${freshness(a.observation, usage.now())}): ${windows}. ${
       paused
         ? 'Account paused. Save a concise checkpoint in the task board and end this turn. Do not dispatch new work. Automatic wake requires fresh short-window and weekly allowances above the configured reserves.'
         : `Policy: reserve ${a.config.reservePercent}% short-window and ${a.config.weeklyReservePercent}% weekly. ${a.config.mode === 'advisory' ? 'Advisory only; automatic pause/resume is not enabled.' : 'Inspect saved tasks and pending worker results before continuing.'}`

@@ -25,6 +25,7 @@
     "test:agent": "node --import tsx scripts/live-agent.ts",
     "test:screenshot": "node --import tsx scripts/live-screenshot.ts",
     "test:recovery": "node --import tsx scripts/live-recovery.ts",
+    "test:usage": "node --import tsx scripts/live-usage.ts",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" \"scripts/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\" \"scripts/*.ts\"",
     "telemetry:report": "node --import tsx scripts/telemetry-report.ts",

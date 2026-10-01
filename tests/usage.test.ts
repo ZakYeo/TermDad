@@ -187,6 +187,76 @@ test('Codex windows use actual durations and preserve independent buckets', () =
   );
 });
 
+test('scheduler retries failed reads with backoff without moving the deadline on each tick', async (t) => {
+  const f = await fixture(t, true);
+  await f.usage.configure({ accountRef: 'a', provider: 'codex', mode: 'automatic' });
+  let calls = 0;
+  f.providers.codex.read = async () => {
+    calls++;
+    throw new Error('sensitive provider failure');
+  };
+  f.advance(60000);
+  await f.usage.tick();
+  assert.equal(calls, 1);
+  for (let i = 0; i < 59; i++) {
+    f.advance(1000);
+    await f.usage.tick();
+  }
+  assert.equal(calls, 1);
+  f.advance(1000);
+  await f.usage.tick();
+  assert.equal(calls, 2);
+  assert.equal((await f.usage.account('a')).nextCheckAt, f.now() + 120000);
+  assert.ok(!JSON.stringify(await f.usage.status()).includes('sensitive'));
+});
+
+test('unwatch preserves policy and account identity changes cannot silently rebind', async (t) => {
+  const f = await fixture(t, true);
+  await f.usage.configure({ accountRef: 'a', provider: 'codex', mode: 'automatic' });
+  await f.usage.ingest('a', f.observation(95));
+  await f.usage.unwatch('a');
+  await assert.rejects(f.usage.assertDispatch(undefined, 'a'), /USAGE_PAUSED/);
+  await f.usage.ingest('a', { ...f.observation(1), identity: 'different-account' });
+  assert.equal((await f.usage.account('a')).observation!.identity, 'test-account');
+  await assert.rejects(f.usage.assertDispatch(undefined, 'a'), /account_identity_changed/);
+});
+
+test('reconfigured source discards an in-flight observation from the old source', async (t) => {
+  const f = await fixture(t);
+  await f.usage.configure({ accountRef: 'a', provider: 'codex' });
+  const revision = (await f.usage.account('a')).revision;
+  await f.usage.configure({ accountRef: 'a', provider: 'claude' });
+  await f.usage.ingest('a', f.observation(90), revision);
+  assert.equal((await f.usage.account('a')).observation, null);
+});
+
+test('event queue failure keeps a durable warning outbox for retry', async (t) => {
+  const f = await fixture(t);
+  await f.usage.configure({ accountRef: 'a', provider: 'codex' });
+  const publish = f.events.publish.bind(f.events);
+  f.events.publish = async () => {
+    throw new Error('offline');
+  };
+  await assert.rejects(f.usage.ingest('a', f.observation(82)), /offline/);
+  assert.equal((await f.usage.account('a')).pending.length, 1);
+  f.events.publish = publish;
+  await f.usage.flush();
+  assert.equal((await f.usage.account('a')).pending.length, 0);
+  assert.equal((await f.events.list({ accountRefs: ['a'] })).pendingCount, 1);
+});
+
+test('maximum window and threshold configuration fits a bounded warning batch', async (t) => {
+  const f = await fixture(t);
+  await f.usage.configure({ accountRef: 'a', provider: 'codex' });
+  await f.usage.watch({ accountRef: 'a', thresholdsUsedPercent: [10, 20, 30, 40, 50, 60, 70, 80, 90, 95] });
+  const o = f.observation(99);
+  o.windows = Array.from({ length: 32 }, (_, n) => ({ ...o.windows[0], bucketId: `bucket-${n}` }));
+  await f.usage.ingest('a', o);
+  assert.equal((await f.events.list()).pendingCount, 32);
+  await f.usage.ingest('a', o);
+  assert.equal((await f.events.list()).pendingCount, 32);
+});
+
 test('legacy events survive new account events and standalone account filters', async (t) => {
   const f = await fixture(t);
   const legacy = {

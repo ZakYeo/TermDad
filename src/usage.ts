@@ -1,4 +1,5 @@
-import { isAbsolute } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
+import { homedir } from 'node:os';
 import { EventQueue } from './events.js';
 import { FileUsageStorage, type UsageStorage } from './usage-storage.js';
 import { defaultUsageProviders, type UsageProvider } from './usage-providers.js';
@@ -64,6 +65,8 @@ export class UsageService {
     return this.run(async () => {
       const config = configureUsageSchema.parse(input);
       if (config.codexHome && !isAbsolute(config.codexHome)) throw new Error('USAGE_HOME_MUST_BE_ABSOLUTE');
+      if (config.provider === 'codex')
+        config.codexHome = resolve(config.codexHome ?? process.env.CODEX_HOME ?? join(homedir(), '.codex'));
       if (config.mode === 'automatic' && !this.automatic(config))
         throw new Error(`USAGE_AUTOMATIC_UNAVAILABLE: ${this.capabilities(config).reason}`);
       await this.storage.transaction(true, (s) => {
