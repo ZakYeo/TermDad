@@ -29,6 +29,7 @@ import { join } from 'node:path';
 import { instrumentTools, type TelemetryOptions } from './telemetry.js';
 import { Monitoring } from './monitoring.js';
 import { FileTelemetry } from './telemetry-storage.js';
+import { usageView } from './usage-view.js';
 import { UsageService } from './usage.js';
 import { registerUsageTools } from './usage-tools.js';
 export function createServer(
@@ -401,8 +402,10 @@ export function createServer(
     {},
     async () => {
       const workers = await withWorkerTasks(await agents.summaries(), tasks);
-      const { accounts } = await usage.status();
+      const view = await usageView(usage);
+      const { accounts } = view;
       return workers.map((worker) => {
+        if (!view.available) return { ...worker, usage: { available: false, error: view.error } };
         const account = accounts.find(
           (a) => a.accountRef === worker.accountRef || a.workerIds.includes(worker.agentId),
         );
@@ -484,7 +487,7 @@ export function createServer(
     () => tasks.snapshot(),
     () => agents.snapshot(),
   );
-  const closeAttention = registerAttentionTools(server, attention, () => usage.status());
+  const closeAttention = registerAttentionTools(server, attention, () => usageView(usage));
   registerUsageTools(server, usage, (id) => agents.resolve(id));
   usage.start();
   const closeEvents = registerEventTools(server, events);

@@ -15,7 +15,8 @@ import {
   type UsageObservation,
 } from './usage-model.js';
 import { evaluateUsage, evaluateWarnings, usageEvent } from './usage-policy.js';
-import { scheduleResetAlerts, deliverResetAlerts } from './usage-reset.js';
+import { scheduleResetAlerts, deliverResetAlerts, hasDueResetAlert } from './usage-reset.js';
+import { UsageOutbox } from './usage-outbox.js';
 import type { NotificationProvider } from './notifications.js';
 
 export class UsageService {
@@ -23,6 +24,9 @@ export class UsageService {
   private timer?: ReturnType<typeof setInterval>;
   private ticking = false;
   private closed = false;
+  private outbox: UsageOutbox;
+  private notifying?: Promise<void>;
+  private notificationError: string | null = null;
   private monitorError: string | null = null;
   constructor(
     readonly storage: UsageStorage = new FileUsageStorage(),
@@ -30,7 +34,9 @@ export class UsageService {
     readonly providers: Record<UsageConfig['provider'], UsageProvider> = defaultUsageProviders(),
     readonly now: () => number = Date.now,
     readonly notifications?: NotificationProvider,
-  ) {}
+  ) {
+    this.outbox = new UsageOutbox(this, events, notifications);
+  }
   private run<T>(fn: () => Promise<T>): Promise<T> {
     if (this.closed) return Promise.reject(new Error('USAGE_CLOSED'));
     if (this.operations.size >= 128) return Promise.reject(new Error('USAGE_OPERATION_LIMIT'));
@@ -160,6 +166,7 @@ export class UsageService {
         })),
       storageWarning: this.storage.warning ?? null,
       monitorError: this.monitorError,
+      notificationError: this.notificationError,
     };
   }
   watch(input: unknown) {
@@ -239,8 +246,9 @@ export class UsageService {
         await this.mutate(ref, (current) => {
           current.lastAttemptAt = this.now();
         });
+        let observation: UsageObservation;
         try {
-          await this.ingest(ref, await provider.read(a.config), a.sourceRevision);
+          observation = await provider.read(a.config);
         } catch {
           await this.mutate(ref, (current) => {
             if (current.sourceRevision !== a.sourceRevision) return;
@@ -249,8 +257,10 @@ export class UsageService {
             evaluateUsage(current, this.now());
             current.nextCheckAt = this.now() + Math.min(900_000, 60_000 * 2 ** (current.failures - 1));
           });
+          await this.flush();
+          return this.status(ref);
         }
-        await this.flush();
+        await this.ingest(ref, observation, a.sourceRevision);
         return this.status(ref);
       };
       return this.storage.collect ? this.storage.collect(ref, collect) : collect();
@@ -265,34 +275,38 @@ export class UsageService {
         throw new Error(`USAGE_PAUSED: ${reason ?? a.phase}`);
     }
   }
-  async flush() {
-    if (!this.events) return;
-    for (const a of await this.accounts())
-      for (const p of a.pending) {
-        const event = await this.events.publish({
-          kind: p.kind,
-          accountRef: a.config.accountRef,
-          deliveryKey: p.key,
-          occurredAt: new Date(p.at).toISOString(),
-          summary: p.summary,
-        });
-        await this.notifications?.notify(event);
-        await this.mutate(a.config.accountRef, (current) => {
-          current.pending = current.pending.filter((e) => e.key !== p.key);
-        });
-      }
+  flush() {
+    return this.outbox.publish();
+  }
+  private notify() {
+    if (this.notifying || this.closed) return;
+    this.notifying = this.run(() => this.outbox.notify())
+      .then(() => {
+        this.notificationError = null;
+      })
+      .catch(() => {
+        this.notificationError = 'usage_notification_failed';
+      })
+      .finally(() => {
+        this.notifying = undefined;
+      });
   }
   async tick() {
     if (this.closed) return;
     // Deadline delivery must run even while a previous tick is waiting on provider I/O.
     await this.run(async () => {
-      await this.storage.transaction(true, (s) => {
-        for (const a of s.accounts) deliverResetAlerts(a, this.now());
-        return { state: s, result: undefined };
-      });
-      await this.flush();
+      if ((await this.accounts()).some((a) => hasDueResetAlert(a, this.now())))
+        await this.storage.transaction(true, (s) => {
+          let changed = false;
+          for (const a of s.accounts) changed = deliverResetAlerts(a, this.now()) || changed;
+          return { ...(changed ? { state: s } : {}), result: undefined };
+        });
     });
-    if (this.ticking || this.closed) return;
+    // Publication runs independently of collection and bounded desktop delivery.
+    const delivery = this.run(() => this.flush());
+    void delivery.catch(() => {});
+    this.notify();
+    if (this.ticking || this.closed) return delivery;
     this.ticking = true;
     try {
       await this.run(async () => {
@@ -309,7 +323,9 @@ export class UsageService {
           )
             await this.refresh(a.config.accountRef).catch(() => {});
         }
+        await delivery;
         await this.flush();
+        this.notify();
       });
     } finally {
       this.ticking = false;

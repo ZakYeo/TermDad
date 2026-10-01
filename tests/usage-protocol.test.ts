@@ -98,3 +98,21 @@ test('spawned account ownership follows worker lifetime without growing configur
     await f.close();
   }
 });
+
+test('optional usage journal failure preserves worker status and attention results', async () => {
+  const f = await benchmarkFixture();
+  try {
+    const worker = await f.call('agent.spawn', { name: 'visible', cli: 'shell' });
+    f.app.usage.status = async () => {
+      throw new Error('USAGE_STATE_CORRUPT');
+    };
+    const status = await f.call('orchestrator.status');
+    assert.equal(status[0].agentId, worker.agentId);
+    assert.equal(status[0].usage.available, false);
+    const attention = await f.call('orchestrator.attention');
+    assert.equal(attention.usage.available, false);
+    assert.equal(attention.usage.error, 'usage_status_unavailable');
+  } finally {
+    await f.close();
+  }
+});

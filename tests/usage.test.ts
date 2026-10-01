@@ -468,3 +468,57 @@ test('reset notices do not invalidate in-flight quota collection but reconfigura
   await f.usage.ingest('a', f.observation(2), source);
   assert.equal((await f.usage.account('a')).observation, null);
 });
+
+test('idle timer performs no durable rewrite when no reset alert is due', async (t) => {
+  const f = await fixture(t);
+  await f.usage.tick();
+  await assert.rejects(readFile(join(f.dir, 'usage.json')), { code: 'ENOENT' });
+  await f.usage.configure({ accountRef: 'a', provider: 'claude' });
+  await f.usage.ingest('a', f.observation(95));
+  let writes = 0;
+  const transaction = f.usage.storage.transaction.bind(f.usage.storage);
+  f.usage.storage.transaction = (write, fn) => {
+    if (write) writes++;
+    return transaction(write, fn);
+  };
+  await f.usage.tick();
+  assert.equal(writes, 0);
+});
+
+test('desktop delivery failure preserves its retry without blocking collection or journal delivery', async (t) => {
+  const f = await fixture(t);
+  let notifications = 0;
+  const service = new UsageService(new FileUsageStorage(f.dir), f.events, f.providers, f.now, {
+    notify: async () => {
+      notifications++;
+      throw new Error('desktop unavailable');
+    },
+  });
+  t.after(() => service.close());
+  await service.configure({ accountRef: 'a', provider: 'codex' });
+  await service.ingest('a', f.observation(95, 10, f.now() + 1000));
+  f.advance(1000);
+  f.sample(f.observation(1));
+  await service.tick();
+  await service.close();
+  assert.ok(notifications > 0);
+  assert.equal(f.calls(), 1);
+  assert.equal((await service.account('a')).observation!.windows[0].usedPercent, 1);
+  assert.equal((await service.account('a')).error, null);
+  assert.equal((await f.events.list()).events.filter((e) => e.kind === 'usage.reset_due').length, 1);
+  assert.ok((await service.account('a')).pending.every((p) => p.published));
+});
+
+test('publication failure after a successful read never becomes a provider error', async (t) => {
+  const f = await fixture(t);
+  await f.usage.configure({ accountRef: 'a', provider: 'codex' });
+  f.sample(f.observation(95));
+  f.events.publish = async () => {
+    throw new Error('event journal unavailable');
+  };
+  await assert.rejects(f.usage.refresh('a'), /event journal unavailable/);
+  const account = await f.usage.account('a');
+  assert.equal(account.observation!.windows[0].usedPercent, 95);
+  assert.equal(account.error, null);
+  assert.equal(account.failures, 0);
+});

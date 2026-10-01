@@ -26,10 +26,18 @@ export function scheduleResetAlerts(a: UsageAccount) {
 }
 
 /** Claim and enqueue together under the usage journal lock, including after restart. */
+export function hasDueResetAlert(a: UsageAccount, now: number) {
+  return (
+    a.config.enabled &&
+    !!a.watch?.notifyOnReset &&
+    a.resetAlerts.some((alarm) => !alarm.notified && alarm.resetsAt <= now)
+  );
+}
+
 export function deliverResetAlerts(a: UsageAccount, now: number) {
-  if (!a.config.enabled || !a.watch?.notifyOnReset) return;
+  if (!hasDueResetAlert(a, now)) return false;
   const due = a.resetAlerts.filter((alarm) => !alarm.notified && alarm.resetsAt <= now);
-  if (!due.length) return;
+  if (!due.length) return false;
   usageEvent(
     a,
     'usage.reset_due',
@@ -38,4 +46,5 @@ export function deliverResetAlerts(a: UsageAccount, now: number) {
   );
   for (const alarm of due) alarm.notified = true;
   a.revision++;
+  return true;
 }

@@ -3,7 +3,7 @@ import { eligibility, type UsageAccount } from './usage-model.js';
 
 export function usageEvent(a: UsageAccount, kind: string, summary: string, now: number) {
   if (a.pending.length >= 64) throw new Error('USAGE_EVENT_BACKLOG_FULL');
-  a.pending.push({ kind, summary, at: now, key: randomUUID() });
+  a.pending.push({ kind, summary, at: now, key: randomUUID(), published: false });
 }
 
 export function evaluateUsage(a: UsageAccount, now: number) {

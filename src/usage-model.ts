@@ -73,6 +73,7 @@ const pendingSchema = z
     key: usageId,
     at: z.number(),
     summary: z.string().max(240),
+    published: z.boolean().default(false),
   })
   .strict();
 export const usageAccountSchema = z
