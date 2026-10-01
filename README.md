@@ -85,6 +85,9 @@ flowchart LR
     Dad --> Push["push.* — Configure worker-pushed updates"]
     Dad --> Usage["usage.* — Account quotas, warnings, and reserve policies"]
     Sources["Codex account API / Claude status line"] --> Usage
+    Usage --> Reset["Persisted reset deadline — local timer"]
+    Reset --> Due["usage.reset_due — ask supervisor to verify quotas"]
+    Due --> Events
     Usage --> Events
     Usage --> Gate["Managed dispatch gate — verified automatic integrations only"]
     Usage --> Hooks["Client hooks — automatic warnings to supervisor"]
@@ -124,6 +127,16 @@ normal tools. The default `event.wake_command` waiter also includes usage alerts
 keep it armed for idle supervision in clients that resume on background completion.
 The assistant handles stopping; Term Dad does not need automatic-enforcement
 support to send these warnings.
+
+When a reported five-hour or weekly allowance reaches its reserve, Term Dad saves
+its provider-supplied reset time. The local monitor emits `usage.reset_due` when
+that time passes, even if quota data is stale or collection is unavailable. Keep
+`event.wake_command` armed before parking work: its completion can wake supported
+clients to check fresh five-hour **and** weekly usage and then resume workers.
+This alert does not establish recovery or send worker input. The MCP process must
+remain running; after restart, overdue alerts are delivered once. Unknown reset
+times cannot be scheduled. `usage.status` shows `resetAlerts`; `usage.unwatch` or
+`notifyOnReset: false` cancels future reset alerts.
 
 Build first, configure the account, then preview and install its supervisor hooks:
 

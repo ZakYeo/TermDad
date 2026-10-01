@@ -16,6 +16,7 @@ export const wakeKinds = [
   'session_ended',
   'usage.threshold',
   'usage.reset',
+  'usage.reset_due',
   'usage.pause_requested',
   'usage.resume_pending',
 ] as const;

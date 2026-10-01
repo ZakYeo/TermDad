@@ -10,6 +10,7 @@ $messages = @{
   session_ended = 'A worker reported that its session ended.'
   'usage.threshold' = 'An account crossed a usage warning threshold. Check usage.status.'
   'usage.pause_requested' = 'An account reached its usage reserve. Work should pause at a safe boundary.'
+  'usage.reset_due' = 'Expected reset time has passed. Check fresh five-hour and weekly allowances before resuming.'
   'usage.reset' = 'A fresh provider reading confirms allowance recovery.'
   'usage.resume_pending' = 'Short-window and weekly allowances permit continuation.'
 }

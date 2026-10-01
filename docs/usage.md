@@ -20,7 +20,7 @@ Advisory mode automatically delivers notices through installed model-context
 hooks. At the configured reserve, the notice asks the supervising assistant to
 checkpoint and pause affected sessions itself. Automatic policy capabilities do
 not gate these notices. At idle, keep the `event.wake_command` background waiter
-armed: its defaults include threshold, reset, pause-request, and resume-pending
+armed: its defaults include threshold, reset-due, confirmed-reset, pause-request, and resume-pending
 events. Process completion wakes the assistant only where the client supports
 that behavior; merely writing an event or showing a desktop alert does not.
 
@@ -92,7 +92,18 @@ The policy state distinguishes `running`, `pause_requested`, `paused`, and
 separately. The client reports its checkpoint through the existing task board;
 the quota journal does not copy prompts, terminal contents, or transcripts.
 
-The reset timestamp schedules a check, not an assumed new allowance. Every
+When a known five-hour or weekly window reaches its reserve, its reset timestamp
+arms a durable local alert. `usage.reset_due` fires at the expected deadline,
+independently of provider reads and their retry backoff. It asks the supervisor to
+verify both allowances; it never starts workers or asserts recovery. Keep the
+supervisor waiter armed before parking work, and leave the MCP process running.
+Overdue alerts are delivered on restart. `usage.status.resetAlerts` shows each
+scheduled deadline and whether its alert has been enqueued. Missing reset times
+cannot arm an alert. Disabling the account, unwatching, or setting
+`notifyOnReset: false` cancels future alerts. New observations replace obsolete
+deadlines. Existing journals acquire deadlines with their next observation.
+
+The reset timestamp also schedules a provider check, not an assumed new allowance. Every
 applicable five-hour and weekly window must have **more than** its reserve left.
 Readings older than two minutes, expired reset timestamps, missing windows, and
 failed reads cannot authorize continuation. Weekly exhaustion takes precedence
@@ -117,7 +128,7 @@ Metadata uses the existing atomic journal contract. Collectors use a separate
 per-account lock, so a network call never holds the usage journal lock. Dead
 collector owners are recoverable through the existing PID-based lock protocol.
 
-Events are `usage.threshold`, `usage.pause_requested`, `usage.reset`, and
+Events are `usage.threshold`, `usage.pause_requested`, `usage.reset_due`, `usage.reset`, and
 `usage.resume_pending`. They carry an `accountRef` instead of a fabricated pane.
 Pending publications retry with a delivery key; retained events deduplicate
 cross-process retries. Once a record is acknowledged and evicted, the queue

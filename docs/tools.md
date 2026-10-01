@@ -771,7 +771,7 @@ failed tool calls when reviewing telemetry or chat history.
 | `usage.configure` | `accountRef`, `provider: codex\|claude\|copilot`, `mode?: advisory\|automatic` (advisory), `enabled?` (true), `reservePercent?` (5), `weeklyReservePercent?` (5), `codexHome?` (absolute path), `profile?`, `workerIds?` (registered UUIDs). Replaces configuration and cancels previous continuation intents; rejects automatic mode without verified capabilities. |
 | `usage.status` | `accountRef?` → account snapshots, policy, freshness, pause reason, next check, session hook deliveries, capabilities, and storage/monitor diagnostics. |
 | `usage.refresh` | `accountRef` → bounded read without inference, at most once a minute. Passive/unavailable sources return `USAGE_REFRESH_UNSUPPORTED`; provider failures remain observable in status. |
-| `usage.watch` | `accountRef`, `thresholdsUsedPercent?` (80, 90, 95), `notifyOnReset?` (true). Events describe threshold crossings and confirmed resets, with hysteresis and durable retry deduplication. |
+| `usage.watch` | `accountRef`, `thresholdsUsedPercent?` (80, 90, 95), `notifyOnReset?` (true). Events describe threshold crossings, expected reset deadlines (`usage.reset_due`), and confirmed resets, with hysteresis and durable retry deduplication. |
 | `usage.unwatch` | `accountRef` → remove warning subscription without removing the policy or observations. |
 
 `orchestrator.attention` adds a usage snapshot. `orchestrator.status` preserves its
@@ -789,3 +789,9 @@ filter also includes all four usage event kinds. An armed waiter can therefore
 notify an idle supervisor in clients that resume on background completion,
 without enabling automatic enforcement. After a reserve warning the supervisor
 coordinates checkpoints and pauses through normal tools.
+
+`usage.status` includes persisted `resetAlerts` (bucket, kind, provider reset time in
+milliseconds, and whether notified). At reserve, known five-hour and weekly reset
+times arm alerts independently of provider polling. `usage.reset_due` is included
+in the default supervisor waiter; it requests fresh quota checks, never authorizes
+resumption. Disabling an account or reset notifications cancels future alerts.

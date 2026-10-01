@@ -72,7 +72,10 @@ export async function usageHook(usage: UsageService, accountRef: string, client:
             `${w.kind}: ${w.usedPercent ?? 'unknown'}% used, reset ${w.resetsAt === null ? 'unknown' : new Date(w.resetsAt).toISOString()}`,
         )
         .join('; ') || 'quota unknown';
-    const message = `Term Dad usage (${accountRef}, ${freshness(a.observation, usage.now())}): ${windows}. ${
+    const resetNotice = a.resetAlerts.some((alert) => alert.notified)
+      ? 'Expected reset time has passed. Check fresh five-hour and weekly allowances before resuming workers; recovery is not confirmed. '
+      : '';
+    const message = `Term Dad usage (${accountRef}, ${freshness(a.observation, usage.now())}): ${windows}. ${resetNotice}${
       paused
         ? 'Account paused. Save a concise checkpoint in the task board and end this turn. Do not dispatch new work. Automatic wake requires fresh short-window and weekly allowances above the configured reserves.'
         : reserveReached

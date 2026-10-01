@@ -15,6 +15,7 @@ import {
   type UsageObservation,
 } from './usage-model.js';
 import { evaluateUsage, evaluateWarnings, usageEvent } from './usage-policy.js';
+import { scheduleResetAlerts, deliverResetAlerts } from './usage-reset.js';
 import type { NotificationProvider } from './notifications.js';
 
 export class UsageService {
@@ -98,6 +99,7 @@ export class UsageService {
           // Reconfiguration never replays a previous resume request into old sessions.
           for (const session of existing.sessions) session.cancelled = true;
           evaluateUsage(existing, this.now());
+          scheduleResetAlerts(existing);
         } else {
           if (s.accounts.length >= 32) throw new Error('USAGE_ACCOUNT_LIMIT');
           const a: UsageAccount = {
@@ -113,6 +115,7 @@ export class UsageService {
             failures: 0,
             error: null,
             fired: [],
+            resetAlerts: [],
             pending: [],
             sessions: [],
           };
@@ -142,6 +145,7 @@ export class UsageService {
           freshness: freshness(a.observation, this.now()),
           observation: a.observation,
           nextCheckAt: a.nextCheckAt,
+          resetAlerts: a.resetAlerts,
           error: a.error,
           reservePercent: a.config.reservePercent,
           weeklyReservePercent: a.config.weeklyReservePercent,
@@ -158,6 +162,7 @@ export class UsageService {
       const w = usageWatchSchema.parse(input);
       await this.mutate(w.accountRef, (a) => {
         a.watch = w;
+        scheduleResetAlerts(a);
         evaluateWarnings(a, this.now());
       });
       await this.flush();
@@ -168,6 +173,7 @@ export class UsageService {
     return this.run(async () => {
       await this.mutate(ref, (a) => {
         a.watch = null;
+        scheduleResetAlerts(a);
       });
       return this.status(ref);
     });
@@ -212,6 +218,7 @@ export class UsageService {
         }
         evaluateWarnings(a, this.now());
         evaluateUsage(a, this.now());
+        scheduleResetAlerts(a);
       });
       await this.flush();
     });
@@ -271,6 +278,15 @@ export class UsageService {
       }
   }
   async tick() {
+    if (this.closed) return;
+    // Deadline delivery must run even while a previous tick is waiting on provider I/O.
+    await this.run(async () => {
+      await this.storage.transaction(true, (s) => {
+        for (const a of s.accounts) deliverResetAlerts(a, this.now());
+        return { state: s, result: undefined };
+      });
+      await this.flush();
+    });
     if (this.ticking || this.closed) return;
     this.ticking = true;
     try {

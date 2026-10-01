@@ -89,6 +89,19 @@ export const usageAccountSchema = z
     failures: z.number().int().nonnegative().max(20),
     error: z.string().max(100).nullable(),
     fired: z.array(z.string().max(200)).max(320),
+    resetAlerts: z
+      .array(
+        z
+          .object({
+            bucketId: usageId,
+            kind: usageWindowSchema.shape.kind,
+            resetsAt: z.number().int().nonnegative().safe(),
+            notified: z.boolean(),
+          })
+          .strict(),
+      )
+      .max(32)
+      .default([]),
     pending: z.array(pendingSchema).max(64),
     sessions: z.array(sessionSchema).max(64),
   })

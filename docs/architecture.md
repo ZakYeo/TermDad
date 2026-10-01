@@ -503,3 +503,15 @@ to checkpoint and pause through ordinary tools. Default supervisor waiter filter
 include usage events, allowing existing client-supported process-completion wake
 behavior to carry them; neither event publication nor hook output proves a model
 reacted or stopped its workers.
+
+Reset deadlines are persisted separately from provider retry scheduling. The
+one-second monitor claims due alerts and enqueues `usage.reset_due` atomically
+before quota collection, including while an earlier collection is in flight.
+Multiple servers share the same journal claim; publication uses the existing
+outbox. Stale readings and provider failures cannot suppress a scheduled alert.
+New observations reconcile deadlines by bucket, kind, and reset timestamp;
+reconfiguration, disabling, and unwatching cancel obsolete deadlines. The alert
+changes no quota reading or dispatch eligibility. Overdue deadlines survive
+restart, but nothing runs while all MCP processes are closed. Older usage journals
+load with an empty deadline list; obtain a fresh observation after upgrading.
+Restart all clients together: older binaries reject the added journal field.

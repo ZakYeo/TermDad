@@ -350,3 +350,72 @@ test('legacy events survive new account events and standalone account filters', 
   const result = await waitForEvent(parseWaitArgs(['--accounts', 'a', '--after-sequence', '1', '--state-dir', f.dir]));
   assert.equal(JSON.parse(result.output).event.id, e.id);
 });
+
+test('persisted reset deadlines notify once after restart without fresh provider data', async (t) => {
+  const f = await fixture(t);
+  await f.usage.configure({ accountRef: 'a', provider: 'claude' });
+  await f.usage.ingest('a', f.observation(95));
+  f.advance(18000_000 - 1);
+  await f.usage.tick();
+  assert.equal((await f.events.list()).events.filter((e) => e.kind === 'usage.reset_due').length, 0);
+  await f.usage.close();
+  f.advance(1);
+  const peer = new UsageService(new FileUsageStorage(f.dir), f.events, f.providers, f.now);
+  t.after(() => peer.close());
+  await Promise.all([peer.tick(), peer.tick()]);
+  await peer.tick();
+  const due = (await f.events.list()).events.filter((e) => e.kind === 'usage.reset_due');
+  assert.equal(due.length, 1);
+  assert.equal(due[0].accountRef, 'a');
+  assert.ok(wakeKinds.includes('usage.reset_due'));
+  assert.equal((await peer.status('a')).accounts[0].freshness, 'stale');
+  const hook = await usageHook(peer, 'a', 'claude', { session_id: 'supervisor' });
+  assert.match(JSON.stringify(hook), /Expected reset time has passed/);
+  assert.match(JSON.stringify(hook), /recovery is not confirmed/);
+});
+
+test('reset alerts follow revised deadlines and cancel on unwatch or disable', async (t) => {
+  const f = await fixture(t);
+  await f.usage.configure({ accountRef: 'a', provider: 'claude' });
+  await f.usage.ingest('a', f.observation(95, 95, f.now() + 1000));
+  await f.usage.ingest('a', f.observation(95, 95, f.now() + 2000));
+  f.advance(1000);
+  await f.usage.tick();
+  assert.equal((await f.events.list()).events.filter((e) => e.kind === 'usage.reset_due').length, 0);
+  await f.usage.unwatch('a');
+  f.advance(1000);
+  await f.usage.tick();
+  assert.equal((await f.usage.account('a')).resetAlerts.length, 0);
+  await f.usage.watch({ accountRef: 'a' });
+  await f.usage.configure({ accountRef: 'a', provider: 'claude', enabled: false });
+  await f.usage.tick();
+  assert.equal((await f.events.list()).events.filter((e) => e.kind === 'usage.reset_due').length, 0);
+});
+
+test('reset alert reaches the waiter while provider refresh is blocked', async (t) => {
+  const f = await fixture(t);
+  await f.usage.configure({ accountRef: 'a', provider: 'codex' });
+  await f.usage.ingest('a', f.observation(95, 95, f.now() + 1000));
+  let release!: () => void;
+  let started!: () => void;
+  const entered = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  f.providers.codex.read = async () => {
+    started();
+    await new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    throw new Error('offline');
+  };
+  const collecting = f.usage.tick();
+  await entered;
+  try {
+    f.advance(1000);
+    await f.usage.tick();
+    assert.equal((await f.events.list()).events.filter((e) => e.kind === 'usage.reset_due').length, 1);
+  } finally {
+    release();
+    await collecting;
+  }
+});
