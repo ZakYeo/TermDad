@@ -101,68 +101,27 @@ and the [architecture](docs/architecture.md) for how they work.
 
 ## Usage monitoring and hooks
 
-Configure an account through MCP, for example:
+Term Dad tracks account allowances and defaults to warnings at **80%, 90%, and
+95% used**.
+Installed client hooks notify the supervising assistant at its next supported
+boundary. At **5% remaining**, the warning asks it to checkpoint and pause workers.
 
-```js
-usage.configure({ accountRef: "codex-personal", provider: "codex" })
-usage.refresh({ accountRef: "codex-personal" })
-usage.status({ accountRef: "codex-personal" })
-```
+At the reserve, a provider-supplied reset time schedules a reminder to check
+fresh five-hour and weekly allowances before resuming. Keep the MCP server running
+and the supervisor event waiter armed; idle wake depends on client support.
+Built-in clients are advisory: the assistant handles pausing and resuming workers.
 
-Warnings default to **80%, 90%, and 95% used**. The reserve policy keeps **5%**
-of the five-hour and weekly allowances. The policy engine can park work at a
-safe boundary and permit continuation after fresh short-window **and** weekly
-checks; a reset timestamp alone never establishes recovery.
+Codex supports account reads; Claude collects usage through its status line.
+Copilot quota collection is not yet available.
 
-**Current support:** Codex has a read-only account collector; Claude has a passive
-status-line collector; Copilot account quotas are reported as unavailable.
-All built-in clients currently run in **advisory mode**. Automatic mode is rejected
-until collection, account identity, pause, and idle wake are verified together.
-This release does not promise unattended overnight pause/resume.
-
-**Advisory still means automatic notification:** installed hooks deliver usage
-warnings to the supervising assistant at its next supported boundary. At the 5%
-reserve, the warning tells it to checkpoint and pause affected sessions using its
-normal tools. The default `event.wake_command` waiter also includes usage alerts;
-keep it armed for idle supervision in clients that resume on background completion.
-The assistant handles stopping; Term Dad does not need automatic-enforcement
-support to send these warnings.
-
-When a reported five-hour or weekly allowance reaches its reserve, Term Dad saves
-its provider-supplied reset time. The local monitor emits `usage.reset_due` when
-that time passes, even if quota data is stale or collection is unavailable. Keep
-`event.wake_command` armed before parking work: its completion can wake supported
-clients to check fresh five-hour **and** weekly usage and then resume workers.
-This alert does not establish recovery or send worker input. The MCP process must
-remain running; after restart, overdue alerts are delivered once. Unknown reset
-times cannot be scheduled. `usage.status` shows `resetAlerts`; `usage.unwatch` or
-`notifyOnReset: false` cancels future reset alerts.
-
-Build first, configure the account, then preview and install its supervisor hooks:
-
-```sh
-npm run build
-node dist/index.js hooks preview --client codex --account codex-personal
-node dist/index.js hooks install --client codex --account codex-personal
-node dist/index.js hooks doctor --client codex
-```
-
-Use `--client claude` for Claude and configure a matching `provider: "claude"`
-account first. The installer preserves existing hooks and wraps an existing
-Claude status line. Copilot uses a project-local `.github/hooks/term-dad.json` by
-default. Restart the client and review its hook trust prompts; building does not
-install anything into personal configuration.
-
-Run the same `install` command after moving the checkout. To remove only the
-installer-owned entries, use `node dist/index.js hooks uninstall --client codex`.
-For alternate profiles/configuration paths, pass `--config` and the same
-`--state-dir` used by the MCP server.
-
-See [usage policies and support](docs/usage.md) and the
-[complete hook inventory and installation guide](docs/hooks.md), including the
-existing lifecycle push and desktop-notification hooks. All hook implementations
-and client templates live in this repository; local configuration only refers to
-the built helpers.
+- [Configure usage monitoring](docs/usage.md#configuration-and-tools): accounts,
+  thresholds, reserve policies, and reset alerts.
+- [Install client hooks](docs/hooks.md#install-supervisor-usage-hooks): preview,
+  install, verify, and remove repository-owned hooks.
+- [Check support and limits](docs/usage.md#support-and-limits): collection and wake
+  behavior for each client.
+- [Browse all Term Dad hooks](docs/hooks.md#inventory): usage, worker lifecycle,
+  and desktop notifications.
 
 ## Licensing
 
