@@ -50,8 +50,21 @@ export async function usageHook(usage: UsageService, accountRef: string, client:
         stopReason: 'Term Dad account allowance is reserved; waiting for fresh recovery checks.',
       };
     }
+    // These callbacks cannot deliver additionalContext. Do not consume a warning that
+    // must still reach the next model-visible hook (or the independently armed waiter).
+    if (!['sessionstart', 'userpromptsubmit', 'posttooluse'].includes(event)) return {};
     if (session.lastRevision === a.revision) return {};
     session.lastRevision = a.revision;
+    const reserveReached =
+      !a.error &&
+      freshness(a.observation, usage.now()) === 'fresh' &&
+      a.observation!.windows.some(
+        (w) =>
+          ['five_hour', 'weekly'].includes(w.kind) &&
+          w.usedPercent !== null &&
+          (w.resetsAt === null || w.resetsAt > usage.now()) &&
+          w.usedPercent >= 100 - (w.kind === 'weekly' ? a.config.weeklyReservePercent : a.config.reservePercent),
+      );
     const windows =
       a.observation?.windows
         .map(
@@ -62,9 +75,10 @@ export async function usageHook(usage: UsageService, accountRef: string, client:
     const message = `Term Dad usage (${accountRef}, ${freshness(a.observation, usage.now())}): ${windows}. ${
       paused
         ? 'Account paused. Save a concise checkpoint in the task board and end this turn. Do not dispatch new work. Automatic wake requires fresh short-window and weekly allowances above the configured reserves.'
-        : `Policy: reserve ${a.config.reservePercent}% short-window and ${a.config.weeklyReservePercent}% weekly. ${a.config.mode === 'advisory' ? 'Advisory only; automatic pause/resume is not enabled.' : 'Inspect saved tasks and pending worker results before continuing.'}`
+        : reserveReached
+          ? 'Usage reserve reached. As supervisor, pause new work on this account, request checkpoints from affected sessions, and park them at a safe boundary. Preserve panes and task state; agent.stop closes a pane, so do not use it to park work. Check fresh short-window and weekly allowances before continuing. Automatic enforcement is off; coordinate this through your normal tools.'
+          : `Policy: reserve ${a.config.reservePercent}% short-window and ${a.config.weeklyReservePercent}% weekly. ${a.config.mode === 'advisory' ? 'This is an automatic usage notification; enforcement remains supervisor-controlled. Check usage.status before new dispatch and reduce concurrency as allowance runs low. Stale or missing readings do not establish recovery.' : 'Inspect saved tasks and pending worker results before continuing.'}`
     }`;
-    if (['stop', 'agentstop', 'sessionend', 'interrupt'].includes(event)) return {};
     if (client === 'copilot') return { additionalContext: message };
     const hookEventName =
       event === 'userpromptsubmit' ? 'UserPromptSubmit' : event === 'sessionstart' ? 'SessionStart' : 'PostToolUse';

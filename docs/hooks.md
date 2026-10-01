@@ -57,7 +57,11 @@ Restart the client after installation. In Codex, review and trust the installed
 definitions using `/hooks`; enable lifecycle hooks in your client configuration
 if your version requires it. The installer never bypasses trust. Other client
 versions may require equivalent review. Current templates deliver advisory
-context; see the [support matrix](usage.md) before expecting automatic control.
+context automatically; the assistant need not choose to call a tool to receive
+it. At reserve exhaustion the message directs the supervisor to checkpoint and
+pause affected work itself. Informational callbacks that cannot add model context
+do not consume a pending warning. See the [support matrix](usage.md) before
+expecting automatic enforcement.
 
 `doctor` checks presence and exact entries, not whether a client executed them.
 Inspect `usage.status` session registrations after a real tool call to see that

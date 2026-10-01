@@ -87,8 +87,10 @@ flowchart LR
     Sources["Codex account API / Claude status line"] --> Usage
     Usage --> Events
     Usage --> Gate["Managed dispatch gate — verified automatic integrations only"]
-    Events --> Hooks["Repository-owned client hooks and notifications"]
+    Usage --> Hooks["Client hooks — automatic warnings to supervisor"]
+    Events --> Wake["Armed supervisor waiter / desktop notifications"]
     Hooks --> Client
+    Wake --> Client
 ```
 
 See the [MCP tool reference](docs/tools.md) for individual tools and examples,
@@ -114,6 +116,14 @@ status-line collector; Copilot account quotas are reported as unavailable.
 All built-in clients currently run in **advisory mode**. Automatic mode is rejected
 until collection, account identity, pause, and idle wake are verified together.
 This release does not promise unattended overnight pause/resume.
+
+**Advisory still means automatic notification:** installed hooks deliver usage
+warnings to the supervising assistant at its next supported boundary. At the 5%
+reserve, the warning tells it to checkpoint and pause affected sessions using its
+normal tools. The default `event.wake_command` waiter also includes usage alerts;
+keep it armed for idle supervision in clients that resume on background completion.
+The assistant handles stopping; Term Dad does not need automatic-enforcement
+support to send these warnings.
 
 Build first, configure the account, then preview and install its supervisor hooks:
 

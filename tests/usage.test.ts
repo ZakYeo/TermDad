@@ -9,6 +9,7 @@ import { EventQueue, FileEventStorage } from '../src/events.js';
 import { usageHook, claudeUsageFeed, claimUsageResume } from '../src/usage-hooks.js';
 import { normalizeCodex, normalizeClaude, defaultUsageProviders } from '../src/usage-providers.js';
 import { parseWaitArgs, waitForEvent } from '../src/wait-cli.js';
+import { wakeKinds } from '../src/event-tools.js';
 import type { UsageObservation } from '../src/usage-model.js';
 
 async function fixture(t: any, automatic = false) {
@@ -86,6 +87,66 @@ test('automatic mode is unavailable unless all capabilities are verified', async
       /AUTOMATIC_UNAVAILABLE/,
     );
   assert.equal((await f.usage.accounts()).length, 0);
+});
+
+test('advisory reserve notifications reach each supervising client without automatic capabilities', async (t) => {
+  const f = await fixture(t);
+  await f.usage.configure({ accountRef: 'a', provider: 'codex' });
+  for (const client of ['claude', 'codex', 'copilot'] as const) {
+    await usageHook(f.usage, 'a', client, { session_id: client, hook_event_name: 'SessionStart' });
+  }
+  // Weekly exhaustion must notify even when the five-hour source is unavailable.
+  const observation = f.observation(10, 95);
+  observation.windows.shift();
+  await f.usage.ingest('a', observation);
+  for (const client of ['claude', 'codex', 'copilot'] as const) {
+    const data = { session_id: client, hook_event_name: 'PostToolUse' };
+    const output: any = await usageHook(f.usage, 'a', client, data);
+    const message = output.additionalContext ?? output.hookSpecificOutput.additionalContext;
+    assert.match(message, /Usage reserve reached/);
+    assert.match(message, /pause new work on this account/);
+    assert.match(message, /Preserve panes/);
+    assert.equal(output.continue, undefined, 'notify the assistant, do not enforce stopping');
+    assert.deepEqual(await usageHook(f.usage, 'a', client, data), {});
+  }
+  assert.equal((await f.usage.account('a')).phase, 'running');
+});
+
+test('Stop and unsupported callbacks do not consume an undelivered advisory warning', async (t) => {
+  const f = await fixture(t);
+  await f.usage.configure({ accountRef: 'a', provider: 'codex' });
+  await usageHook(f.usage, 'a', 'codex', { session_id: 'supervisor', hook_event_name: 'SessionStart' });
+  await f.usage.ingest('a', f.observation(95));
+  for (const hook_event_name of ['Stop', 'Notification'])
+    assert.deepEqual(await usageHook(f.usage, 'a', 'codex', { session_id: 'supervisor', hook_event_name }), {});
+  const output: any = await usageHook(f.usage, 'a', 'codex', {
+    session_id: 'supervisor',
+    hook_event_name: 'PostToolUse',
+  });
+  assert.match(output.hookSpecificOutput.additionalContext, /Usage reserve reached/);
+});
+
+test('default supervisor waiter receives a newly crossed usage threshold in advisory mode', async (t) => {
+  const f = await fixture(t);
+  await f.usage.configure({ accountRef: 'a', provider: 'codex' });
+  let published = false;
+  const result = await waitForEvent(
+    parseWaitArgs(['--state-dir', f.dir, '--kinds', wakeKinds.join(','), '--timeout-seconds', '1']),
+    {
+      now: f.now,
+      sleep: async () => {
+        f.advance(100);
+        if (!published) {
+          published = true;
+          await f.usage.ingest('a', f.observation(82));
+        }
+      },
+    },
+  );
+  const output = JSON.parse(result.output);
+  assert.equal(output.status, 'event');
+  assert.equal(output.event.kind, 'usage.threshold');
+  assert.equal(output.event.accountRef, 'a');
 });
 
 test('95% gates dispatch; reset with low weekly stays paused; fresh healthy data permits one resume', async (t) => {

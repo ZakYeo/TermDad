@@ -782,3 +782,10 @@ stale, expired, missing, and failed readings cannot authorize recovery.
 
 Current built-in integrations are advisory only. See [usage support](usage.md)
 and [hook installation](hooks.md) for exact limitations and installation commands.
+
+Advisory does not mean manual notification: installed hooks automatically deliver
+warnings at supported model-context boundaries. The default `event.wake_command`
+filter also includes all four usage event kinds. An armed waiter can therefore
+notify an idle supervisor in clients that resume on background completion,
+without enabling automatic enforcement. After a reserve warning the supervisor
+coordinates checkpoints and pauses through normal tools.

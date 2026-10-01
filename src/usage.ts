@@ -206,8 +206,10 @@ export class UsageService {
                 w.usedPercent < p.usedPercent,
             ),
           )
-        )
+        ) {
           usageEvent(a, 'usage.reset', 'A fresh provider observation confirms allowance recovery', this.now());
+          a.revision++;
+        }
         evaluateWarnings(a, this.now());
         evaluateUsage(a, this.now());
       });

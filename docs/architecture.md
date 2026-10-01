@@ -495,3 +495,11 @@ configuration and existing Claude renderers. Runtime hooks consume only selected
 metadata, never persist full hook stdin, and have bounded input/output/subprocess
 lifetimes. See [usage](usage.md) and [hooks](hooks.md) for capabilities, installation,
 and the complete lifecycle hook inventory.
+
+Advisory notification is independent of the automatic-control capability gate.
+Usage changes advance the per-session context revision, while callbacks unable to
+inject context leave it unconsumed. Reserve notices ask the supervising assistant
+to checkpoint and pause through ordinary tools. Default supervisor waiter filters
+include usage events, allowing existing client-supported process-completion wake
+behavior to carry them; neither event publication nor hook output proves a model
+reacted or stopped its workers.

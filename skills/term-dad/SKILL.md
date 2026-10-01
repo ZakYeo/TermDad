@@ -177,7 +177,17 @@ When usage monitoring is configured, inspect `usage.status` before dispatching a
 large batch. Bind worker UUIDs explicitly through `usage.configure`, or pass the
 account reference to `agent.spawn`; never infer an account from a client name.
 Warnings at 80/90/95% are account-wide, not per-worker balances. Keep unknown or
-stale limits unknown. Advisory mode does not promise automatic stopping or wake-up.
+stale limits unknown. Advisory mode automatically notifies you through installed
+hooks and the armed event waiter; enforcement remains your responsibility.
+
+Keep the default usage event kinds in `event.wake_command` when arming a waiter.
+On `usage.threshold`, read `usage.status` for that account. At the configured
+reserve (5% remaining by default), stop assigning new work to that account,
+request checkpoints from affected workers, and park them at a safe boundary.
+Use interruption only where appropriate; `agent.stop` closes the pane and is not
+a pause. Keep other accounts working where possible. A `usage.reset` notice is a
+reason to check both windows, not authorization to resume on stale weekly data.
+Do this in advisory mode too; do not wait for automatic enforcement to be enabled.
 
 If a verified account policy requests a pause, record the task/attempt and a
 concise continuation checkpoint, stop dispatching on that account, and end the

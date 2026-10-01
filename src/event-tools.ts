@@ -14,6 +14,10 @@ export const wakeKinds = [
   'ready',
   'pane_disappeared',
   'session_ended',
+  'usage.threshold',
+  'usage.reset',
+  'usage.pause_requested',
+  'usage.resume_pending',
 ] as const;
 const shellWord = (value: string) =>
   /^[A-Za-z0-9_./:=,@%+-]+$/.test(value) ? value : `'${value.replaceAll("'", `'\\''`)}'`;

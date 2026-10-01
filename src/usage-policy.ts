@@ -9,6 +9,7 @@ export function usageEvent(a: UsageAccount, kind: string, summary: string, now: 
 export function evaluateUsage(a: UsageAccount, now: number) {
   const reason = eligibility(a, now);
   const previous = a.phase;
+  const previousReason = a.reason;
   if (!a.config.enabled || a.config.mode === 'advisory') {
     a.phase = 'running';
     a.reason = a.config.enabled ? reason : 'disabled';
@@ -26,7 +27,7 @@ export function evaluateUsage(a: UsageAccount, now: number) {
     if (a.phase === 'resume_pending' && previous !== 'resume_pending')
       usageEvent(a, 'usage.resume_pending', 'Fresh short-window and weekly allowances permit continuation', now);
   } else a.reason = null;
-  if (a.phase !== previous) a.revision++;
+  if (a.phase !== previous || a.reason !== previousReason) a.revision++;
 
   const relevant =
     a.observation?.windows.filter(

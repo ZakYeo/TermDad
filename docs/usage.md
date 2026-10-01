@@ -16,6 +16,14 @@ The built-in adapters deliberately report `verified: false`. Configuring
 the account. Unit tests use an injected verified adapter; that is not live-client
 evidence. Never edit the capability flags merely to bypass the check.
 
+Advisory mode automatically delivers notices through installed model-context
+hooks. At the configured reserve, the notice asks the supervising assistant to
+checkpoint and pause affected sessions itself. Automatic policy capabilities do
+not gate these notices. At idle, keep the `event.wake_command` background waiter
+armed: its defaults include threshold, reset, pause-request, and resume-pending
+events. Process completion wakes the assistant only where the client supports
+that behavior; merely writing an event or showing a desktop alert does not.
+
 The standalone `usage-hook --wait` helper supports a conditional resume signal
 for a future verified integration. It is not installed as an idle wake hook for
 the built-in advisory adapters. Native client integration must verify both its

@@ -639,3 +639,13 @@ that complete cycle. Built-in integrations remain advisory and reject automatic
 mode. Claude collection was exercised with synthetic documented status-line
 payloads, not an authenticated Claude session; Copilot quota acquisition remains
 unsupported. Recovery and screenshot live suites were not rerun for this change.
+
+### Advisory supervisor notifications — 2026-10-01 follow-up
+
+`npm run check` passed build, formatting, and **335 tests** after completing the
+advisory notification path. Added deterministic checks that all three client
+context formats receive an actionable reserve warning without automatic-control
+capabilities, Stop/unsupported callbacks do not consume pending warnings, and the
+default supervisor waiter receives newly published usage threshold events.
+The weekly-only exhausted allowance case is included. These verify helper output
+and event delivery, not a live client's model reaction or idle wake behavior.
