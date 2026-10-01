@@ -42,5 +42,5 @@ finished work, current task/attempt, remaining steps and uncertain outcomes, the
 end the turn without closing the pane or claiming the task is complete. Do not
 start additional model work to poll a reset timer. Continue only when the
 supervisor resumes the assignment after fresh quota checks; inspect existing
-state instead of replaying the last command. Advisory warnings alone are not
-proof that automatic pause/wake is installed or verified.
+state instead of replaying the last command. Term Dad measures and notifies;
+the supervisor coordinates pausing and resuming.

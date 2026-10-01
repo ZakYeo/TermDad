@@ -470,18 +470,11 @@ configured accounts and ends with the hosting process.
 Dedicated collector locks exclude duplicate reads across local MCP processes;
 provider I/O never holds the usage journal lock. Freshness and provider reset
 metadata gate recovery. Failed reads retain last-known values and expose errors.
-Automatic policy is an explicit capability gate covering collection, account
-identity, pause, wake, and live verification. Built-in adapters currently fail
-that gate and remain advisory. Tests inject verified capabilities without making
-claims about real client behavior.
-
-For eligible integrations the worker boundary checks reserve policy immediately
-before managed submission, including deferred first prompts. Raw terminal control
-remains deliberate user control. Hooks bind sessions to explicit accounts, carry
-bounded context into a client, record cooperative parking, and cancel continuation
-on interruption/end. A per-session resume claim avoids duplicate automatic input;
-claiming is not proof a client received it. Task state remains separate, and no
-terminal input is replayed by the usage monitor.
+Term Dad only measures and notifies; the supervisor controls worker execution.
+Account references bind workers to usage snapshots without gating input.
+Hooks bind sessions to explicit accounts and deliver bounded context; session
+revisions track notice delivery, not whether a worker is paused. Ended sessions
+stop receiving context. No pause/resume claims or usage-driven worker input exist.
 
 Event journal version 2 permits account subjects and bounded producer delivery
 keys. Both MCP and the independent waiter validate old records without discarding
@@ -496,7 +489,6 @@ metadata, never persist full hook stdin, and have bounded input/output/subproces
 lifetimes. See [usage](usage.md) and [hooks](hooks.md) for capabilities, installation,
 and the complete lifecycle hook inventory.
 
-Advisory notification is independent of the automatic-control capability gate.
 Usage changes advance the per-session context revision, while callbacks unable to
 inject context leave it unconsumed. Reserve notices ask the supervising assistant
 to checkpoint and pause through ordinary tools. Default supervisor waiter filters
@@ -511,10 +503,10 @@ Multiple servers share the same journal claim; publication uses the existing
 outbox. Stale readings and provider failures cannot suppress a scheduled alert.
 New observations reconcile deadlines by bucket, kind, and reset timestamp;
 reconfiguration, disabling, and unwatching cancel obsolete deadlines. The alert
-changes no quota reading or dispatch eligibility. Overdue deadlines survive
-restart, but nothing runs while all MCP processes are closed. Older usage journals
-load with an empty deadline list; obtain a fresh observation after upgrading.
-Restart all clients together: older binaries reject the added journal field.
+changes no quota reading and sends no worker input. Overdue deadlines survive
+restart, but nothing runs while all MCP processes are closed. Usage journal version 2 migrates validated version-1 state, retaining monitoring
+data and removing obsolete control fields and pending control notices.
+Restart all clients together: older binaries cannot read the new journal.
 
 Collection fencing uses a source-configuration revision, separate from the
 model-context revision. Spawn account ownership is persisted on the worker record;

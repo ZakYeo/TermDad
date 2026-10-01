@@ -5,29 +5,22 @@ telemetry. Several workers may share one quota; their percentages are never adde
 
 ## Support and limits
 
-| Source/client | Collection | Active-session context | Automatic pause and idle resume |
-| --- | --- | --- | --- |
-| Codex | Documented app-server account/rateLimits/read; no model turn | Repository-owned lifecycle hook | Unavailable: account/workspace identity and pause/wake not verified together |
-| Claude Code | Documented statusLine rate_limits fields, when present | Repository-owned lifecycle hook | Unavailable: no supported fresh read while paused; account identity unverified |
-| Copilot CLI | Explicitly unavailable; no estimated subscription quota | Repository-owned lifecycle hook can describe account status | Unavailable: quota collector and pause/wake not verified |
+| Source/client | Collection | Supervisor notifications |
+| --- | --- | --- |
+| Codex | Read-only app-server account/rateLimits/read; no model turn | Repository-owned lifecycle hooks |
+| Claude Code | Passive statusLine rate_limits fields, when present | Repository-owned lifecycle hooks |
+| Copilot CLI | Unavailable; session tokens are not subscription quota | Hooks can describe configured account status |
 
-The built-in adapters deliberately report `verified: false`. Configuring
-`mode: "automatic"` fails with `USAGE_AUTOMATIC_UNAVAILABLE`, without changing
-the account. Unit tests use an injected verified adapter; that is not live-client
-evidence. Never edit the capability flags merely to bypass the check.
+Term Dad measures usage and delivers notices. The supervising assistant decides
+when to checkpoint, pause, and resume workers through its normal tools. There is
+no automatic-control mode, dispatch gate, or pause/resume state machine.
 
-Advisory mode automatically delivers notices through installed model-context
-hooks. At the configured reserve, the notice asks the supervising assistant to
-checkpoint and pause affected sessions itself. Automatic policy capabilities do
-not gate these notices. At idle, keep the `event.wake_command` background waiter
-armed: its defaults include threshold, reset-due, confirmed-reset, pause-request, and resume-pending
-events. Process completion wakes the assistant only where the client supports
-that behavior; merely writing an event or showing a desktop alert does not.
-
-The standalone `usage-hook --wait` helper supports a conditional resume signal
-for a future verified integration. It is not installed as an idle wake hook for
-the built-in advisory adapters. Native client integration must verify both its
-stop semantics and the complete wake delivery before advertising automatic mode.
+Installed hooks deliver context at supported client boundaries. At idle, keep the
+`event.wake_command` background waiter armed: its defaults include threshold,
+reset-due, and observed-reset events. Process completion wakes the assistant only
+where the client supports that behavior; writing an event or showing a desktop
+alert does not itself wake a model. Claude's passive feed cannot provide a fresh
+reading while the client is paused unless it receives new quota data.
 
 Sources: [Codex account API](https://learn.chatgpt.com/docs/app-server#6-rate-limits-chatgpt),
 [Codex hooks](https://learn.chatgpt.com/docs/hooks),
@@ -41,7 +34,6 @@ Sources: [Codex account API](https://learn.chatgpt.com/docs/app-server#6-rate-li
 usage.configure({
   accountRef: "personal",
   provider: "codex",
-  mode: "advisory",
   reservePercent: 5,
   weeklyReservePercent: 5,
   workerIds: []
@@ -76,24 +68,28 @@ API-duration counter does not refresh its observation time. Existing status-line
 rendering remains intact. Model-specific windows not exposed by the documented
 feed cannot be inferred from token counts.
 
-`usage.unwatch` removes threshold/reset alerts, not the reserve policy. Set
-`enabled: false` through `usage.configure` to disable the account. Reconfiguration
-cancels outstanding continuation intents. Account removal and private provider
-endpoints are not exposed.
+`usage.unwatch` removes threshold/reset alerts, but keeps collection and
+observations. Set `enabled: false` through `usage.configure` to disable the account.
+Account removal and private provider endpoints are not exposed.
 
-## Policy semantics
+## Usage workflow
 
-In an integration with verified automatic capabilities, `>=95%` short-window or
-weekly usage closes the account's managed dispatch gate. Each session receives a
-checkpoint-and-stop instruction at a supported hook boundary; a Stop hook records
-that it parked. The service does not close panes or mark tasks complete. Work on
-other accounts may continue. A bound worker is checked again immediately before
-managed input, including the initial prompt after a readiness wait.
+```mermaid
+flowchart TD
+    Read["Term Dad reads usage"] --> Warn["Reserve reached: notify supervisor"]
+    Warn --> Pause["Supervisor checkpoints and pauses workers"]
+    Warn --> Timer["Term Dad saves the provider reset deadline"]
+    Timer --> Alert["Reset due: notify supervisor through armed waiter"]
+    Alert --> Check["Supervisor checks fresh five-hour and weekly usage"]
+    Check -->|Both above reserve| Resume["Supervisor resumes workers"]
+    Check -->|Low or unknown| Wait["Keep workers paused; arrange another check"]
+```
 
-The policy state distinguishes `running`, `pause_requested`, `paused`, and
-`resume_pending`. Refresh errors and the next scheduled check are reported
-separately. The client reports its checkpoint through the existing task board;
-the quota journal does not copy prompts, terminal contents, or transcripts.
+Before pausing, arm the event waiter and keep the MCP process running. The default
+reserve is 5% in both windows. Request checkpoints and preserve panes and task
+state; `agent.stop` closes a pane and is not a pause. Before resuming, inspect
+pending results, assignments, permission screens, and uncertain input. Never
+replay a command merely because the quota reset.
 
 When a known five-hour or weekly window reaches its reserve, its reset timestamp
 arms a durable local alert. `usage.reset_due` fires at the expected deadline,
@@ -106,19 +102,13 @@ cannot arm an alert. Disabling the account, unwatching, or setting
 `notifyOnReset: false` cancels future alerts. New observations replace obsolete
 deadlines. Existing journals acquire deadlines with their next observation.
 
-The reset timestamp also schedules a provider check, not an assumed new allowance. Every
-applicable five-hour and weekly window must have **more than** its reserve left.
-Readings older than two minutes, expired reset timestamps, missing windows, and
-failed reads cannot authorize continuation. Weekly exhaustion takes precedence
-when choosing the next recovery check. Provider reads are limited to once a
-minute with exponential failure backoff capped at fifteen minutes.
-
-Continuation is claimed once per pause cycle and session. The next model turn
-must inspect task/attempt state, permission screens, and uncertain worker input;
-no previous terminal command is replayed. Interrupt/session-end hooks cancel
-that session's continuation intent. Hook output is delivery evidence, not proof
-the model followed the instruction. Manual terminal commands and independent
-clients are outside managed dispatch enforcement.
+The supervisor should require every applicable five-hour and weekly window to
+have **more than** its reserve left. Status reports readings older than two
+minutes, expired reset timestamps, missing windows, and failed reads as concerns.
+These readings cannot establish recovery. Provider polling runs at most once a
+minute with exponential failure backoff capped at fifteen minutes; reset alerts
+run independently. Unknown quotas may require a manual check or a later event.
+Hook output is delivery evidence, not proof the assistant followed the request.
 
 The 5% threshold cannot guarantee a hard spending ceiling: provider reporting
 lags and in-flight work may overshoot. There is no automatic provider switching.
@@ -131,8 +121,8 @@ Metadata uses the existing atomic journal contract. Collectors use a separate
 per-account lock, so a network call never holds the usage journal lock. Dead
 collector owners are recoverable through the existing PID-based lock protocol.
 
-Events are `usage.threshold`, `usage.pause_requested`, `usage.reset_due`, `usage.reset`, and
-`usage.resume_pending`. They carry an `accountRef` instead of a fabricated pane.
+Events are `usage.threshold`, `usage.reset_due`, and `usage.reset`. They carry an
+`accountRef` instead of a fabricated pane.
 Pending publications retry with a delivery key; retained events deduplicate
 cross-process retries. Once a record is acknowledged and evicted, the queue
 cannot guarantee deduplication across an old interrupted producer retry.
@@ -143,19 +133,34 @@ is bounded to eight concurrent notifications and cannot hold up quota collection
 or reset-event publication. `usage.status.notificationError` reports desktop
 failures. If the 64-entry account outbox fills, only the oldest already-published
 desktop retry may be evicted; `usage.status.accounts[].notificationDropped` exposes
-the count. Unpublished events are never discarded. Successfully published events are not republished just to retry desktop
-delivery. Notification context revisions are separate from source-configuration
+the count. Unpublished monitoring events are never discarded. Successfully published events
+are not republished just to retry desktop delivery. Notification context revisions are separate from source-configuration
 revisions, so a reset alert does not invalidate an in-flight quota read.
 When one observation crosses several thresholds for a window, one event reports
 the highest crossed threshold and the number crossed; every threshold is still
 tracked individually for deduplication and hysteresis.
 
 Monitoring ends when the hosting MCP process closes. Reopening reloads durable
-state and refreshes before any automatic work. No background OS service is
-installed. Event journal writes now use version 2: upgrade all Term Dad clients
+state and resumes monitoring. No background OS service is installed. Event journal writes now use version 2: upgrade all Term Dad clients
 sharing the state directory together. Existing version-1 IDs, sequences, and
 acknowledgments are retained. An old binary cannot read version 2; do not downgrade
 without restoring a compatible backup while all writers are stopped.
+
+## Upgrading from the earlier control model
+
+Usage journal version 2 reads and migrates version-1 accounts, observations,
+reset deadlines, and pending monitoring notifications. It removes control state
+and pending pause/resume notices. Already published events remain in the
+event journal for inspection and acknowledgment; they are not worker instructions.
+The next usage mutation saves version 2. Restart all clients sharing the state
+directory together; older binaries cannot read the new usage journal.
+
+Remove `mode` from `usage.configure` calls. Status no longer returns `mode`,
+`phase`, parked-session state, or pause/wake capabilities; `collection` reports
+`active`, `passive`, or `unavailable`. `reason` describes quota concerns, not a
+worker's execution state. Rerun `hooks install` to remove installer-owned Stop
+hooks while preserving unrelated hooks. Custom `usage-hook --wait` invocations
+must be replaced with `event.wake_command`.
 
 ## Verification
 

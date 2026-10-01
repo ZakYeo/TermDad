@@ -177,8 +177,8 @@ When usage monitoring is configured, inspect `usage.status` before dispatching a
 large batch. Bind worker UUIDs explicitly through `usage.configure`, or pass the
 account reference to `agent.spawn`; never infer an account from a client name.
 Warnings at 80/90/95% are account-wide, not per-worker balances. Keep unknown or
-stale limits unknown. Advisory mode automatically notifies you through installed
-hooks and the armed event waiter; enforcement remains your responsibility.
+stale limits unknown. Term Dad notifies you through installed hooks and the armed
+event waiter; pausing and resuming workers remain your responsibility.
 
 Keep the default usage event kinds in `event.wake_command` when arming a waiter.
 On `usage.threshold`, read `usage.status` for that account. At the configured
@@ -187,12 +187,14 @@ request checkpoints from affected workers, and park them at a safe boundary.
 Use interruption only where appropriate; `agent.stop` closes the pane and is not
 a pause. Keep other accounts working where possible. A `usage.reset` notice is a
 reason to check both windows, not authorization to resume on stale weekly data.
-Do this in advisory mode too; do not wait for automatic enforcement to be enabled.
 
-If a verified account policy requests a pause, record the task/attempt and a
+When pausing for usage, record the task/attempt and a
 concise continuation checkpoint, stop dispatching on that account, and end the
-turn at the next safe boundary. Preserve panes and task state. While paused, wait
-for account recovery rather than rearming ordinary worker-ready wake-ups. Resume
+turn at the next safe boundary. Preserve panes and task state. Before parking,
+arm `event.wake_command` for usage events and keep the MCP process running.
+On `usage.reset_due`, check fresh five-hour and weekly quotas; a reminder is not
+proof of recovery. If data is low or unknown, keep workers paused and arrange
+another check rather than polling with model turns. Resume
 only after fresh short-window and all applicable weekly limits have more than
 5% remaining (or the configured reserves). A reset timestamp alone is insufficient.
 On continuation, inspect pending results, current assignments and permission

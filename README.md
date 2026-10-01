@@ -17,7 +17,7 @@ from one place.
 - **Progress monitoring:** watch for updates, finished turns, and requests for input.
 - **Worker recovery:** retain worker records across client restarts.
 - **Usage awareness:** monitor account allowances, receive threshold warnings, and
-  install repository-owned client hooks. Automatic pause/resume is capability-gated.
+  receive reset reminders through repository-owned client hooks and event waiters.
 - **Optional screenshots:** inspect the WezTerm window alongside text output.
 
 ## Install and setup
@@ -76,24 +76,10 @@ worker permission requests normally.
 ```mermaid
 flowchart LR
     Client["Your MCP client"] --> Dad["Term Dad"]
-    Dad --> Terminal["terminal.* — Control panes, input, and output"]
-    Dad --> Agents["agent.* — Start, direct, observe, and recover workers"]
-    Dad --> Tasks["task.* — Plan, assign, and verify work"]
-    Dad --> Supervisor["orchestrator.* — Review status and attention needs"]
-    Dad --> Watches["watch.* — Monitor panes and workers"]
-    Dad --> Events["event.* — Read, wait for, and acknowledge events"]
-    Dad --> Push["push.* — Configure worker-pushed updates"]
-    Dad --> Usage["usage.* — Account quotas, warnings, and reserve policies"]
-    Sources["Codex account API / Claude status line"] --> Usage
-    Usage --> Reset["Persisted reset deadline — local timer"]
-    Reset --> Due["usage.reset_due — ask supervisor to verify quotas"]
-    Due --> Events
-    Usage --> Events
-    Usage --> Gate["Managed dispatch gate — verified automatic integrations only"]
-    Usage --> Hooks["Client hooks — automatic warnings to supervisor"]
-    Events --> Wake["Armed supervisor waiter / desktop notifications"]
-    Hooks --> Client
-    Wake --> Client
+    Dad --> Terminal["Terminal control"]
+    Dad --> Workers["Worker supervision"]
+    Dad --> Tasks["Tasks and verification"]
+    Dad --> Monitoring["Progress and usage monitoring"]
 ```
 
 See the [MCP tool reference](docs/tools.md) for individual tools and examples,
@@ -109,13 +95,13 @@ boundary. At **5% remaining**, the warning asks it to checkpoint and pause worke
 At the reserve, a provider-supplied reset time schedules a reminder to check
 fresh five-hour and weekly allowances before resuming. Keep the MCP server running
 and the supervisor event waiter armed; idle wake depends on client support.
-Built-in clients are advisory: the assistant handles pausing and resuming workers.
+The assistant handles pausing and resuming workers.
 
 Codex supports account reads; Claude collects usage through its status line.
 Copilot quota collection is not yet available.
 
 - [Configure usage monitoring](docs/usage.md#configuration-and-tools): accounts,
-  thresholds, reserve policies, and reset alerts.
+  thresholds, reserves, and the usage workflow.
 - [Install client hooks](docs/hooks.md#install-supervisor-usage-hooks): preview,
   install, verify, and remove repository-owned hooks.
 - [Check support and limits](docs/usage.md#support-and-limits): collection and wake

@@ -668,3 +668,23 @@ established; reset delivery tests use controlled clocks and quota observations.
 `npm run test:live` also passed against the running WezTerm GUI after the review
 fixes: shell spawn/input, broadcast, snapshots, task attention and verification,
 pane operations, interruption, and cleanup. No model inference was requested.
+
+### Usage simplified to measurement and notification — 2026-10-01
+
+`npm run check` passed build, formatting, and **351 tests** after removing usage
+control mode, dispatch gates, pause/resume state, resume claims, and the standalone
+resume helper. Earlier control-model evidence above is historical; those APIs and
+behaviors are no longer supported.
+
+Regression coverage verifies that reserve readings do not block sends, broadcasts,
+spawns, or initial prompts; unknown account bindings still fail before spawn.
+Version-1 usage journals migrate without losing observations, reset deadlines,
+or pending monitoring notices. Hooks still deliver reserve/reset context, ended
+sessions stop receiving it, and removed `mode`/`--wait` options are rejected.
+Installer upgrades remove the old owned Stop callback while preserving unrelated
+Stop hooks. Existing timer, retry, and collector regressions also passed.
+
+`npm run test:live` passed the real WezTerm shell/MCP round trip, including worker
+input, broadcast, task attention/verification, pane operations, interruption, and
+cleanup. No inference was requested and no personal hook configuration changed.
+These checks do not establish live assistant idle wake or model-directed resumption.

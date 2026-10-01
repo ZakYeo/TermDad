@@ -11,9 +11,8 @@ the implementation. The source of generated client templates is
 | --- | --- | --- |
 | Claude worker Stop, Notification, SessionEnd push | `src/worker-hooks.ts`, `src/term-dad-notify.ts` | Injected by `agent.spawn`; enabled with `push.set` |
 | Codex legacy notify lifecycle push | Same files | Existing launch-time `notify` configuration; preserved for surviving workers |
-| Supervisor usage context and cooperative pause | `src/usage-hooks.ts`, `src/usage-hook-cli.ts` | `hooks install`; account explicitly selected |
+| Supervisor usage warnings and reset context | `src/usage-hooks.ts`, `src/usage-hook-cli.ts` | `hooks install`; account explicitly selected |
 | Claude status-line usage collection | Same usage helper plus `src/usage-providers.ts` | Installed wrapper preserves the previous renderer |
-| Conditional resume waiter | `src/usage-hook-cli.ts` | Integration helper; not automatically installed for unverified clients |
 | Existing event wake waiter | `src/wait-cli.ts`, `src/event-tools.ts` | Obtain exact invocation with `event.wake_command` |
 | Desktop alerts | `src/notifications.ts`, `scripts/notify-wsl.ps1` | Explicit `TERM_DAD_NOTIFICATION_COMMAND` argv configuration |
 | Installer and client templates | `src/hook-install.ts`, `src/hook-config.ts` | Explicit preview/install/doctor/uninstall CLI |
@@ -56,12 +55,11 @@ not discover another process's account state automatically.
 Restart the client after installation. In Codex, review and trust the installed
 definitions using `/hooks`; enable lifecycle hooks in your client configuration
 if your version requires it. The installer never bypasses trust. Other client
-versions may require equivalent review. Current templates deliver advisory
+versions may require equivalent review. Current templates deliver usage
 context automatically; the assistant need not choose to call a tool to receive
 it. At reserve exhaustion the message directs the supervisor to checkpoint and
 pause affected work itself. Informational callbacks that cannot add model context
-do not consume a pending warning. See the [support matrix](usage.md) before
-expecting automatic enforcement.
+do not consume a pending warning. The supervisor controls workers; see the [usage workflow](usage.md#usage-workflow).
 
 `doctor` checks presence and exact entries, not whether a client executed them.
 Inspect `usage.status` session registrations after a real tool call to see that

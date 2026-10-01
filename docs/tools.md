@@ -768,27 +768,23 @@ failed tool calls when reviewing telemetry or chat history.
 
 | Tool | Arguments and behavior |
 | --- | --- |
-| `usage.configure` | `accountRef`, `provider: codex\|claude\|copilot`, `mode?: advisory\|automatic` (advisory), `enabled?` (true), `reservePercent?` (5), `weeklyReservePercent?` (5), `codexHome?` (absolute path), `profile?`, `workerIds?` (registered UUIDs). Replaces configuration and cancels previous continuation intents; rejects automatic mode without verified capabilities. |
-| `usage.status` | `accountRef?` → account snapshots, policy, freshness, pause reason, next check, session hook deliveries, capabilities, and storage/monitor diagnostics. |
+| `usage.configure` | `accountRef`, `provider: codex\|claude\|copilot`, `enabled?` (true), `reservePercent?` (5), `weeklyReservePercent?` (5), `codexHome?` (absolute path), `profile?`, `workerIds?` (registered UUIDs). Replaces monitoring configuration; worker execution remains supervisor-controlled. |
+| `usage.status` | `accountRef?` → account snapshots, reserves, freshness, quota concern (`reason`), next check, session hook deliveries, collection support (`active`, `passive`, or `unavailable`), and storage/monitor diagnostics. |
 | `usage.refresh` | `accountRef` → bounded read without inference, at most once a minute. Passive/unavailable sources return `USAGE_REFRESH_UNSUPPORTED`; provider failures remain observable in status. |
 | `usage.watch` | `accountRef`, `thresholdsUsedPercent?` (80, 90, 95), `notifyOnReset?` (true). Events describe threshold crossings, expected reset deadlines (`usage.reset_due`), and confirmed resets, with hysteresis and durable retry deduplication. |
-| `usage.unwatch` | `accountRef` → remove warning subscription without removing the policy or observations. |
+| `usage.unwatch` | `accountRef` → remove warning subscription without disabling collection or removing observations. |
 
 `orchestrator.attention` adds a usage snapshot. `orchestrator.status` preserves its
 array response and adds compact usage information only to bound workers. Quotas
-are account-wide, not sums of worker percentages. Every applicable short and
-weekly limit must have more than its reserve remaining before automatic dispatch;
-stale, expired, missing, and failed readings cannot authorize recovery.
+are account-wide, not sums of worker percentages. The supervisor checks fresh
+five-hour and weekly limits against the configured reserves before resuming work.
+Term Dad does not block dispatch or send pause/resume input.
 
-Current built-in integrations are advisory only. See [usage support](usage.md)
-and [hook installation](hooks.md) for exact limitations and installation commands.
-
-Advisory does not mean manual notification: installed hooks automatically deliver
-warnings at supported model-context boundaries. The default `event.wake_command`
-filter also includes all four usage event kinds. An armed waiter can therefore
-notify an idle supervisor in clients that resume on background completion,
-without enabling automatic enforcement. After a reserve warning the supervisor
-coordinates checkpoints and pauses through normal tools.
+Installed hooks deliver warnings at supported model-context boundaries. The
+default `event.wake_command` filter includes all three usage event kinds. An armed
+waiter can notify an idle supervisor in clients that resume on background
+completion. See the [usage workflow](usage.md#usage-workflow) and
+[hook installation](hooks.md) for operation and setup.
 
 `usage.status` includes persisted `resetAlerts` (bucket, kind, provider reset time in
 milliseconds, and whether notified). At reserve, known five-hour and weekly reset
