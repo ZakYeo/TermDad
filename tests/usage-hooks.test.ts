@@ -163,3 +163,29 @@ for (const configCommitted of [false, true]) {
     assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), original);
   });
 }
+
+test('upgrading hooks removes the old owned Stop callback and preserves unrelated Stop hooks', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'term-dad-hook-upgrade-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const path = join(dir, 'hooks.json');
+  const options = {
+    client: 'codex' as const,
+    accountRef: 'a',
+    stateDir: dir,
+    entry: '/repo/dist/index.js',
+    runtime: '/node',
+  };
+  await manageHooks('install', path, options);
+  const config = JSON.parse(await readFile(path, 'utf8'));
+  const manifest = JSON.parse(await readFile(`${path}.term-dad.json`, 'utf8'));
+  const owned = { hooks: [{ type: 'command', command: 'old-term-dad-stop' }] };
+  const unrelated = { hooks: [{ type: 'command', command: 'personal-stop' }] };
+  config.hooks.Stop = [owned, unrelated];
+  manifest.installed.hooks.Stop = [owned];
+  await writeFile(path, JSON.stringify(config));
+  await writeFile(`${path}.term-dad.json`, JSON.stringify(manifest));
+  await manageHooks('install', path, options);
+  const upgraded = JSON.parse(await readFile(path, 'utf8'));
+  assert.deepEqual(upgraded.hooks.Stop, [unrelated]);
+  assert.equal(JSON.parse(await readFile(`${path}.term-dad.json`, 'utf8')).installed.hooks.Stop, undefined);
+});

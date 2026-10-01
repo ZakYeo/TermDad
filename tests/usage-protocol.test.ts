@@ -26,7 +26,7 @@ test('usage monitoring preserves account context without gating send, broadcast 
     await f.call('agent.send', { agentId: 'bound', text: 'supervisor controlled' });
     assert.ok(f.calls.includes('send-text'));
     const count = f.panes.size;
-    await f.call('agent.spawn', { name: 'allowed', cli: 'shell', accountRef: 'a' });
+    await f.call('agent.spawn', { name: 'allowed', cli: 'shell', accountRef: 'a', prompt: 'supervisor initial task' });
     assert.equal(f.panes.size, count + 1);
     const result = await f.call('agent.broadcast', { agentIds: [worker.agentId, other.agentId], text: 'hello' });
     assert.equal(result[0].sent, true);
