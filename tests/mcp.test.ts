@@ -23,7 +23,7 @@ test('stdio MCP smoke: initialize, list tool schemas, validate calls and expose 
   try {
     await client.connect(transport);
     const { tools } = await client.listTools();
-    assert.equal(tools.length, 53);
+    assert.equal(tools.length, 58);
     for (const name of [
       'task.create',
       'task.get',

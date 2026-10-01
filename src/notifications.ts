@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import { execute } from './backend.js';
-import type { WatchEventInput } from './watches.js';
+import type { EventInput } from './events.js';
 export interface NotificationProvider {
-  notify(event: WatchEventInput): Promise<void>;
+  notify(event: EventInput): Promise<void>;
 }
 export type NotificationRunner = (file: string, args: string[], input: string, timeout: number) => Promise<string>;
 /** Trusted local command, JSON on stdin, no terminal content and no shell. */
@@ -24,7 +24,7 @@ export class CommandNotificationProvider implements NotificationProvider {
       .max(100)
       .parse(command);
   }
-  async notify(event: WatchEventInput) {
+  async notify(event: EventInput) {
     await this.run(this.command[0], this.command.slice(1), JSON.stringify(event), 5000);
   }
   static fromEnvironment() {

@@ -31,6 +31,13 @@ export async function usageHook(usage: UsageService, accountRef: string, client:
     }
     if (event === 'sessionstart') session.cancelled = false;
     if (session.cancelled || !a.config.enabled) return {};
+    if (
+      session.parked &&
+      session.resumeCycle === a.cycle &&
+      eligibility(a, usage.now()) === null &&
+      ['userpromptsubmit', 'posttooluse'].includes(event)
+    )
+      session.parked = false;
     evaluateUsage(a, usage.now());
     const paused =
       a.config.mode === 'automatic' && (eligibility(a, usage.now()) !== null || !usage.automatic(a.config));
@@ -43,7 +50,7 @@ export async function usageHook(usage: UsageService, accountRef: string, client:
         stopReason: 'Term Dad account allowance is reserved; waiting for fresh recovery checks.',
       };
     }
-    if (!paused && session.lastRevision === a.revision) return {};
+    if (session.lastRevision === a.revision) return {};
     session.lastRevision = a.revision;
     const windows =
       a.observation?.windows.map((w) => `${w.kind}: ${w.usedPercent ?? 'unknown'}% used`).join('; ') || 'quota unknown';
@@ -52,6 +59,7 @@ export async function usageHook(usage: UsageService, accountRef: string, client:
         ? 'Account paused. Save a concise checkpoint in the task board and end this turn. Do not dispatch new work. Automatic wake requires fresh short-window and weekly allowances above the configured reserves.'
         : `Policy: reserve ${a.config.reservePercent}% short-window and ${a.config.weeklyReservePercent}% weekly. ${a.config.mode === 'advisory' ? 'Advisory only; automatic pause/resume is not enabled.' : 'Inspect saved tasks and pending worker results before continuing.'}`
     }`;
+    if (['stop', 'agentstop', 'sessionend', 'interrupt'].includes(event)) return {};
     if (client === 'copilot') return { additionalContext: message };
     const hookEventName =
       event === 'userpromptsubmit' ? 'UserPromptSubmit' : event === 'sessionstart' ? 'SessionStart' : 'PostToolUse';

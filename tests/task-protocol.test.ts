@@ -39,7 +39,7 @@ test('production stdio task tools persist across restart and serialize conflicti
   t.after(() => cleanupClients(directory));
   const first = await connect(directory);
   t.after(() => first.client.close());
-  assert.equal((await first.client.listTools()).tools.length, 53);
+  assert.equal((await first.client.listTools()).tools.length, 58);
   await assert.rejects(access(join(directory, 'tasks.json')));
   const task = await first.call('task.create', {
     boardId: 'repo',

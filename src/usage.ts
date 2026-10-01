@@ -14,17 +14,20 @@ import {
   type UsageObservation,
 } from './usage-model.js';
 import { evaluateUsage, evaluateWarnings, usageEvent } from './usage-policy.js';
+import type { NotificationProvider } from './notifications.js';
 
 export class UsageService {
   private operations = new Set<Promise<unknown>>();
   private timer?: ReturnType<typeof setInterval>;
   private ticking = false;
   private closed = false;
+  private monitorError: string | null = null;
   constructor(
     readonly storage: UsageStorage = new FileUsageStorage(),
     readonly events?: EventQueue,
     readonly providers: Record<UsageConfig['provider'], UsageProvider> = defaultUsageProviders(),
     readonly now: () => number = Date.now,
+    readonly notifications?: NotificationProvider,
   ) {}
   private run<T>(fn: () => Promise<T>): Promise<T> {
     if (this.closed) return Promise.reject(new Error('USAGE_CLOSED'));
@@ -144,6 +147,7 @@ export class UsageService {
           sessions: a.sessions,
         })),
       storageWarning: this.storage.warning ?? null,
+      monitorError: this.monitorError,
     };
   }
   watch(input: unknown) {
@@ -248,13 +252,14 @@ export class UsageService {
     if (!this.events) return;
     for (const a of await this.accounts())
       for (const p of a.pending) {
-        await this.events.publish({
+        const event = await this.events.publish({
           kind: p.kind,
           accountRef: a.config.accountRef,
           deliveryKey: p.key,
           occurredAt: new Date(p.at).toISOString(),
           summary: p.summary,
         });
+        await this.notifications?.notify(event);
         await this.mutate(a.config.accountRef, (current) => {
           current.pending = current.pending.filter((e) => e.key !== p.key);
         });
@@ -268,7 +273,8 @@ export class UsageService {
         for (const a of await this.accounts()) {
           if (!a.config.enabled) continue;
           const now = this.now();
-          if (a.config.mode === 'automatic') await this.mutate(a.config.accountRef, (a) => evaluateUsage(a, now));
+          if (a.config.mode === 'automatic' && eligibility(a, now) !== a.reason)
+            await this.mutate(a.config.accountRef, (a) => evaluateUsage(a, now));
           if (
             this.providers[a.config.provider].read &&
             (a.nextCheckAt === null ||
@@ -286,7 +292,13 @@ export class UsageService {
   start() {
     if (this.timer || this.closed) return;
     this.timer = setInterval(() => {
-      void this.tick().catch(() => {});
+      void this.tick()
+        .then(() => {
+          this.monitorError = null;
+        })
+        .catch(() => {
+          this.monitorError = 'usage_monitor_failed';
+        });
     }, 1000);
     this.timer.unref();
   }

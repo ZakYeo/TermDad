@@ -77,7 +77,9 @@ export function createServer(
   const pushSocket = new PushSocket(ingress, socketPath);
   const stateDir = stateDirectory();
   const events: EventQueue = watchOptions instanceof EventQueue ? watchOptions : (eventQueue ?? new EventQueue());
-  const usage = usageService ?? new UsageService(undefined, events);
+  const usage =
+    usageService ??
+    new UsageService(undefined, events, undefined, undefined, CommandNotificationProvider.fromEnvironment());
   const push = new WorkerPushRegistry(ingress, socketPath, notifyCommand(), stateDir);
   const agents = new Agents(backend, workerStorage, push, {
     spawn: async (agentId, ref) => {

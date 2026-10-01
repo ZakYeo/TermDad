@@ -114,6 +114,13 @@ export async function benchmarkFixture(
   );
   await app.pushRestored;
   await app.reaped;
+  // Usage scenarios must never read a developer's real account or launch an authenticated CLI.
+  app.usage.providers.codex.read = async () => ({
+    observedAt: Date.now(),
+    identity: 'benchmark',
+    source: 'benchmark',
+    windows: [],
+  });
   const client = new Client({ name: 'benchmark', version: '1' });
   const [a, b] = InMemoryTransport.createLinkedPair();
   await app.server.connect(a);

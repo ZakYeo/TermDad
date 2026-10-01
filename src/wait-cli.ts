@@ -2,7 +2,7 @@ import { open } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { join } from 'node:path';
 import { stateDirectory } from './journal.js';
-import { eventFilterSchema, eventStateSchema, matches, type EventFilter, type QueueEvent } from './events.js';
+import { eventFilterSchema, validateEventState, matches, type EventFilter, type QueueEvent } from './events.js';
 
 export interface WaitArgs {
   filter: EventFilter;
@@ -118,7 +118,7 @@ async function read(path: string) {
     const text = await file.readFile('utf8');
     // A parse failure is unambiguous corruption, not a mid-rename read, so mark it terminal.
     try {
-      return eventStateSchema.parse(JSON.parse(text));
+      return validateEventState(JSON.parse(text));
     } catch (e) {
       throw Object.assign(
         new Error(`journal is not valid event state: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`),

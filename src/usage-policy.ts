@@ -21,9 +21,9 @@ export function evaluateUsage(a: UsageAccount, now: number) {
     a.phase = a.sessions.some((s) => !s.cancelled && !s.parked) ? 'pause_requested' : 'paused';
     a.reason = reason;
   } else if (previous !== 'running') {
-    a.phase = 'resume_pending';
+    a.phase = a.sessions.some((s) => !s.cancelled && s.parked) ? 'resume_pending' : 'running';
     a.reason = null;
-    if (previous !== 'resume_pending')
+    if (a.phase === 'resume_pending' && previous !== 'resume_pending')
       usageEvent(a, 'usage.resume_pending', 'Fresh short-window and weekly allowances permit continuation', now);
   } else a.reason = null;
   if (a.phase !== previous) a.revision++;

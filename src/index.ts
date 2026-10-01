@@ -4,13 +4,21 @@
 const [subcommand, ...rest] = process.argv.slice(2);
 // Captured before the imports below, which can take longer than a short-lived parent survives.
 const launchedBy = process.ppid;
+if (subcommand === 'usage-hook') {
+  const { runUsageHook } = await import('./usage-hook-cli.js');
+  process.exit(await runUsageHook(rest));
+}
+if (subcommand === 'hooks') {
+  const { runHookInstaller } = await import('./hook-install.js');
+  process.exit(await runHookInstaller(rest));
+}
 if (subcommand === 'wait-for-event') {
   const { runWaitForEvent } = await import('./wait-cli.js');
   process.exit(await runWaitForEvent(rest));
 }
 if (subcommand !== undefined) {
   console.error(
-    `term-dad: unknown subcommand ${subcommand}; expected wait-for-event, or no arguments to serve MCP over stdio`,
+    `term-dad: unknown subcommand ${subcommand}; expected wait-for-event, usage-hook, hooks, or no arguments to serve MCP over stdio`,
   );
   process.exit(2);
 }

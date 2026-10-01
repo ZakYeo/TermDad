@@ -50,7 +50,7 @@ export interface EventStorage {
   transaction<T>(write: boolean, fn: (state: EventState) => { state?: EventState; result: T }): Promise<T>;
 }
 const empty = (): EventState => ({ version: 2, nextSequence: 1, events: [] });
-function validateState(value: unknown): EventState {
+export function validateEventState(value: unknown): EventState {
   const parsed = stateSchema.safeParse(value);
   if (!parsed.success)
     throw new Error('EVENT_STATE_CORRUPT: invalid journal; preserve the file and recover it explicitly');
@@ -58,6 +58,8 @@ function validateState(value: unknown): EventState {
     ids = new Set<string>();
   let previous = 0;
   for (const e of s.events) {
+    if (s.version === 1 && (e.accountRef !== undefined || e.deliveryKey !== undefined))
+      throw new Error('EVENT_STATE_CORRUPT: account events require version 2');
     if ((e.paneId === undefined) === (e.accountRef === undefined))
       throw new Error('EVENT_STATE_CORRUPT: expected one event subject');
     if (ids.has(e.id) || e.sequence <= previous || e.sequence >= s.nextSequence)
@@ -70,7 +72,7 @@ function validateState(value: unknown): EventState {
 
 export class FileEventStorage extends FileJournal<EventState> implements EventStorage {
   constructor(directory?: string) {
-    super('events', 'EVENT', empty, validateState, directory);
+    super('events', 'EVENT', empty, validateEventState, directory);
   }
 }
 

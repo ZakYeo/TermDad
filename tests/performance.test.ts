@@ -62,7 +62,7 @@ test('scenario registry exercises every MCP tool and telemetry records each once
   const f = await benchmarkFixture({ record: (metric) => metrics.push(metric) });
   try {
     const samples = await toolWorkflow(f);
-    assert.equal(samples.length, 53);
+    assert.equal(samples.length, 58);
     assert.deepEqual(
       metrics.map((m) => m.tool),
       scenarios.map((s) => s.tool),
