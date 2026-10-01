@@ -79,6 +79,7 @@ export const usageAccountSchema = z
   .object({
     config: configureUsageSchema,
     revision: z.number().int().positive(),
+    sourceRevision: z.number().int().positive().default(1),
     observation: observationSchema.nullable(),
     watch: usageWatchSchema.nullable(),
     phase: phaseSchema,

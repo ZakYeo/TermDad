@@ -285,7 +285,7 @@ test('unwatch preserves policy and account identity changes cannot silently rebi
 test('reconfigured source discards an in-flight observation from the old source', async (t) => {
   const f = await fixture(t);
   await f.usage.configure({ accountRef: 'a', provider: 'codex' });
-  const revision = (await f.usage.account('a')).revision;
+  const revision = (await f.usage.account('a')).sourceRevision;
   await f.usage.configure({ accountRef: 'a', provider: 'claude' });
   await f.usage.ingest('a', f.observation(90), revision);
   assert.equal((await f.usage.account('a')).observation, null);
@@ -418,4 +418,53 @@ test('reset alert reaches the waiter while provider refresh is blocked', async (
     release();
     await collecting;
   }
+});
+
+test('reset outbox survives publication failure and competing servers without granting dispatch', async (t) => {
+  const f = await fixture(t, true);
+  await f.usage.configure({ accountRef: 'a', provider: 'codex', mode: 'automatic' });
+  await f.usage.ingest('a', f.observation(95, 10, f.now() + 1000));
+  f.providers.codex.read = async () => {
+    throw new Error('offline');
+  };
+  f.advance(1000);
+  const publish = f.events.publish.bind(f.events);
+  f.events.publish = async () => {
+    throw new Error('journal unavailable');
+  };
+  await assert.rejects(f.usage.tick(), /journal unavailable/);
+  assert.equal((await f.usage.account('a')).pending.filter((p) => p.kind === 'usage.reset_due').length, 1);
+  f.events.publish = publish;
+  const peer = new UsageService(new FileUsageStorage(f.dir), f.events, f.providers, f.now);
+  t.after(() => peer.close());
+  await Promise.all([f.usage.tick(), peer.tick()]);
+  assert.equal((await f.events.list()).events.filter((e) => e.kind === 'usage.reset_due').length, 1);
+  await assert.rejects(f.usage.assertDispatch(undefined, 'a'), /USAGE_PAUSED/);
+});
+
+test('unknown reset times never invent a wake deadline', async (t) => {
+  const f = await fixture(t);
+  await f.usage.configure({ accountRef: 'a', provider: 'claude' });
+  const observation = f.observation(99, 99);
+  for (const window of observation.windows) window.resetsAt = null;
+  await f.usage.ingest('a', observation);
+  f.advance(604800_000);
+  await f.usage.tick();
+  assert.deepEqual((await f.usage.status('a')).accounts[0].resetAlerts, []);
+  assert.equal((await f.events.list()).events.filter((e) => e.kind === 'usage.reset_due').length, 0);
+});
+
+test('reset notices do not invalidate in-flight quota collection but reconfiguration does', async (t) => {
+  const f = await fixture(t);
+  await f.usage.configure({ accountRef: 'a', provider: 'codex' });
+  await f.usage.ingest('a', f.observation(95, 10, f.now() + 1000));
+  const source = (await f.usage.account('a')).sourceRevision;
+  f.advance(1000);
+  const { deliverResetAlerts } = await import('../src/usage-reset.js');
+  await f.usage.mutate('a', (a) => deliverResetAlerts(a, f.now()));
+  await f.usage.ingest('a', f.observation(1), source);
+  assert.equal((await f.usage.account('a')).observation!.windows[0].usedPercent, 1);
+  await f.usage.configure({ accountRef: 'a', provider: 'codex', profile: 'changed' });
+  await f.usage.ingest('a', f.observation(2), source);
+  assert.equal((await f.usage.account('a')).observation, null);
 });

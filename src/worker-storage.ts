@@ -14,6 +14,12 @@ export const workerSchema = z
   .object({
     agentId: z.uuid(),
     name: z.string().min(1).max(100),
+    accountRef: z
+      .string()
+      .min(1)
+      .max(100)
+      .regex(/^[a-zA-Z0-9_.:/-]+$/)
+      .optional(),
     paneId: z.number().int().nonnegative().safe().nullable(),
     cli: z.enum(['claude', 'codex', 'shell']),
     instance: instanceSchema.nullable(),

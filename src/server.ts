@@ -84,12 +84,10 @@ export function createServer(
   const agents = new Agents(backend, workerStorage, push, {
     spawn: async (agentId, ref) => {
       if (!ref) return;
+      await usage.account(ref);
       await usage.assertDispatch(undefined, ref);
-      await usage.mutate(ref, (a) => {
-        a.config.workerIds.push(agentId);
-      });
     },
-    send: (agentId) => usage.assertDispatch(agentId),
+    send: (agentId, ref) => usage.assertDispatch(agentId, ref),
   });
   // Push can then report on a managed worker it holds no registration for, rather than failing,
   // accept the worker's name, and re-key a surviving worker on demand under its own lock.
@@ -280,14 +278,7 @@ export function createServer(
       accountRef: z.string().min(1).max(100).optional().describe('Explicit usage account binding for the new worker.'),
       ...wait,
     },
-    async (a) => {
-      if (a.accountRef) {
-        await usage.account(a.accountRef);
-        await usage.assertDispatch(undefined, a.accountRef);
-      }
-      const result = await agents.spawn({ ...a, timeoutMs: waitTimeout(a) });
-      return result;
-    },
+    (a) => agents.spawn({ ...a, timeoutMs: waitTimeout(a) }),
   );
   register(
     'agent.list',
@@ -320,7 +311,6 @@ export function createServer(
     async (a) => {
       const task = body(a);
       const agentId = oneOf<string>(a, ['agentId', 'to']);
-      await usage.assertDispatch((await agents.resolve(agentId)).agentId);
       if (a.attempt) {
         const worker = await agents.resolve(agentId);
         await tasks.validateAttempt(a.attempt.taskId, a.attempt.attemptId, worker.agentId);
@@ -391,7 +381,6 @@ export function createServer(
       return Promise.all(
         a.agentIds.map(async (agentId: string) => {
           try {
-            await usage.assertDispatch((await agents.resolve(agentId)).agentId);
             return await agents.send(agentId, task);
           } catch (e) {
             return { agentId, error: String(e) };
@@ -414,7 +403,9 @@ export function createServer(
       const workers = await withWorkerTasks(await agents.summaries(), tasks);
       const { accounts } = await usage.status();
       return workers.map((worker) => {
-        const account = accounts.find((a) => a.workerIds.includes(worker.agentId));
+        const account = accounts.find(
+          (a) => a.accountRef === worker.accountRef || a.workerIds.includes(worker.agentId),
+        );
         return account
           ? {
               ...worker,

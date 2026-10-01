@@ -106,7 +106,7 @@ export async function claudeUsageFeed(usage: UsageService, ref: string, data: un
     .digest('hex');
   observation.source = `claude.statusline:${fingerprint}`;
   if (a.observation?.source === observation.source) return;
-  await usage.ingest(ref, observation, a.revision);
+  await usage.ingest(ref, observation, a.sourceRevision);
 }
 
 /** Atomic per-session resume claim. The caller must recheck provider freshness before waking. */

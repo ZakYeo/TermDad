@@ -90,7 +90,7 @@ export class Agents {
     readonly push?: WorkerPush,
     readonly usageGate?: {
       spawn: (agentId: string, accountRef?: string) => Promise<void>;
-      send: (agentId: string) => Promise<void>;
+      send: (agentId: string, accountRef?: string) => Promise<void>;
     },
   ) {}
   private run<T>(fn: () => Promise<T>): Promise<T> {
@@ -242,7 +242,8 @@ export class Agents {
       });
       const command = validated.command;
       const w = newWorker(o.name, o.cli, null, await this.identity(), this.sessionId);
-      await this.usageGate?.spawn(w.agentId, o.accountRef);
+      w.accountRef = workerSchema.shape.accountRef.parse(o.accountRef);
+      await this.usageGate?.spawn(w.agentId, w.accountRef);
       // Hooks are injected at launch but stay inert: pushes are dropped until the pane is enabled.
       // The binding is set before the record is inserted, so it is durable from the first write.
       const launched = await this.push?.launch(w.agentId, o.cli, command);
@@ -397,6 +398,7 @@ export class Agents {
       name: w.name,
       paneId: w.paneId,
       cli: w.cli,
+      ...(w.accountRef ? { accountRef: w.accountRef } : {}),
       attachment,
       recoveryReason,
       deliveryPending: w.deliveryPending,
@@ -491,6 +493,7 @@ export class Agents {
     if (record) this.remember(a, observationId, text, a.status);
     const observation = {
       agentId: a.agentId,
+      ...(a.accountRef ? { accountRef: a.accountRef } : {}),
       name: a.name,
       paneId: a.paneId,
       observedAt: new Date().toISOString(),
@@ -588,7 +591,7 @@ export class Agents {
           prompt = initialize ? initialWorkerPrompt(text) : text;
         z.string().max(100000).parse(prompt);
         const hash = hashOutput(await this.screen(a.paneId));
-        await this.usageGate?.send(a.agentId);
+        await this.usageGate?.send(a.agentId, a.accountRef);
         await this.change(a.agentId, (w) => {
           w.inputOutputHash = hash;
           w.lastInputAt = Date.now();

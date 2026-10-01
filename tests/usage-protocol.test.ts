@@ -71,7 +71,29 @@ test('initial prompt is rechecked after readiness and leaves its pane intact on 
     assert.ok(!f.calls.includes('send-text'));
     const [worker] = await f.call('agent.list');
     assert.ok(f.panes.has(worker.paneId));
-    assert.deepEqual((await f.call('usage.status')).accounts[0].workerIds, [worker.agentId]);
+    assert.equal(worker.accountRef, 'a');
+    assert.deepEqual((await f.call('usage.status')).accounts[0].workerIds, []);
+  } finally {
+    await f.close();
+  }
+});
+
+test('spawned account ownership follows worker lifetime without growing configuration bindings', async () => {
+  const f = await benchmarkFixture();
+  try {
+    await f.call('usage.configure', { accountRef: 'a', provider: 'codex' });
+    const worker = await f.call('agent.spawn', { name: 'bound-lifetime', cli: 'shell', accountRef: 'a' });
+    const listed = await f.call('agent.list');
+    assert.equal(listed[0].accountRef, 'a');
+    assert.equal((await f.call('orchestrator.status'))[0].usage.accountRef, 'a');
+    const conflicting = await f.raw('usage.configure', {
+      accountRef: 'other',
+      provider: 'claude',
+      workerIds: [worker.agentId],
+    });
+    assert.equal(conflicting.isError, true);
+    await f.call('agent.stop', { agentId: worker.agentId });
+    assert.deepEqual((await f.call('usage.status')).accounts[0].workerIds, []);
   } finally {
     await f.close();
   }

@@ -91,10 +91,14 @@ export class UsageService {
             existing.config.profile !== config.profile;
           existing.config = config;
           existing.revision++;
+          existing.sourceRevision++;
           if (changed) {
             existing.observation = null;
             existing.fired = [];
             existing.error = null;
+            existing.resetAlerts = [];
+            existing.lastAttemptAt = null;
+            existing.failures = 0;
           }
           // Reconfiguration never replays a previous resume request into old sessions.
           for (const session of existing.sessions) session.cancelled = true;
@@ -105,6 +109,7 @@ export class UsageService {
           const a: UsageAccount = {
             config,
             revision: 1,
+            sourceRevision: 1,
             observation: null,
             watch: { accountRef: config.accountRef, thresholdsUsedPercent: [80, 90, 95], notifyOnReset: true },
             phase: 'running',
@@ -178,12 +183,12 @@ export class UsageService {
       return this.status(ref);
     });
   }
-  ingest(ref: string, raw: unknown, expectedRevision?: number) {
+  ingest(ref: string, raw: unknown, expectedSourceRevision?: number) {
     return this.run(async () => {
       const o = observationSchema.parse(raw);
       if (o.observedAt > this.now()) throw new Error('USAGE_FUTURE_OBSERVATION');
       await this.mutate(ref, (a) => {
-        if (expectedRevision !== undefined && a.revision !== expectedRevision) return;
+        if (expectedSourceRevision !== undefined && a.sourceRevision !== expectedSourceRevision) return;
         if (a.observation && a.observation.observedAt > o.observedAt) return;
         if (a.observation?.identity && a.observation.identity !== o.identity) {
           a.error = 'account_identity_changed';
@@ -235,10 +240,10 @@ export class UsageService {
           current.lastAttemptAt = this.now();
         });
         try {
-          await this.ingest(ref, await provider.read(a.config), a.revision);
+          await this.ingest(ref, await provider.read(a.config), a.sourceRevision);
         } catch {
           await this.mutate(ref, (current) => {
-            if (current.revision !== a.revision) return;
+            if (current.sourceRevision !== a.sourceRevision) return;
             current.error = 'provider_refresh_failed';
             current.failures = Math.min(20, current.failures + 1);
             evaluateUsage(current, this.now());

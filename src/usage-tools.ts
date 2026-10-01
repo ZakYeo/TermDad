@@ -3,7 +3,11 @@ import { configureUsageSchema, usageId, usageWatchSchema } from './usage-model.j
 import { toolCall } from './tool-result.js';
 import type { UsageService } from './usage.js';
 
-export function registerUsageTools(server: McpServer, usage: UsageService, resolve: (id: string) => Promise<unknown>) {
+export function registerUsageTools(
+  server: McpServer,
+  usage: UsageService,
+  resolve: (id: string) => Promise<{ accountRef?: string }>,
+) {
   server.registerTool(
     'usage.status',
     {
@@ -22,7 +26,10 @@ export function registerUsageTools(server: McpServer, usage: UsageService, resol
     },
     (a) =>
       toolCall('usage.configure', async () => {
-        for (const id of a.workerIds) await resolve(id);
+        for (const id of a.workerIds) {
+          const worker = await resolve(id);
+          if (worker.accountRef && worker.accountRef !== a.accountRef) throw new Error('USAGE_WORKER_ALREADY_BOUND');
+        }
         return usage.configure(a);
       }),
   );
@@ -39,7 +46,7 @@ export function registerUsageTools(server: McpServer, usage: UsageService, resol
     'usage.watch',
     {
       description:
-        'Subscribe to usage threshold crossings and confirmed reset events. Delivery is deduplicated per threshold/window.',
+        'Subscribe to usage threshold crossings, expected reset deadlines and confirmed reset events. Delivery is deduplicated per threshold/window.',
       inputSchema: usageWatchSchema,
     },
     (a) => toolCall('usage.watch', () => usage.watch(a)),
