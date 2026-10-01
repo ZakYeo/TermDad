@@ -29,6 +29,8 @@ import { join } from 'node:path';
 import { instrumentTools, type TelemetryOptions } from './telemetry.js';
 import { Monitoring } from './monitoring.js';
 import { FileTelemetry } from './telemetry-storage.js';
+import { UsageService } from './usage.js';
+import { registerUsageTools } from './usage-tools.js';
 export function createServer(
   backend: TerminalBackend = new WezTermBackend(),
   screenshots: ScreenshotProvider = new CommandScreenshotProvider(),
@@ -37,6 +39,7 @@ export function createServer(
   workerStorage: WorkerStorage = new FileWorkerStorage(),
   taskStorage: TaskStorage = new FileTaskStorage(),
   telemetryOptions: TelemetryOptions = {},
+  usageService?: UsageService,
 ) {
   const server = new McpServer({ name: 'term-dad', version: '0.1.0' }),
     tasks = new TaskBoard(taskStorage);
@@ -73,8 +76,19 @@ export function createServer(
   });
   const pushSocket = new PushSocket(ingress, socketPath);
   const stateDir = stateDirectory();
+  const events: EventQueue = watchOptions instanceof EventQueue ? watchOptions : (eventQueue ?? new EventQueue());
+  const usage = usageService ?? new UsageService(undefined, events);
   const push = new WorkerPushRegistry(ingress, socketPath, notifyCommand(), stateDir);
-  const agents = new Agents(backend, workerStorage, push);
+  const agents = new Agents(backend, workerStorage, push, {
+    spawn: async (agentId, ref) => {
+      if (!ref) return;
+      await usage.assertDispatch(undefined, ref);
+      await usage.mutate(ref, (a) => {
+        a.config.workerIds.push(agentId);
+      });
+    },
+    send: (agentId) => usage.assertDispatch(agentId),
+  });
   // Push can then report on a managed worker it holds no registration for, rather than failing,
   // accept the worker's name, and re-key a surviving worker on demand under its own lock.
   push.attachWorkers(async (agentIdOrName) => {
@@ -261,9 +275,17 @@ export function createServer(
       name: z.string().min(1).max(100),
       cli: z.enum(['claude', 'codex', 'shell']),
       prompt: z.string().max(100000).optional(),
+      accountRef: z.string().min(1).max(100).optional().describe('Explicit usage account binding for the new worker.'),
       ...wait,
     },
-    (a) => agents.spawn({ ...a, timeoutMs: waitTimeout(a) }),
+    async (a) => {
+      if (a.accountRef) {
+        await usage.account(a.accountRef);
+        await usage.assertDispatch(undefined, a.accountRef);
+      }
+      const result = await agents.spawn({ ...a, timeoutMs: waitTimeout(a) });
+      return result;
+    },
   );
   register(
     'agent.list',
@@ -296,6 +318,7 @@ export function createServer(
     async (a) => {
       const task = body(a);
       const agentId = oneOf<string>(a, ['agentId', 'to']);
+      await usage.assertDispatch((await agents.resolve(agentId)).agentId);
       if (a.attempt) {
         const worker = await agents.resolve(agentId);
         await tasks.validateAttempt(a.attempt.taskId, a.attempt.attemptId, worker.agentId);
@@ -366,6 +389,7 @@ export function createServer(
       return Promise.all(
         a.agentIds.map(async (agentId: string) => {
           try {
+            await usage.assertDispatch((await agents.resolve(agentId)).agentId);
             return await agents.send(agentId, task);
           } catch (e) {
             return { agentId, error: String(e) };
@@ -384,7 +408,24 @@ export function createServer(
     'orchestrator.status',
     'Status, activity and task summary of every managed agent without screen text; use agent.status for the one you need to read.',
     {},
-    async () => withWorkerTasks(await agents.summaries(), tasks),
+    async () => {
+      const workers = await withWorkerTasks(await agents.summaries(), tasks);
+      const { accounts } = await usage.status();
+      return workers.map((worker) => {
+        const account = accounts.find((a) => a.workerIds.includes(worker.agentId));
+        return account
+          ? {
+              ...worker,
+              usage: {
+                accountRef: account.accountRef,
+                phase: account.phase,
+                reason: account.reason,
+                freshness: account.freshness,
+              },
+            }
+          : worker;
+      });
+    },
   );
   for (const kind of ['terminal', 'agent'])
     server.registerTool(
@@ -407,7 +448,6 @@ export function createServer(
         }
       },
     );
-  const events: EventQueue = watchOptions instanceof EventQueue ? watchOptions : (eventQueue ?? new EventQueue());
   const options = watchOptions instanceof EventQueue ? {} : watchOptions;
   const watches: WatchManager = new WatchManager(backend, agents, {
     notifications: CommandNotificationProvider.fromEnvironment(),
@@ -451,7 +491,9 @@ export function createServer(
     () => tasks.snapshot(),
     () => agents.snapshot(),
   );
-  const closeAttention = registerAttentionTools(server, attention);
+  const closeAttention = registerAttentionTools(server, attention, () => usage.status());
+  registerUsageTools(server, usage, (id) => agents.resolve(id));
+  usage.start();
   const closeEvents = registerEventTools(server, events);
   registerPushTools(server, push);
   const closeWatches = registerWatchTools(server, watches);
@@ -462,6 +504,7 @@ export function createServer(
   // memoised promise serves both the SDK and an explicit `dispose()`.
   const shutdown = [
     closeWatches,
+    () => usage.close(),
     closeEvents,
     closeAttention,
     closeTasks,
@@ -484,6 +527,7 @@ export function createServer(
     agents,
     watches,
     events,
+    usage,
     tasks,
     attention,
     push,

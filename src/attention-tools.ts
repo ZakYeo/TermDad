@@ -2,7 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { toolCall } from './tool-result.js';
 import { AttentionService, attentionSchema } from './attention.js';
 
-export function registerAttentionTools(server: McpServer, attention: AttentionService) {
+export function registerAttentionTools(server: McpServer, attention: AttentionService, usage?: () => Promise<unknown>) {
   server.registerTool(
     'orchestrator.attention',
     {
@@ -11,7 +11,11 @@ export function registerAttentionTools(server: McpServer, attention: AttentionSe
       inputSchema: attentionSchema,
     },
     (input) =>
-      toolCall('orchestrator.attention', () => attention.status(input), { invalid: 'ATTENTION_INPUT_INVALID' }),
+      toolCall(
+        'orchestrator.attention',
+        async () => ({ ...(await attention.status(input)), ...(usage ? { usage: await usage() } : {}) }),
+        { invalid: 'ATTENTION_INPUT_INVALID' },
+      ),
   );
   return () => attention.close();
 }

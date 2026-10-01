@@ -16,7 +16,9 @@ const identifier = z
 export const eventInputSchema = z
   .object({
     kind: token,
-    paneId: z.number().int().nonnegative().safe(),
+    paneId: z.number().int().nonnegative().safe().optional(),
+    accountRef: token.optional(),
+    deliveryKey: token.optional(),
     watchId: identifier.optional(),
     agentId: identifier.optional(),
     occurredAt: z.iso.datetime({ offset: true }).max(64),
@@ -36,7 +38,7 @@ const eventSchema = eventInputSchema.extend({
 export type QueueEvent = z.infer<typeof eventSchema>;
 export const eventStateSchema = z
   .object({
-    version: z.literal(1),
+    version: z.union([z.literal(1), z.literal(2)]),
     nextSequence: z.number().int().positive().safe(),
     events: z.array(eventSchema).max(1000),
   })
@@ -47,7 +49,7 @@ export interface EventStorage {
   warning?: string;
   transaction<T>(write: boolean, fn: (state: EventState) => { state?: EventState; result: T }): Promise<T>;
 }
-const empty = (): EventState => ({ version: 1, nextSequence: 1, events: [] });
+const empty = (): EventState => ({ version: 2, nextSequence: 1, events: [] });
 function validateState(value: unknown): EventState {
   const parsed = stateSchema.safeParse(value);
   if (!parsed.success)
@@ -56,6 +58,8 @@ function validateState(value: unknown): EventState {
     ids = new Set<string>();
   let previous = 0;
   for (const e of s.events) {
+    if ((e.paneId === undefined) === (e.accountRef === undefined))
+      throw new Error('EVENT_STATE_CORRUPT: expected one event subject');
     if (ids.has(e.id) || e.sequence <= previous || e.sequence >= s.nextSequence)
       throw new Error('EVENT_STATE_CORRUPT: inconsistent journal');
     ids.add(e.id);
@@ -72,6 +76,7 @@ export class FileEventStorage extends FileJournal<EventState> implements EventSt
 
 export const eventFilterSchema = z
   .object({
+    accountRefs: z.array(token).min(1).max(64).optional(),
     paneIds: z.array(z.number().int().nonnegative().safe()).min(1).max(64).optional(),
     agentIds: z.array(identifier).min(1).max(64).optional(),
     watchIds: z.array(identifier).min(1).max(64).optional(),
@@ -85,7 +90,8 @@ export type EventFilter = z.infer<typeof eventFilterSchema>;
 export function matches(e: QueueEvent, f: EventFilter, now = Date.now()) {
   const at = f.notBefore !== undefined || f.maxAgeMs !== undefined ? Date.parse(e.occurredAt) : 0;
   return (
-    (!f.paneIds || f.paneIds.includes(e.paneId)) &&
+    (!f.paneIds || (e.paneId !== undefined && f.paneIds.includes(e.paneId))) &&
+    (!f.accountRefs || (e.accountRef !== undefined && f.accountRefs.includes(e.accountRef))) &&
     (!f.agentIds || (e.agentId !== undefined && f.agentIds.includes(e.agentId))) &&
     (!f.watchIds || (e.watchId !== undefined && f.watchIds.includes(e.watchId))) &&
     (!f.kinds || f.kinds.includes(e.kind)) &&
@@ -157,8 +163,12 @@ export class EventQueue {
   async publish(input: EventInput): Promise<QueueEvent> {
     const parsed = eventInputSchema.safeParse(input);
     if (!parsed.success) throw new Error('EVENT_INPUT_INVALID: expected bounded metadata');
+    if ((parsed.data.paneId === undefined) === (parsed.data.accountRef === undefined))
+      throw new Error('EVENT_INPUT_INVALID: expected one event subject');
     const event = await this.run(() =>
       this.storage.transaction(true, (s) => {
+        const prior = parsed.data.deliveryKey && s.events.find((e) => e.deliveryKey === parsed.data.deliveryKey);
+        if (prior) return { result: prior };
         // Expiring here also relieves capacity pressure before the full-queue check rejects a producer.
         const now = this.now(),
           stamp = new Date(now).toISOString(),
@@ -179,7 +189,7 @@ export class EventQueue {
           events.splice(index, 1);
         }
         const event: QueueEvent = { ...parsed.data, id: randomUUID(), sequence: s.nextSequence, acknowledgedAt: null };
-        return { state: { version: 1, nextSequence: s.nextSequence + 1, events: [...events, event] }, result: event };
+        return { state: { version: 2, nextSequence: s.nextSequence + 1, events: [...events, event] }, result: event };
       }),
     );
     await this.checkWaiters();

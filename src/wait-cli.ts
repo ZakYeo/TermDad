@@ -20,6 +20,7 @@ const invalid = (detail: string) => new Error(`WAIT_ARGS_INVALID: ${detail}`);
 const flags = [
   '--kinds',
   '--agents',
+  '--accounts',
   '--panes',
   '--watches',
   '--after-sequence',
@@ -75,6 +76,7 @@ export function parseWaitArgs(argv: string[]): WaitArgs {
       ? undefined
       : number('--max-age-seconds', raw.get('--max-age-seconds')!, 1, 604800);
   const candidate = {
+    ...(raw.get('--accounts') !== undefined ? { accountRefs: list(raw.get('--accounts')!) } : {}),
     ...(raw.get('--kinds') !== undefined ? { kinds: list(raw.get('--kinds')!) } : {}),
     ...(raw.get('--agents') !== undefined ? { agentIds: list(raw.get('--agents')!) } : {}),
     ...(raw.get('--watches') !== undefined ? { watchIds: list(raw.get('--watches')!) } : {}),

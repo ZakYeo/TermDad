@@ -88,6 +88,10 @@ export class Agents {
     readonly backend: TerminalBackend,
     readonly storage: WorkerStorage = new MemoryWorkerStorage(),
     readonly push?: WorkerPush,
+    readonly usageGate?: {
+      spawn: (agentId: string, accountRef?: string) => Promise<void>;
+      send: (agentId: string) => Promise<void>;
+    },
   ) {}
   private run<T>(fn: () => Promise<T>): Promise<T> {
     if (this.closed) return Promise.reject(new Error('WORKER_CLOSED'));
@@ -219,7 +223,15 @@ export class Agents {
     const w = await this.lookup(agentId);
     return this.storage.exclusive(w.agentId, async () => fn(await this.lookup(w.agentId)));
   }
-  spawn(o: SpawnOptions & { name: string; cli: WorkerRecord['cli']; prompt?: string; timeoutMs?: number }) {
+  spawn(
+    o: SpawnOptions & {
+      name: string;
+      cli: WorkerRecord['cli'];
+      prompt?: string;
+      timeoutMs?: number;
+      accountRef?: string;
+    },
+  ) {
     return this.run(async () => {
       // Explicit argv, else the configured JSON argv, else the bare CLI name (shells launch with
       // no command). Whichever wins is validated exactly once, with the rest of the options.
@@ -230,6 +242,7 @@ export class Agents {
       });
       const command = validated.command;
       const w = newWorker(o.name, o.cli, null, await this.identity(), this.sessionId);
+      await this.usageGate?.spawn(w.agentId, o.accountRef);
       // Hooks are injected at launch but stay inert: pushes are dropped until the pane is enabled.
       // The binding is set before the record is inserted, so it is durable from the first write.
       const launched = await this.push?.launch(w.agentId, o.cli, command);
@@ -575,6 +588,7 @@ export class Agents {
           prompt = initialize ? initialWorkerPrompt(text) : text;
         z.string().max(100000).parse(prompt);
         const hash = hashOutput(await this.screen(a.paneId));
+        await this.usageGate?.send(a.agentId);
         await this.change(a.agentId, (w) => {
           w.inputOutputHash = hash;
           w.lastInputAt = Date.now();
