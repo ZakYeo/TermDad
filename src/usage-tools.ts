@@ -11,8 +11,7 @@ export function registerUsageTools(
   server.registerTool(
     'usage.status',
     {
-      description:
-        'Account allowances, freshness, reserve policy and verified pause/wake capabilities. Unknown is never zero usage.',
+      description: 'Account allowances, freshness, reserves and collection support. Unknown is never zero usage.',
       inputSchema: { accountRef: usageId.optional() },
     },
     ({ accountRef }) => toolCall('usage.status', () => usage.status(accountRef)),
@@ -21,7 +20,7 @@ export function registerUsageTools(
     'usage.configure',
     {
       description:
-        'Configure an account and explicit worker bindings. Advisory by default. Automatic mode requires verified collection, identity, pause and wake capabilities. Reconfiguration cancels old continuation intents.',
+        'Configure account usage monitoring and explicit worker bindings. The supervisor handles pausing and resuming workers.',
       inputSchema: configureUsageSchema,
     },
     (a) =>
@@ -54,7 +53,7 @@ export function registerUsageTools(
   server.registerTool(
     'usage.unwatch',
     {
-      description: 'Remove warning subscription without disabling account policy or deleting quota observations.',
+      description: 'Remove warning subscription without disabling collection or deleting quota observations.',
       inputSchema: { accountRef: usageId },
     },
     ({ accountRef }) => toolCall('usage.unwatch', () => usage.unwatch(accountRef)),

@@ -1,26 +1,12 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { readCodexQuota } from './usage-codex-rpc.js';
-import {
-  observationSchema,
-  type UsageCapabilities,
-  type UsageConfig,
-  type UsageObservation,
-  type UsageWindow,
-} from './usage-model.js';
+import { observationSchema, type UsageConfig, type UsageObservation, type UsageWindow } from './usage-model.js';
 
 export interface UsageProvider {
-  capabilities: UsageCapabilities;
+  collection: 'active' | 'passive' | 'unavailable';
   read?(config: UsageConfig): Promise<UsageObservation>;
 }
-const capabilities = (reason: string, refresh = false): UsageCapabilities => ({
-  refresh,
-  identity: false,
-  pause: false,
-  wake: false,
-  verified: false,
-  reason,
-});
 const codexWindow = z.object({
   usedPercent: z.number().finite().min(0),
   windowDurationMins: z.number().int().positive().nullish(),
@@ -94,10 +80,7 @@ export function normalizeClaude(payload: unknown, now: number): UsageObservation
 export function defaultUsageProviders(now: () => number = Date.now): Record<UsageConfig['provider'], UsageProvider> {
   return {
     codex: {
-      capabilities: capabilities(
-        'Account/workspace binding and idle pause/wake are not live-verified; monitoring only.',
-        true,
-      ),
+      collection: 'active',
       async read(config) {
         const { account, limits } = await readCodexQuota(config);
         const auth = z
@@ -109,12 +92,10 @@ export function defaultUsageProviders(now: () => number = Date.now): Record<Usag
       },
     },
     claude: {
-      capabilities: capabilities('Passive status-line feed: no supported paused refresh or verified account identity.'),
+      collection: 'passive',
     },
     copilot: {
-      capabilities: capabilities(
-        'No verified documented account-quota collector; session tokens are not subscription allowance.',
-      ),
+      collection: 'unavailable',
     },
   };
 }

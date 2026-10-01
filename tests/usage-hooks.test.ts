@@ -33,7 +33,7 @@ test('installer preserves unrelated hooks and status line; repeat install and un
   assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), original);
   assert.equal(((await manageHooks('install', path, options)) as any).changed, true);
   const installed = JSON.parse(await readFile(path, 'utf8'));
-  assert.equal(installed.hooks.Stop.length, 2);
+  assert.equal(installed.hooks.Stop.length, 1);
   assert.equal(installed.theme, 'dark');
   assert.ok(installed.statusLine.command.includes('--renderer-file'));
   assert.equal(((await manageHooks('install', path, options)) as any).changed, false);
@@ -55,11 +55,11 @@ test('manual hook edits survive uninstall and are reported by doctor', async (t)
   };
   await manageHooks('install', path, options);
   const config = JSON.parse(await readFile(path, 'utf8'));
-  config.hooks.Stop[0].hooks[0].command = 'my-edited-command';
+  config.hooks.PostToolUse[0].hooks[0].command = 'my-edited-command';
   await writeFile(path, JSON.stringify(config));
-  assert.ok(((await manageHooks('doctor', path, options)) as any).missing.includes('Stop'));
+  assert.ok(((await manageHooks('doctor', path, options)) as any).missing.includes('PostToolUse'));
   await manageHooks('uninstall', path, options);
-  assert.equal(JSON.parse(await readFile(path, 'utf8')).hooks.Stop[0].hooks[0].command, 'my-edited-command');
+  assert.equal(JSON.parse(await readFile(path, 'utf8')).hooks.PostToolUse[0].hooks[0].command, 'my-edited-command');
 });
 
 test('client templates use bounded helpers and argv for Copilot; parser rejects malformed options', () => {
@@ -72,10 +72,12 @@ test('client templates use bounded helpers and argv for Copilot; parser rejects 
       runtime: '/node',
     });
     assert.ok(template.hooks);
-    assert.ok(!JSON.stringify(template).includes('asyncRewake'), 'unverified wake must not be installed');
+    assert.equal(template.hooks.Stop ?? template.hooks.agentStop, undefined);
+    assert.ok(!JSON.stringify(template).includes('asyncRewake'), 'hooks must not force a resume');
     if (client === 'copilot') assert.equal(template.hooks!.postToolUse[0].exec, '/node');
   }
   assert.throws(() => parseUsageHookArgs(['--account', 'a', '--client', 'codex', '--statusline']));
+  assert.throws(() => parseUsageHookArgs(['--account', 'a', '--client', 'codex', '--wait']));
   assert.throws(() => parseUsageHookArgs(['--account', 'a', '--client', 'codex', '--garbage', 'x']));
 });
 

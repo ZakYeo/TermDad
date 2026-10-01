@@ -2,7 +2,8 @@ import { acquireLock, FileJournal } from './journal.js';
 import { createHash } from 'node:crypto';
 import { unlink } from 'node:fs/promises';
 import { join } from 'node:path';
-import { usageStateSchema, type UsageState } from './usage-model.js';
+import type { UsageState } from './usage-model.js';
+import { parseUsageState } from './usage-migration.js';
 
 export interface UsageStorage {
   warning?: string;
@@ -11,13 +12,7 @@ export interface UsageStorage {
 }
 export class FileUsageStorage extends FileJournal<UsageState> {
   constructor(directory?: string) {
-    super(
-      'usage',
-      'USAGE',
-      () => ({ version: 1, accounts: [] }),
-      (s) => usageStateSchema.parse(s),
-      directory,
-    );
+    super('usage', 'USAGE', () => ({ version: 2, accounts: [] }), parseUsageState, directory);
   }
   async collect<T>(accountRef: string, fn: () => Promise<T>): Promise<T> {
     // Dedicated collector exclusion; never hold a usage journal transaction over I/O.

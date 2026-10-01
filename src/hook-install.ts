@@ -87,7 +87,7 @@ export async function manageHooks(action: string, path: string, options: HookIns
         missing,
         statuslineIntact: !previous?.statusLine || !!ownStatusline,
         proven: false,
-        note: 'Configuration presence is not runtime delivery evidence. Inspect usage.status sessions and client hook trust. Automatic pause/resume is capability-gated.',
+        note: 'Configuration presence is not runtime delivery evidence. Inspect usage.status sessions and client hook trust. The supervisor handles pausing and resuming workers.',
       };
     }
     if (action === 'preview') return { config: path, changes: installed, wrapsExistingStatusline: !!priorStatusline };

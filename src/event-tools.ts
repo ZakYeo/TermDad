@@ -17,8 +17,6 @@ export const wakeKinds = [
   'usage.threshold',
   'usage.reset',
   'usage.reset_due',
-  'usage.pause_requested',
-  'usage.resume_pending',
 ] as const;
 const shellWord = (value: string) =>
   /^[A-Za-z0-9_./:=,@%+-]+$/.test(value) ? value : `'${value.replaceAll("'", `'\\''`)}'`;

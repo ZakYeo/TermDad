@@ -2,23 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { benchmarkFixture } from '../scripts/benchmark-fixture.js';
 
-test('MCP usage configuration and account-scoped gates cover send, broadcast and spawn', async () => {
+test('usage monitoring preserves account context without gating send, broadcast or spawn', async () => {
   const f = await benchmarkFixture();
   try {
     const worker = await f.call('agent.spawn', { name: 'bound', cli: 'shell' });
     const other = await f.call('agent.spawn', { name: 'other', cli: 'shell' });
-    f.app.usage.providers.codex.capabilities = {
-      refresh: true,
-      identity: true,
-      pause: true,
-      wake: true,
-      verified: true,
-      reason: 'Injected test only',
-    };
     await f.call('usage.configure', {
       accountRef: 'a',
       provider: 'codex',
-      mode: 'automatic',
       workerIds: [worker.agentId],
     });
     const now = Date.now();
@@ -32,13 +23,13 @@ test('MCP usage configuration and account-scoped gates cover send, broadcast and
       ],
     });
     f.calls.length = 0;
-    assert.equal((await f.raw('agent.send', { agentId: 'bound', text: 'must not send' })).isError, true);
-    assert.ok(!f.calls.includes('send-text'));
+    await f.call('agent.send', { agentId: 'bound', text: 'supervisor controlled' });
+    assert.ok(f.calls.includes('send-text'));
     const count = f.panes.size;
-    assert.equal((await f.raw('agent.spawn', { name: 'blocked', cli: 'shell', accountRef: 'a' })).isError, true);
-    assert.equal(f.panes.size, count);
+    await f.call('agent.spawn', { name: 'allowed', cli: 'shell', accountRef: 'a' });
+    assert.equal(f.panes.size, count + 1);
     const result = await f.call('agent.broadcast', { agentIds: [worker.agentId, other.agentId], text: 'hello' });
-    assert.match(result[0].error, /USAGE_PAUSED/);
+    assert.equal(result[0].sent, true);
     assert.equal(result[1].sent, true);
     assert.equal(
       (await f.call('orchestrator.status')).find((w: any) => w.agentId === worker.agentId).usage.accountRef,
@@ -50,29 +41,13 @@ test('MCP usage configuration and account-scoped gates cover send, broadcast and
   }
 });
 
-test('initial prompt is rechecked after readiness and leaves its pane intact on usage pause', async () => {
+test('unknown spawn account is rejected before opening a pane', async () => {
   const f = await benchmarkFixture();
   try {
-    await f.call('usage.configure', { accountRef: 'a', provider: 'codex' });
-    const gate = f.app.usage.assertDispatch.bind(f.app.usage);
-    f.app.usage.assertDispatch = async (workerId, ref) => {
-      if (workerId) throw new Error('USAGE_PAUSED: injected threshold crossed during readiness');
-      return gate(workerId, ref);
-    };
-    f.calls.length = 0;
-    const result = await f.raw('agent.spawn', {
-      name: 'retained',
-      cli: 'shell',
-      accountRef: 'a',
-      prompt: 'do not send',
-    });
+    const count = f.panes.size;
+    const result = await f.raw('agent.spawn', { name: 'unknown', cli: 'shell', accountRef: 'missing' });
     assert.equal(result.isError, true);
-    assert.ok(f.calls.includes('spawn'));
-    assert.ok(!f.calls.includes('send-text'));
-    const [worker] = await f.call('agent.list');
-    assert.ok(f.panes.has(worker.paneId));
-    assert.equal(worker.accountRef, 'a');
-    assert.deepEqual((await f.call('usage.status')).accounts[0].workerIds, []);
+    assert.equal(f.panes.size, count);
   } finally {
     await f.close();
   }

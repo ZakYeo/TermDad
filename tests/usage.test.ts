@@ -6,28 +6,19 @@ import { join } from 'node:path';
 import { UsageService } from '../src/usage.js';
 import { FileUsageStorage } from '../src/usage-storage.js';
 import { EventQueue, FileEventStorage } from '../src/events.js';
-import { usageHook, claudeUsageFeed, claimUsageResume } from '../src/usage-hooks.js';
+import { usageHook, claudeUsageFeed } from '../src/usage-hooks.js';
 import { normalizeCodex, normalizeClaude, defaultUsageProviders } from '../src/usage-providers.js';
 import { parseWaitArgs, waitForEvent } from '../src/wait-cli.js';
 import { wakeKinds } from '../src/event-tools.js';
 import type { UsageObservation } from '../src/usage-model.js';
 
-async function fixture(t: any, automatic = false) {
+async function fixture(t: any) {
   const dir = await mkdtemp(join(tmpdir(), 'term-dad-usage-'));
   let now = 1_800_000_000_000;
   const events = new EventQueue(new FileEventStorage(dir));
   const providers = defaultUsageProviders(() => now);
   let calls = 0;
   let sample: UsageObservation;
-  if (automatic)
-    providers.codex.capabilities = {
-      refresh: true,
-      identity: true,
-      pause: true,
-      wake: true,
-      verified: true,
-      reason: 'Injected test adapter, not live evidence',
-    };
   providers.codex.read = async () => {
     calls++;
     return sample;
@@ -79,17 +70,14 @@ test('warnings deduplicate across instances, restart, and threshold jitter', asy
   await peer.close();
 });
 
-test('automatic mode is unavailable unless all capabilities are verified', async (t) => {
+test('configuration rejects removed mode controls', async (t) => {
   const f = await fixture(t);
-  for (const provider of ['claude', 'codex', 'copilot'])
-    await assert.rejects(
-      f.usage.configure({ accountRef: provider, provider, mode: 'automatic' }),
-      /AUTOMATIC_UNAVAILABLE/,
-    );
+  for (const mode of ['automatic', 'advisory'])
+    await assert.rejects(f.usage.configure({ accountRef: 'a', provider: 'codex', mode }), /mode/);
   assert.equal((await f.usage.accounts()).length, 0);
 });
 
-test('advisory reserve notifications reach each supervising client without automatic capabilities', async (t) => {
+test('reserve notifications reach each supervising client', async (t) => {
   const f = await fixture(t);
   await f.usage.configure({ accountRef: 'a', provider: 'codex' });
   for (const client of ['claude', 'codex', 'copilot'] as const) {
@@ -109,7 +97,6 @@ test('advisory reserve notifications reach each supervising client without autom
     assert.equal(output.continue, undefined, 'notify the assistant, do not enforce stopping');
     assert.deepEqual(await usageHook(f.usage, 'a', client, data), {});
   }
-  assert.equal((await f.usage.account('a')).phase, 'running');
 });
 
 test('Stop and unsupported callbacks do not consume an undelivered advisory warning', async (t) => {
@@ -149,49 +136,24 @@ test('default supervisor waiter receives a newly crossed usage threshold in advi
   assert.equal(output.event.accountRef, 'a');
 });
 
-test('95% gates dispatch; reset with low weekly stays paused; fresh healthy data permits one resume', async (t) => {
-  const f = await fixture(t, true);
-  await f.usage.configure({ accountRef: 'personal', provider: 'codex', mode: 'automatic' });
-  await f.usage.ingest('personal', f.observation(94));
-  const hook = { session_id: 'supervisor', hook_event_name: 'SessionStart' };
-  await usageHook(f.usage, 'personal', 'codex', hook);
-  await f.usage.ingest('personal', f.observation(95));
-  await assert.rejects(f.usage.assertDispatch(undefined, 'personal'), /USAGE_PAUSED/);
-  assert.equal(
-    ((await usageHook(f.usage, 'personal', 'codex', { ...hook, hook_event_name: 'Stop' })) as any).continue,
-    false,
-  );
-  assert.equal((await f.usage.account('personal')).phase, 'paused');
-  f.advance(18000_001);
-  await assert.rejects(f.usage.assertDispatch(undefined, 'personal'), /USAGE_PAUSED/);
-  await f.usage.ingest('personal', f.observation(1, 96));
-  assert.equal((await f.usage.account('personal')).phase, 'paused');
-  await f.usage.ingest('personal', f.observation(1, 94));
-  const a = await f.usage.account('personal');
-  assert.equal(a.phase, 'resume_pending');
-  assert.equal(await claimUsageResume(f.usage, 'personal', a.sessions[0].id), true);
-  assert.equal(await claimUsageResume(f.usage, 'personal', a.sessions[0].id), false);
-  await f.usage.assertDispatch(undefined, 'personal');
-});
-
-test('stale, missing weekly, and expired reset readings cannot authorize resume', async (t) => {
-  const f = await fixture(t, true);
-  await f.usage.configure({ accountRef: 'a', provider: 'codex', mode: 'automatic' });
+test('status reports stale, missing weekly, and expired reset readings', async (t) => {
+  const f = await fixture(t);
+  await f.usage.configure({ accountRef: 'a', provider: 'codex' });
   await f.usage.ingest('a', f.observation(10));
-  await f.usage.assertDispatch(undefined, 'a');
+  assert.equal((await f.usage.status('a')).accounts[0].reason, null);
   f.advance(120001);
-  await assert.rejects(f.usage.assertDispatch(undefined, 'a'), /stale/);
+  assert.match((await f.usage.status('a')).accounts[0].reason!, /stale/);
   const missing = f.observation(1);
   missing.windows.pop();
   await f.usage.ingest('a', missing);
-  await assert.rejects(f.usage.assertDispatch(undefined, 'a'), /weekly_unavailable/);
+  assert.equal((await f.usage.status('a')).accounts[0].reason, 'weekly_unavailable');
   await f.usage.ingest('a', f.observation(1, 1, f.now() - 1));
-  await assert.rejects(f.usage.assertDispatch(undefined, 'a'), /reset_unconfirmed/);
+  assert.match((await f.usage.status('a')).accounts[0].reason!, /reset_unconfirmed/);
 });
 
-test('hook delivery is per session; cancellation prevents continuation', async (t) => {
-  const f = await fixture(t, true);
-  await f.usage.configure({ accountRef: 'a', provider: 'codex', mode: 'automatic' });
+test('hook delivery is per session; ended sessions stop receiving context', async (t) => {
+  const f = await fixture(t);
+  await f.usage.configure({ accountRef: 'a', provider: 'codex' });
   await f.usage.ingest('a', f.observation(95));
   for (const session_id of ['one', 'two']) {
     const input = { session_id, hook_event_name: 'PostToolUse' };
@@ -200,9 +162,8 @@ test('hook delivery is per session; cancellation prevents continuation', async (
   }
   await usageHook(f.usage, 'a', 'codex', { session_id: 'one', hook_event_name: 'SessionEnd' });
   await f.usage.ingest('a', f.observation(1));
-  const a = await f.usage.account('a');
-  assert.equal(await claimUsageResume(f.usage, 'a', a.sessions[0].id), false);
-  assert.equal(await claimUsageResume(f.usage, 'a', a.sessions[1].id), true);
+  assert.deepEqual(await usageHook(f.usage, 'a', 'codex', { session_id: 'one' }), {});
+  assert.match(JSON.stringify(await usageHook(f.usage, 'a', 'codex', { session_id: 'two' })), /Term Dad usage/);
 });
 
 test('refresh is rate-limited and shared collector ownership excludes concurrent reads', async (t) => {
@@ -249,8 +210,8 @@ test('Codex windows use actual durations and preserve independent buckets', () =
 });
 
 test('scheduler retries failed reads with backoff without moving the deadline on each tick', async (t) => {
-  const f = await fixture(t, true);
-  await f.usage.configure({ accountRef: 'a', provider: 'codex', mode: 'automatic' });
+  const f = await fixture(t);
+  await f.usage.configure({ accountRef: 'a', provider: 'codex' });
   let calls = 0;
   f.providers.codex.read = async () => {
     calls++;
@@ -271,15 +232,15 @@ test('scheduler retries failed reads with backoff without moving the deadline on
   assert.ok(!JSON.stringify(await f.usage.status()).includes('sensitive'));
 });
 
-test('unwatch preserves policy and account identity changes cannot silently rebind', async (t) => {
-  const f = await fixture(t, true);
-  await f.usage.configure({ accountRef: 'a', provider: 'codex', mode: 'automatic' });
+test('unwatch preserves observations and account identity changes cannot silently rebind', async (t) => {
+  const f = await fixture(t);
+  await f.usage.configure({ accountRef: 'a', provider: 'codex' });
   await f.usage.ingest('a', f.observation(95));
   await f.usage.unwatch('a');
-  await assert.rejects(f.usage.assertDispatch(undefined, 'a'), /USAGE_PAUSED/);
+  assert.equal((await f.usage.account('a')).observation!.windows[0].usedPercent, 95);
   await f.usage.ingest('a', { ...f.observation(1), identity: 'different-account' });
   assert.equal((await f.usage.account('a')).observation!.identity, 'test-account');
-  await assert.rejects(f.usage.assertDispatch(undefined, 'a'), /account_identity_changed/);
+  assert.equal((await f.usage.status('a')).accounts[0].reason, 'account_identity_changed');
 });
 
 test('reconfigured source discards an in-flight observation from the old source', async (t) => {
@@ -420,9 +381,9 @@ test('reset alert reaches the waiter while provider refresh is blocked', async (
   }
 });
 
-test('reset outbox survives publication failure and competing servers without granting dispatch', async (t) => {
-  const f = await fixture(t, true);
-  await f.usage.configure({ accountRef: 'a', provider: 'codex', mode: 'automatic' });
+test('reset outbox survives publication failure and competing servers without inventing recovery', async (t) => {
+  const f = await fixture(t);
+  await f.usage.configure({ accountRef: 'a', provider: 'codex' });
   await f.usage.ingest('a', f.observation(95, 10, f.now() + 1000));
   f.providers.codex.read = async () => {
     throw new Error('offline');
@@ -439,7 +400,7 @@ test('reset outbox survives publication failure and competing servers without gr
   t.after(() => peer.close());
   await Promise.all([f.usage.tick(), peer.tick()]);
   assert.equal((await f.events.list()).events.filter((e) => e.kind === 'usage.reset_due').length, 1);
-  await assert.rejects(f.usage.assertDispatch(undefined, 'a'), /USAGE_PAUSED/);
+  assert.equal((await f.usage.account('a')).observation!.windows[0].usedPercent, 95);
 });
 
 test('unknown reset times never invent a wake deadline', async (t) => {
@@ -552,4 +513,59 @@ test('desktop retry saturation evicts only published notifications and cannot bl
     /USAGE_EVENT_BACKLOG_FULL/,
   );
   assert.equal((await service.account('a')).pending.length, 64);
+});
+
+test('legacy usage journals migrate to monitoring while retaining accounts, reset alerts and warnings', async (t) => {
+  const f = await fixture(t);
+  await f.usage.configure({ accountRef: 'a', provider: 'claude' });
+  await f.usage.ingest('a', f.observation(95));
+  await usageHook(f.usage, 'a', 'claude', { session_id: 'supervisor' });
+  const account = await f.usage.account('a');
+  const legacy = {
+    version: 1,
+    accounts: [
+      {
+        ...account,
+        config: { ...account.config, mode: 'automatic' },
+        phase: 'paused',
+        cycle: 1,
+        sessions: account.sessions.map((s) => ({ ...s, parked: true, resumeCycle: 0 })),
+        pending: [
+          { kind: 'usage.threshold', key: 'retained', at: f.now(), summary: 'Usage warning', published: false },
+          {
+            kind: 'usage.resume_pending',
+            key: 'removed',
+            at: f.now(),
+            summary: 'Old control notice',
+            published: false,
+          },
+        ],
+      },
+    ],
+  };
+  await writeFile(join(f.dir, 'usage.json'), JSON.stringify(legacy), { mode: 0o600 });
+  const migrated = await f.usage.account('a');
+  assert.deepEqual(migrated.config, account.config);
+  assert.deepEqual(migrated.observation, account.observation);
+  assert.deepEqual(migrated.resetAlerts, account.resetAlerts);
+  assert.deepEqual(
+    migrated.pending.map((p) => p.key),
+    ['retained'],
+  );
+  assert.equal('phase' in migrated, false);
+  assert.equal('parked' in migrated.sessions[0], false);
+  assert.match(
+    JSON.stringify(await usageHook(f.usage, 'a', 'claude', { session_id: 'supervisor' })),
+    /Usage reserve reached/,
+  );
+  const saved = JSON.parse(await readFile(join(f.dir, 'usage.json'), 'utf8'));
+  assert.equal(saved.version, 2);
+  await f.usage.flush();
+  assert.ok((await f.events.list()).events.some((e) => e.deliveryKey === 'retained'));
+});
+
+test('migration rejects unknown fields instead of silently discarding corrupt state', async () => {
+  const { parseUsageState } = await import('../src/usage-migration.js');
+  assert.throws(() => parseUsageState({ version: 1, accounts: [], surprise: true }));
+  assert.throws(() => parseUsageState({ version: 3, accounts: [] }));
 });

@@ -20,7 +20,7 @@ try {
           usedPercent,
           resetsAt: resetsAt === null ? null : new Date(resetsAt).toISOString(),
         })),
-        automaticPauseResumeVerified: false,
+        supervisorControlsWorkers: true,
       },
       null,
       2,

@@ -16,12 +16,11 @@ export function hookConfiguration(o: HookInstallOptions): HookConfig {
   const args = [o.entry, 'usage-hook', '--account', o.accountRef, '--client', o.client, '--state-dir', o.stateDir];
   const events =
     o.client === 'copilot'
-      ? ['sessionStart', 'postToolUse', 'agentStop', 'sessionEnd']
+      ? ['sessionStart', 'postToolUse', 'sessionEnd']
       : [
           'SessionStart',
           'UserPromptSubmit',
           'PostToolUse',
-          'Stop',
           'SessionEnd',
           ...(o.client === 'codex' ? ['Interrupt'] : []),
         ];
@@ -46,8 +45,6 @@ export function hookConfiguration(o: HookInstallOptions): HookConfig {
       ];
     }),
   );
-  // Wake listeners are not installed for advisory-only capabilities. The standalone --wait
-  // helper is available to verified integrations; it must never imply automatic support.
   return {
     ...(o.client === 'copilot' ? { version: 1 } : {}),
     hooks,

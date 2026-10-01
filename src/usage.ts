@@ -5,12 +5,11 @@ import { FileUsageStorage, type UsageStorage } from './usage-storage.js';
 import { defaultUsageProviders, type UsageProvider } from './usage-providers.js';
 import {
   configureUsageSchema,
-  eligibility,
+  usageConcern,
   freshness,
   observationSchema,
   usageWatchSchema,
   type UsageAccount,
-  type UsageCapabilities,
   type UsageConfig,
   type UsageObservation,
 } from './usage-model.js';
@@ -61,21 +60,12 @@ export class UsageService {
       return { state: s, result };
     });
   }
-  capabilities(config: UsageConfig): UsageCapabilities {
-    return this.providers[config.provider].capabilities;
-  }
-  automatic(config: UsageConfig) {
-    const c = this.capabilities(config);
-    return c.refresh && c.identity && c.pause && c.wake && c.verified;
-  }
   configure(input: unknown) {
     return this.run(async () => {
       const config = configureUsageSchema.parse(input);
       if (config.codexHome && !isAbsolute(config.codexHome)) throw new Error('USAGE_HOME_MUST_BE_ABSOLUTE');
       if (config.provider === 'codex')
         config.codexHome = resolve(config.codexHome ?? process.env.CODEX_HOME ?? join(homedir(), '.codex'));
-      if (config.mode === 'automatic' && !this.automatic(config))
-        throw new Error(`USAGE_AUTOMATIC_UNAVAILABLE: ${this.capabilities(config).reason}`);
       await this.storage.transaction(true, (s) => {
         const existing = s.accounts.find((a) => a.config.accountRef === config.accountRef);
         for (const a of s.accounts) {
@@ -106,8 +96,6 @@ export class UsageService {
             existing.lastAttemptAt = null;
             existing.failures = 0;
           }
-          // Reconfiguration never replays a previous resume request into old sessions.
-          for (const session of existing.sessions) session.cancelled = true;
           evaluateUsage(existing, this.now());
           scheduleResetAlerts(existing);
         } else {
@@ -118,9 +106,7 @@ export class UsageService {
             sourceRevision: 1,
             observation: null,
             watch: { accountRef: config.accountRef, thresholdsUsedPercent: [80, 90, 95], notifyOnReset: true },
-            phase: 'running',
             reason: null,
-            cycle: 0,
             nextCheckAt: null,
             lastAttemptAt: null,
             failures: 0,
@@ -149,11 +135,9 @@ export class UsageService {
         .map((a) => ({
           accountRef: a.config.accountRef,
           provider: a.config.provider,
-          mode: a.config.mode,
           enabled: a.config.enabled,
           workerIds: a.config.workerIds,
-          phase: a.phase,
-          reason: eligibility(a, this.now()) ?? a.reason,
+          reason: a.config.enabled ? usageConcern(a, this.now()) : 'disabled',
           freshness: freshness(a.observation, this.now()),
           observation: a.observation,
           nextCheckAt: a.nextCheckAt,
@@ -163,7 +147,7 @@ export class UsageService {
           reservePercent: a.config.reservePercent,
           weeklyReservePercent: a.config.weeklyReservePercent,
           watch: a.watch,
-          capabilities: this.capabilities(a.config),
+          collection: this.providers[a.config.provider].collection,
           sessions: a.sessions,
         })),
       storageWarning: this.storage.warning ?? null,
@@ -268,15 +252,6 @@ export class UsageService {
       return this.storage.collect ? this.storage.collect(ref, collect) : collect();
     });
   }
-  async assertDispatch(workerId?: string, accountRef?: string) {
-    for (const a of await this.accounts()) {
-      if (!a.config.enabled || a.config.mode !== 'automatic') continue;
-      if (a.config.accountRef !== accountRef && (!workerId || !a.config.workerIds.includes(workerId))) continue;
-      const reason = !this.automatic(a.config) ? 'capabilities_unavailable' : eligibility(a, this.now());
-      if (reason || (a.phase !== 'running' && a.phase !== 'resume_pending'))
-        throw new Error(`USAGE_PAUSED: ${reason ?? a.phase}`);
-    }
-  }
   flush() {
     return this.outbox.publish();
   }
@@ -315,13 +290,11 @@ export class UsageService {
         for (const a of await this.accounts()) {
           if (!a.config.enabled) continue;
           const now = this.now();
-          if (a.config.mode === 'automatic' && eligibility(a, now) !== a.reason)
-            await this.mutate(a.config.accountRef, (a) => evaluateUsage(a, now));
           if (
             this.providers[a.config.provider].read &&
             (a.nextCheckAt === null ||
               a.nextCheckAt <= now ||
-              (a.phase === 'running' && !a.error && (a.lastAttemptAt === null || now - a.lastAttemptAt >= 60_000)))
+              (!a.error && (a.lastAttemptAt === null || now - a.lastAttemptAt >= 60_000)))
           )
             await this.refresh(a.config.accountRef).catch(() => {});
         }

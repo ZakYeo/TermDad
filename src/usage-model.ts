@@ -34,7 +34,6 @@ export const configureUsageSchema = z
   .object({
     accountRef: usageId,
     provider: providerName,
-    mode: z.enum(['advisory', 'automatic']).default('advisory'),
     enabled: z.boolean().default(true),
     reservePercent: z.number().min(1).max(50).default(5),
     weeklyReservePercent: z.number().min(1).max(50).default(5),
@@ -54,17 +53,13 @@ export const usageWatchSchema = z
   .strict();
 export type UsageWatch = z.infer<typeof usageWatchSchema>;
 
-export const phaseSchema = z.enum(['running', 'pause_requested', 'paused', 'checking', 'resume_pending']);
-export type UsagePhase = z.infer<typeof phaseSchema>;
 const sessionSchema = z
   .object({
     id: usageId,
     client: providerName,
     lastSeen: z.number(),
-    parked: z.boolean(),
     cancelled: z.boolean(),
     lastRevision: z.number().int().nonnegative(),
-    resumeCycle: z.number().int().nonnegative(),
   })
   .strict();
 const pendingSchema = z
@@ -83,9 +78,7 @@ export const usageAccountSchema = z
     sourceRevision: z.number().int().positive().default(1),
     observation: observationSchema.nullable(),
     watch: usageWatchSchema.nullable(),
-    phase: phaseSchema,
     reason: z.string().max(240).nullable(),
-    cycle: z.number().int().nonnegative(),
     nextCheckAt: z.number().nullable(),
     lastAttemptAt: z.number().nullable(),
     notificationDropped: z.number().int().nonnegative().safe().default(0),
@@ -112,7 +105,7 @@ export const usageAccountSchema = z
 export type UsageAccount = z.infer<typeof usageAccountSchema>;
 export const usageStateSchema = z
   .object({
-    version: z.literal(1),
+    version: z.literal(2),
     accounts: z.array(usageAccountSchema).max(32),
   })
   .strict()
@@ -122,22 +115,14 @@ export const usageStateSchema = z
   );
 export type UsageState = z.infer<typeof usageStateSchema>;
 
-export interface UsageCapabilities {
-  refresh: boolean;
-  identity: boolean;
-  pause: boolean;
-  wake: boolean;
-  verified: boolean;
-  reason: string;
-}
 export const freshForMs = 120_000;
 export function freshness(o: UsageObservation | null, now: number) {
   if (!o) return 'unknown' as const;
   return now >= o.observedAt && now - o.observedAt <= freshForMs ? ('fresh' as const) : ('stale' as const);
 }
 
-/** All reported quota buckets apply. Missing required windows cannot authorize dispatch. */
-export function eligibility(a: UsageAccount, now: number): string | null {
+/** All reported quota buckets apply. Missing or stale windows remain explicit for the supervisor. */
+export function usageConcern(a: UsageAccount, now: number): string | null {
   if (a.error) return a.error;
   const o = a.observation;
   if (freshness(o, now) !== 'fresh') return 'usage_unavailable_or_stale';

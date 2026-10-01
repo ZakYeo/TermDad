@@ -82,13 +82,8 @@ export function createServer(
     usageService ??
     new UsageService(undefined, events, undefined, undefined, CommandNotificationProvider.fromEnvironment());
   const push = new WorkerPushRegistry(ingress, socketPath, notifyCommand(), stateDir);
-  const agents = new Agents(backend, workerStorage, push, {
-    spawn: async (agentId, ref) => {
-      if (!ref) return;
-      await usage.account(ref);
-      await usage.assertDispatch(undefined, ref);
-    },
-    send: (agentId, ref) => usage.assertDispatch(agentId, ref),
+  const agents = new Agents(backend, workerStorage, push, async (ref) => {
+    await usage.account(ref);
   });
   // Push can then report on a managed worker it holds no registration for, rather than failing,
   // accept the worker's name, and re-key a surviving worker on demand under its own lock.
@@ -414,7 +409,6 @@ export function createServer(
               ...worker,
               usage: {
                 accountRef: account.accountRef,
-                phase: account.phase,
                 reason: account.reason,
                 freshness: account.freshness,
               },
