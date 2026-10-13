@@ -37,7 +37,9 @@ The worker shell is selected from `TERM_DAD_LOCAL_SHELL`, then `SHELL`, with
 `/bin/sh` as the fallback. Set `TERM_DAD_LOCAL_SHELL=/usr/bin/zsh` in the MCP
 server environment to choose it explicitly. Use an executable path, without
 flags. Supported shell names are `zsh`, `bash`, `sh`, `dash`, `ksh` and `fish`;
-other shells require explicit worker command overrides. Zsh reads `.zprofile`
+other shell names produce a stderr warning and retain direct CLI launches
+without shell startup. Select a supported shell or provide explicit worker
+command overrides to load their environment. Zsh reads `.zprofile`
 and `.zshrc`; bash follows its normal login startup rules (typically your
 `.bash_profile` sources `.bashrc`). Startup output appears in the worker pane,
 never on the MCP protocol stream. A startup script that blocks or exits can

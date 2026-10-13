@@ -15,8 +15,8 @@ worker_command() {
     else if (["sh", "dash", "bash", "zsh", "ksh"].includes(name))
       prefix = [shell, "-lic", "exec \"$@\"", "term-dad-worker"];
     else {
-      console.error("Unsupported local shell; set TERM_DAD_LOCAL_SHELL to a supported shell or configure both agent command overrides.");
-      process.exit(1);
+      console.error("Unsupported local shell; launching " + process.argv[1] + " directly without shell startup. Set TERM_DAD_LOCAL_SHELL to a supported shell or configure agent command overrides.");
+      prefix = [];
     }
     console.log(JSON.stringify([...prefix, process.argv[1]]));
   ' "$1"

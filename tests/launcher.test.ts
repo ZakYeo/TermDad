@@ -1,9 +1,11 @@
 import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdtemp, mkdir, copyFile, writeFile, symlink, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
 import { execute } from '../src/backend.js';
 import { pushHookArgv } from '../src/worker-hooks.js';
 
@@ -36,11 +38,14 @@ async function fixture(t: TestContext) {
     TERM_DAD_TEST_LOGIN: '',
     TERM_DAD_TEST_INTERACTIVE: '',
   };
+  const runLauncher = (overrides: NodeJS.ProcessEnv = {}) =>
+    promisify(execFile)('/bin/sh', [join(scripts, 'launch-local')], {
+      env: { ...env, ...overrides },
+      timeout: 15000,
+    });
   const launch = async (overrides: NodeJS.ProcessEnv = {}) =>
-    JSON.parse(
-      await execute('/bin/sh', [join(scripts, 'launch-local')], undefined, 15000, { ...env, ...overrides }),
-    ) as string[];
-  return { directory, workerBin, home, env, launch };
+    JSON.parse((await runLauncher(overrides)).stdout) as string[];
+  return { directory, workerBin, home, env, launch, runLauncher };
 }
 
 test('local launcher selects the configured shell and preserves explicit command overrides', async (t) => {
@@ -72,7 +77,13 @@ test('local launcher selects the configured shell and preserves explicit command
     }),
     [override, '["remote-codex"]'],
   );
-  await assert.rejects(f.launch({ SHELL: '/bin/unsupported' }), /Unsupported local shell/);
+  const fallback = await f.runLauncher({ SHELL: '/bin/unsupported' });
+  assert.deepEqual(
+    JSON.parse(fallback.stdout).map((value: string) => JSON.parse(value)),
+    [['claude'], ['codex']],
+  );
+  assert.match(fallback.stderr, /Unsupported local shell; launching claude directly without shell startup/);
+  assert.match(fallback.stderr, /TERM_DAD_LOCAL_SHELL/);
 });
 
 for (const shell of ['/bin/zsh', '/bin/bash']) {

@@ -31,7 +31,9 @@ configuration before looking up Claude/Codex and their runtimes. POSIX-style
 shells use the fixed command `exec "$@"` with a separate `$0` placeholder;
 fish uses `exec $argv`. The executable and any appended hook flags remain
 individual arguments, never interpolated shell source. `exec` replaces the
-bootstrap shell with the CLI. Explicit command overrides remain unchanged;
+bootstrap shell with the CLI. Unsupported shell names warn on stderr and fall
+back to direct CLI argv, leaving the server available for terminal operations
+and explicit overrides. Explicit command overrides remain unchanged;
 raw terminal commands still execute directly, and shell workers without a
 command still use the terminal domain's default program.
 
