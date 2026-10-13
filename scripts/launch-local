@@ -1,20 +1,32 @@
 #!/bin/sh
-# Resolve tools on the MCP host for local terminal domains (including WSL).
+# Load the user's shell environment in local worker panes (including WSL).
 set -eu
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 node_bin=$(command -v node)
-if [ -z "${TERM_DAD_CLAUDE_COMMAND:-}" ] && command -v claude >/dev/null 2>&1; then
-  # GUI-spawned WSL panes may omit local runtimes needed by Claude hooks.
-  TERM_DAD_CLAUDE_COMMAND=$("$node_bin" -e 'console.log(JSON.stringify([process.argv[1],`PATH=${process.env.PATH}`,process.argv[2]]))' "$(command -v env)" "$(command -v claude)")
+# Only construct argv here: startup files must run in the worker pane, never on
+# the MCP server's protocol stdout. Resolve CLIs after shell startup, not before.
+worker_command() {
+  "$node_bin" --input-type=module -e '
+    import {basename} from "node:path";
+    const shell = process.env.TERM_DAD_LOCAL_SHELL || process.env.SHELL || "/bin/sh";
+    const name = basename(shell);
+    let prefix;
+    if (name === "fish") prefix = [shell, "-lic", "exec $argv"];
+    else if (["sh", "dash", "bash", "zsh", "ksh"].includes(name))
+      prefix = [shell, "-lic", "exec \"$@\"", "term-dad-worker"];
+    else {
+      console.error("Unsupported local shell; set TERM_DAD_LOCAL_SHELL to a supported shell or configure both agent command overrides.");
+      process.exit(1);
+    }
+    console.log(JSON.stringify([...prefix, process.argv[1]]));
+  ' "$1"
+}
+if [ -z "${TERM_DAD_CLAUDE_COMMAND:-}" ]; then
+  TERM_DAD_CLAUDE_COMMAND=$(worker_command claude)
   export TERM_DAD_CLAUDE_COMMAND
 fi
-if [ -z "${TERM_DAD_CODEX_COMMAND:-}" ] && command -v codex >/dev/null 2>&1; then
-  TERM_DAD_CODEX_COMMAND=$("$node_bin" --input-type=module -e '
-    import {readFileSync,realpathSync} from "node:fs";
-    const file=realpathSync(process.argv[1]);
-    const isNode=readFileSync(file).subarray(0,100).toString().startsWith("#!/usr/bin/env node");
-    console.log(JSON.stringify(isNode?[process.execPath,file]:[file]));
-  ' "$(command -v codex)")
+if [ -z "${TERM_DAD_CODEX_COMMAND:-}" ]; then
+  TERM_DAD_CODEX_COMMAND=$(worker_command codex)
   export TERM_DAD_CODEX_COMMAND
 fi
 exec "$node_bin" "$script_dir/../dist/index.js"

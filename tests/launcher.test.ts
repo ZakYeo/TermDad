@@ -1,42 +1,146 @@
-import test from 'node:test';
+import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { mkdtemp, mkdir, copyFile, writeFile, symlink, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execute } from '../src/backend.js';
+import { pushHookArgv } from '../src/worker-hooks.js';
 
-test('local Claude launch preserves host runtime PATH literally and respects configured argv', async (t) => {
+async function fixture(t: TestContext) {
   const directory = await mkdtemp(join(tmpdir(), 'term-dad-launcher-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
-  const bin = join(directory, 'tools with spaces $literal'),
+  const hostBin = join(directory, 'host'),
+    workerBin = join(directory, 'tools with spaces $literal'),
+    home = join(directory, 'home'),
     scripts = join(directory, 'scripts'),
     dist = join(directory, 'dist');
-  await Promise.all([mkdir(bin), mkdir(scripts), mkdir(dist)]);
+  await Promise.all([hostBin, workerBin, home, scripts, dist].map((path) => mkdir(path)));
   await copyFile(new URL('../scripts/launch-local', import.meta.url), join(scripts, 'launch-local'));
-  await symlink(process.execPath, join(bin, 'node'));
-  await writeFile(join(bin, 'claude'), '#!/bin/sh\nexec bun\n', { mode: 0o700 });
-  await writeFile(join(bin, 'bun'), '#!/bin/sh\nprintf "hook-runtime-visible"\n', { mode: 0o700 });
-  await writeFile(join(dist, 'index.js'), 'console.log(process.env.TERM_DAD_CLAUDE_COMMAND);\n');
+  await symlink(process.execPath, join(hostBin, 'node'));
+  await symlink(process.execPath, join(workerBin, 'node'));
+  await writeFile(
+    join(dist, 'index.js'),
+    'console.log(JSON.stringify([process.env.TERM_DAD_CLAUDE_COMMAND, process.env.TERM_DAD_CODEX_COMMAND]));\n',
+  );
   const env = {
     ...process.env,
-    PATH: `${bin}:/usr/bin:/bin`,
+    HOME: home,
+    ZDOTDIR: home,
+    PATH: `${hostBin}:/usr/bin:/bin`,
+    SHELL: '/bin/zsh',
+    TERM_DAD_LOCAL_SHELL: '',
     TERM_DAD_CLAUDE_COMMAND: '',
-    TERM_DAD_CODEX_COMMAND: '["custom-codex"]',
+    TERM_DAD_CODEX_COMMAND: '',
+    TERM_DAD_TEST_BIN: workerBin,
+    TERM_DAD_TEST_LOGIN: '',
+    TERM_DAD_TEST_INTERACTIVE: '',
   };
-  const argv = JSON.parse(await execute('/bin/sh', [join(scripts, 'launch-local')], undefined, 15000, env));
-  assert.deepEqual(argv, ['/usr/bin/env', `PATH=${env.PATH}`, join(bin, 'claude')]);
-  assert.equal(
-    await execute(argv[0], argv.slice(1), undefined, 15000, { ...process.env, PATH: '/usr/bin:/bin' }),
-    'hook-runtime-visible',
-  );
+  const launch = async (overrides: NodeJS.ProcessEnv = {}) =>
+    JSON.parse(
+      await execute('/bin/sh', [join(scripts, 'launch-local')], undefined, 15000, { ...env, ...overrides }),
+    ) as string[];
+  return { directory, workerBin, home, env, launch };
+}
+
+test('local launcher selects the configured shell and preserves explicit command overrides', async (t) => {
+  const f = await fixture(t);
+  for (const shell of ['/bin/zsh', '/bin/bash', '/bin/sh', '/bin/dash', '/bin/ksh']) {
+    const commands = (await f.launch({ TERM_DAD_LOCAL_SHELL: shell })).map((value) => JSON.parse(value));
+    assert.deepEqual(commands, [
+      [shell, '-lic', 'exec "$@"', 'term-dad-worker', 'claude'],
+      [shell, '-lic', 'exec "$@"', 'term-dad-worker', 'codex'],
+    ]);
+  }
+  assert.equal(JSON.parse((await f.launch())[0])[0], '/bin/zsh');
+  assert.equal(JSON.parse((await f.launch({ SHELL: '' }))[0])[0], '/bin/sh');
+  assert.deepEqual(JSON.parse((await f.launch({ SHELL: '/usr/bin/fish' }))[0]), [
+    '/usr/bin/fish',
+    '-lic',
+    'exec $argv',
+    'claude',
+  ]);
   const override = '["custom-claude","--flag"]';
-  assert.equal(
-    (
-      await execute('/bin/sh', [join(scripts, 'launch-local')], undefined, 15000, {
-        ...env,
-        TERM_DAD_CLAUDE_COMMAND: override,
-      })
-    ).trim(),
-    override,
+  const commands = await f.launch({ TERM_DAD_CLAUDE_COMMAND: override });
+  assert.equal(commands[0], override);
+  assert.equal(JSON.parse(commands[1]).at(-1), 'codex');
+  assert.deepEqual(
+    await f.launch({
+      SHELL: '/bin/unsupported',
+      TERM_DAD_CLAUDE_COMMAND: override,
+      TERM_DAD_CODEX_COMMAND: '["remote-codex"]',
+    }),
+    [override, '["remote-codex"]'],
   );
+  await assert.rejects(f.launch({ SHELL: '/bin/unsupported' }), /Unsupported local shell/);
 });
+
+for (const shell of ['/bin/zsh', '/bin/bash']) {
+  test(
+    `${shell} loads startup environment and forwards CLI and injected hook arguments literally`,
+    { skip: !existsSync(shell) },
+    async (t) => {
+      const f = await fixture(t);
+      const login = 'export TERM_DAD_TEST_LOGIN=loaded\n';
+      const interactive =
+        'export TERM_DAD_TEST_INTERACTIVE=loaded\nexport PATH="$TERM_DAD_TEST_BIN:$PATH"\nprintf "startup-output\\n"\n';
+      await Promise.all([
+        writeFile(join(f.home, '.zprofile'), login),
+        writeFile(join(f.home, '.zshrc'), interactive),
+        writeFile(join(f.home, '.bash_profile'), `${login}. "$HOME/.bashrc"\n`),
+        writeFile(join(f.home, '.bashrc'), interactive),
+      ]);
+      for (const runtime of ['bun', 'rtk'])
+        await writeFile(join(f.workerBin, runtime), `#!/bin/sh\nprintf '${runtime}-available'\n`, { mode: 0o700 });
+      for (const cli of ['claude', 'codex'])
+        await writeFile(
+          join(f.workerBin, cli),
+          `#!/usr/bin/env node
+const {execFileSync} = require('node:child_process');
+if (process.argv.includes('--test-exit')) process.exit(23);
+console.log(JSON.stringify({
+  argv: process.argv.slice(2),
+  login: process.env.TERM_DAD_TEST_LOGIN,
+  interactive: process.env.TERM_DAD_TEST_INTERACTIVE,
+  runtimes: ['bun', 'rtk'].map(name => execFileSync(name, {encoding: 'utf8'})),
+}));
+`,
+          { mode: 0o700 },
+        );
+      // Neither CLI is on the host PATH. Startup chatter must not touch server stdout.
+      const commands = (await f.launch({ TERM_DAD_LOCAL_SHELL: shell })).map((value) => JSON.parse(value) as string[]);
+      const literal = [
+        'a b',
+        '',
+        '"quoted"',
+        "apostrophe'",
+        '$HOME',
+        '$(touch SHOULD_NOT_EXIST)',
+        '`id`',
+        '; echo injected',
+        '*.json',
+        'two\nlines',
+      ];
+      for (const [index, cli] of (['claude', 'codex'] as const).entries()) {
+        const base = [...commands[index], ...literal];
+        const argv = pushHookArgv(cli, base, {
+          credentialPath: join(f.directory, "state with spaces' $literal", 'credentials.json'),
+          notify: [process.execPath, '/path with spaces/notify.js'],
+        })!;
+        // Simulate a GUI pane without any of the supervisor's runtime PATH entries.
+        const env = { ...f.env, PATH: '/usr/bin:/bin' };
+        const output = await execute(argv[0], argv.slice(1), undefined, 15000, env);
+        const result = JSON.parse(output.trim().split('\n').at(-1)!);
+        assert.deepEqual(result.argv, [...literal, ...argv.slice(base.length)]);
+        assert.equal(result.login, 'loaded');
+        assert.equal(result.interactive, 'loaded');
+        assert.deepEqual(result.runtimes, ['bun-available', 'rtk-available']);
+        assert.match(output, /^startup-output\n/m);
+        await assert.rejects(
+          execute(argv[0], [...commands[index].slice(1), '--test-exit'], undefined, 15000, env),
+          /23/,
+        );
+      }
+    },
+  );
+}
