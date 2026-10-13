@@ -1,5 +1,30 @@
 # Verification evidence
 
+## Local agent shell startup (2026-10-13)
+
+`npm run check` passed the build, formatting check and all 353 tests after the
+shell launcher change and review correction. Launcher regressions run real zsh
+and bash with temporary startup files and a stripped worker PATH. They verify
+login/interactive initialization, CLI and hook-runtime lookup, literal arguments
+(including injected Claude settings and Codex notify arguments), exit status,
+explicit overrides, and stderr-only warnings with direct-launch fallback for
+unsupported shells. Fish and ksh have argv-construction coverage only; neither
+was installed for runtime verification.
+
+`npm run test:agent -- claude` and `npm run test:agent -- codex` both passed
+against the running Windows WezTerm GUI from WSL using the local zsh launcher
+and configured accounts. Each exercised spawn, readiness, an initial answer,
+a follow-up in the same pane, observation, interruption and verified pane
+cleanup. These checks used host execution because the sandbox restricts
+subprocess/desktop interoperability. The build is current; existing MCP clients
+must restart to load the new launcher defaults.
+
+`npm run test:live` also passed the shell/terminal orchestration regression,
+including input, layout operations, broadcasts, task verification, interruption
+and cleanup while preserving pre-existing panes.
+
+## Original verification
+
 Live verification performed on 2026-09-16 in this checkout using Node 22.14.0, Windows WezTerm from WSL Ubuntu, Claude Code 2.1.273 and Codex 0.154.0. The GUI and account are prerequisites; fake runner tests do not substitute for these live tests.
 
 | Gate | Evidence |
