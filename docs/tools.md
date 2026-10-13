@@ -45,6 +45,16 @@ Keys (case-insensitive): ENTER, ESC, TAB, SPACE, UP, DOWN, LEFT, RIGHT, PAGEUP, 
 
 Text is capped at 100,000 characters; key sequences at 100 keys. Wait timeout defaults to 30,000ms, maximum 120,000ms. Screenshots require `TERM_DAD_SCREENSHOT_COMMAND`. `newWindow` and `windowId` are mutually exclusive.
 
+When the server uses `scripts/launch-local`, default Claude/Codex workers start
+through an interactive login shell selected by `TERM_DAD_LOCAL_SHELL`, `SHELL`,
+or `/bin/sh`, in that order. CLI lookup happens after shell startup. Hook flags
+are forwarded as literal argv. Explicit `command` values and configured
+`TERM_DAD_CLAUDE_COMMAND`/`TERM_DAD_CODEX_COMMAND` overrides bypass this default;
+include a shell wrapper yourself if needed. For example:
+`["/usr/bin/zsh","-lic","exec \"$@\"","term-dad-worker","claude","--verbose"]`.
+Use target-domain commands for remote workers. Raw terminal commands are not
+automatically wrapped; omitting the command uses WezTerm's default program.
+
 For repeated monitoring, start with `orchestrator.status`, compare worker IDs,
 status/input flags, errors and output hashes, then observe only workers needing
 details. Unresolved input still needs attention when the hash is unchanged.

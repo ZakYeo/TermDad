@@ -31,7 +31,18 @@ codex mcp add term-dad -- /absolute/path/to/TermDad/scripts/launch-local
 
 Restart the Codex session after adding the server. Ask it: “Use term-dad to list my terminal panes, start a shell worker in a new tab, run `pwd`, and show its output.” The command syntax follows the [official Codex MCP documentation](https://developers.openai.com/codex/mcp/).
 
-The local launcher resolves Claude and Codex from your PATH, including npm-installed Codex under nvm. Claude workers inherit that PATH so local hook runtimes such as Bun remain available in GUI-spawned panes. Replace the example absolute paths with your checkout path. No global npm install is required. Any stdio MCP client can use `node` with the absolute `dist/index.js` argument. Avoid `npm start` as the MCP launch command: npm can print banners to stdout. Server diagnostics go to stderr.
+The local launcher starts Claude and Codex through your configured shell as an interactive login shell. It resolves the CLI after shell startup, so PATH entries and exported variables for Homebrew, Bun and nvm are available to both the CLI and its hooks. Node must still be on the MCP host's PATH to start the server. Replace the example absolute paths with your checkout path. No global npm install is required. Any stdio MCP client can use `node` with the absolute `dist/index.js` argument. Avoid `npm start` as the MCP launch command: npm can print banners to stdout. Server diagnostics go to stderr.
+
+The worker shell is selected from `TERM_DAD_LOCAL_SHELL`, then `SHELL`, with
+`/bin/sh` as the fallback. Set `TERM_DAD_LOCAL_SHELL=/usr/bin/zsh` in the MCP
+server environment to choose it explicitly. Use an executable path, without
+flags. Supported shell names are `zsh`, `bash`, `sh`, `dash`, `ksh` and `fish`;
+other shells require explicit worker command overrides. Zsh reads `.zprofile`
+and `.zshrc`; bash follows its normal login startup rules (typically your
+`.bash_profile` sources `.bashrc`). Startup output appears in the worker pane,
+never on the MCP protocol stream. A startup script that blocks or exits can
+prevent the worker from starting. Restart the MCP client after changing these
+settings or updating the launcher.
 
 WezTerm is detected as `wezterm` or the standard Windows installation at `/mnt/c/Program Files/WezTerm/wezterm.exe` when running in WSL. Set `TERM_DAD_WEZTERM` to override. Run the server with access to your desktop/WSL interoperability; a sandbox that blocks Windows process execution cannot reach the GUI.
 
@@ -49,19 +60,19 @@ agent.stop({"agentId":"research"})
 
 Use an actual pane ID from `terminal.list`. `paneId` on spawn selects the parent domain/window; the worker opens in a new tab. Use `terminal.split` for a split. A `command` argv array overrides the executable, for example `["/home/zak/.local/bin/claude"]`. Paths and commands refer to the target WezTerm domain, which may differ from the server host.
 
-New WSL panes may not load nvm. The local launcher handles this automatically. If launching `node dist/index.js` directly, configure worker argv explicitly (or supply `command` to `agent.spawn`):
+Direct program launches in new WSL panes may not load nvm. The local launcher's shell startup handles this. If launching `node dist/index.js` directly, configure shell-aware worker argv explicitly (or supply `command` to `agent.spawn`):
 
 ```sh
 codex mcp add term-dad \
-  --env 'TERM_DAD_CLAUDE_COMMAND=["/home/zak/.local/bin/claude"]' \
-  --env 'TERM_DAD_CODEX_COMMAND=["/home/zak/.nvm/versions/node/v22.14.0/bin/node","/home/zak/.nvm/versions/node/v22.14.0/lib/node_modules/@openai/codex/bin/codex.js"]' \
+  --env 'TERM_DAD_CLAUDE_COMMAND=["/usr/bin/zsh","-lic","exec \"$@\"","term-dad-worker","claude"]' \
+  --env 'TERM_DAD_CODEX_COMMAND=["/usr/bin/zsh","-lic","exec \"$@\"","term-dad-worker","codex"]' \
   --env TERM_DAD_SCREENSHOT_COMMAND=/absolute/path/to/TermDad/scripts/screenshot-wsl \
   -- node /absolute/path/to/TermDad/dist/index.js
 ```
 
 The local launcher assumes workers run on this host; for remote domains, supply target-domain commands instead.
 
-`TERM_DAD_CLAUDE_COMMAND`, `TERM_DAD_CODEX_COMMAND`, and `TERM_DAD_SHELL_COMMAND` accept JSON argv arrays. Explicit per-spawn commands take precedence. Adjust paths if Node or your CLI installation changes.
+`TERM_DAD_CLAUDE_COMMAND`, `TERM_DAD_CODEX_COMMAND`, and `TERM_DAD_SHELL_COMMAND` accept JSON argv arrays. Explicit per-spawn commands take precedence. These overrides execute as supplied: an absolute Claude path alone bypasses shell startup. To customize CLI flags while retaining startup and injected hooks, use the wrapper above and append flags after `claude` or `codex`. Adjust paths for the target domain. Raw `terminal.spawn` commands also execute as supplied; an omitted command (including a default shell worker) uses WezTerm's configured default program.
 
 If startup stops at a trust, login, or permission screen, `agent.spawn` with a prompt times out with the agent ID and pane ID; the pane stays open. Observe it and use `terminal.send_key` to interact deliberately, then `agent.send`. The server never automatically approves these screens. Spawn without a prompt to manage onboarding yourself.
 

@@ -22,12 +22,18 @@ We need stable pane identities, inexpensive incremental observations, and reliab
 
 ## Backend
 
-`TerminalBackend` isolates the terminal implementation. `WezTermBackend` invokes the installed CLI with argument arrays and `--no-auto-start`, avoiding hidden GUI creation. The [WezTerm CLI reference](https://wezterm.org/cli/cli/index.html) defines the operations. IDs and commands are validated; no shell joins argv. Spawn commands belong to the selected terminal domain. The optional `scripts/launch-local` resolves local Claude/Codex executables from PATH and passes JSON argv overrides; npm Codex is launched with the same Node executable as the MCP host. Remote domains require explicitly supplied target-domain commands. Text goes through stdin with bracketed paste handling, while keys use `send-text --no-paste`. Submit separates paste and Enter by 100ms to allow TUI paste processing.
+`TerminalBackend` isolates the terminal implementation. `WezTermBackend` invokes the installed CLI with argument arrays and `--no-auto-start`, avoiding hidden GUI creation. The [WezTerm CLI reference](https://wezterm.org/cli/cli/index.html) defines the operations. IDs and commands are validated; no shell joins argv. Spawn commands belong to the selected terminal domain. The optional `scripts/launch-local` configures local Claude/Codex workers to start through an interactive login shell. Remote domains require explicitly supplied target-domain commands. Text goes through stdin with bracketed paste handling, while keys use `send-text --no-paste`. Submit separates paste and Enter by 100ms to allow TUI paste processing.
 
-For automatically resolved local Claude commands, the launcher passes the host
-PATH through an `env` argv entry. GUI-created WSL panes otherwise omit paths such
-as Bun's installation directory and can break Claude hooks. Explicit command
-overrides remain unchanged; remote domains still require target-domain commands.
+The launcher selects `TERM_DAD_LOCAL_SHELL`, then `SHELL`, then `/bin/sh`.
+It constructs shell argv without running startup files on the MCP host's stdout.
+Startup runs in the worker pane, so zsh loads both its login and interactive
+configuration before looking up Claude/Codex and their runtimes. POSIX-style
+shells use the fixed command `exec "$@"` with a separate `$0` placeholder;
+fish uses `exec $argv`. The executable and any appended hook flags remain
+individual arguments, never interpolated shell source. `exec` replaces the
+bootstrap shell with the CLI. Explicit command overrides remain unchanged;
+raw terminal commands still execute directly, and shell workers without a
+command still use the terminal domain's default program.
 
 Windows WezTerm can be controlled from WSL using its `.exe`; it spawns Linux programs when the parent pane is in a WSL domain. The server environment must permit Windows interoperability. This was exercised against the installed 2024 CLI. Get-text uses negative starting lines for scrollback, then bounds the final tail. List preserves additional WezTerm JSON properties.
 
