@@ -1,3 +1,5 @@
+![TermDad — supervising coding workers in terminal panes](docs/assets/termdad-banner-v1.png)
+
 # Term Dad
 
 Term Dad is the “_Dad_” of your terminal: an MCP server that lets your AI assistant
