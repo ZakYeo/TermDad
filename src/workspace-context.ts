@@ -10,6 +10,7 @@ export type WorkspaceContext = {
   source: 'local_git';
   observedAt: string;
   repositoryRoot?: string;
+  gitCommonDir?: string;
   worktreePath?: string;
   branch?: string | null;
   commit?: string | null;
@@ -53,8 +54,13 @@ export class LocalWorkspaceInspector implements WorkspaceInspector {
         );
       if (this.distro && pane.domain_name !== `WSL:${this.distro}`)
         return unavailable('WSL working-directory domain is unverified; no local Git command was run.');
-      if (typeof pane.domain_name === 'string' && /ssh|remote|tls/i.test(pane.domain_name))
-        return unavailable('Remote terminal domain; no local Git command was run.');
+      if (
+        pane.domain_name !== undefined &&
+        pane.domain_name !== 'local' &&
+        pane.domain_name !== 'Local' &&
+        !(this.distro && pane.domain_name === `WSL:${this.distro}`)
+      )
+        return unavailable('Terminal domain is not positively identified as local; no local Git command was run.');
       url.hostname = '';
       cwd = fileURLToPath(url);
       if (process.platform !== 'win32' && /^\/[a-z]:/i.test(cwd))
@@ -92,7 +98,8 @@ export class LocalWorkspaceInspector implements WorkspaceInspector {
       return {
         ...base,
         status: 'available',
-        repositoryRoot: basename(common) === '.git' ? dirname(common) : common,
+        ...(basename(common) === '.git' ? { repositoryRoot: dirname(common) } : {}),
+        gitCommonDir: common,
         worktreePath,
         branch,
         commit,

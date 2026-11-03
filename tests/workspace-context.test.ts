@@ -87,3 +87,22 @@ test('workspace inspection deduplicates directories, bounds concurrency and isol
   assert.equal(contexts[0], contexts[6]);
   assert.equal(contexts[0].status, 'unavailable');
 });
+
+test('custom domains sharing the hostname are unavailable and separate git dirs are not repository roots', async () => {
+  let calls = 0;
+  const inspector = new LocalWorkspaceInspector(
+    async (args) => {
+      calls++;
+      if (args.includes('--show-toplevel')) return '/work/project\n/storage/git-metadata\n';
+      return args.includes('symbolic-ref') ? 'feature\n' : 'abc123\n';
+    },
+    'testhost',
+    '',
+  );
+  assert.equal((await inspector.inspect({ ...pane, domain_name: 'production-container' })).status, 'unavailable');
+  assert.equal(calls, 0);
+  const result = await inspector.inspect(pane);
+  assert.equal(result.repositoryRoot, undefined);
+  assert.equal(result.gitCommonDir, '/storage/git-metadata');
+  assert.equal(result.worktreePath, '/work/project');
+});
