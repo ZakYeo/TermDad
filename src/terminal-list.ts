@@ -1,3 +1,4 @@
+import { sessionContext } from './session-context.js';
 import type { Pane } from './backend.js';
 import type { Agents } from './agents.js';
 import type { TerminalInstance } from './worker-storage.js';
@@ -33,6 +34,7 @@ export function compactInventory(inventory: Inventory, options: ListOptions = {}
       cwd: pane.cwd,
       label,
       labelSource,
+      session: sessionContext(pane, worker),
       worker: worker ? { agentId: worker.agentId, name: worker.name, cli: worker.cli } : null,
       ...(options.verbose ? { raw: pane } : {}),
     };
