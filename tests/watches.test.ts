@@ -394,7 +394,7 @@ test('MCP watch tools create, list, remove and close without closing panes', asy
 });
 test('push-backed watches back off to a liveness interval and verify pushed events by sampling', async () => {
   let enabled = true;
-  const f = fixture({ pushDeliverable: () => enabled });
+  const f = fixture({ pushDeliverable: () => enabled, pushProven: () => true });
   await f.watches.create({ ...config, pollMs: 500, pushPollMs: 30000 });
   const baseline = f.calls.length;
   await f.tick(500);
@@ -422,7 +422,7 @@ test('push-backed watches back off to a liveness interval and verify pushed even
 });
 test('a watch keeps its fast interval while push is enabled but not deliverable', async () => {
   let deliverable = false;
-  const f = fixture({ pushDeliverable: () => deliverable });
+  const f = fixture({ pushDeliverable: () => deliverable, pushProven: () => true });
   await f.watches.create({ ...config, pollMs: 500, pushPollMs: 30000 });
   const baseline = f.calls.length;
   await f.tick(500);
@@ -685,4 +685,34 @@ test('a wait polls without recording, and only the observation it returns joins 
   assert.equal(again.deltaReset, false, 'seventeen wait polls must not evict the baseline the supervisor holds');
   const fromWait = await f.agents.observe('w', result.observationId);
   assert.equal(fromWait.deltaReset, false, 'the returned observation is usable as a later since');
+});
+
+test('enabled unproven push keeps polling until a hook has actually delivered', async () => {
+  let proven = false;
+  const f = fixture({ pushDeliverable: () => true, pushProven: () => proven });
+  await f.watches.create({ ...config, pollMs: 500, pushPollMs: 30000 });
+  assert.equal(f.watches.list()[0].pushBacked, false);
+  const baseline = f.calls.length;
+  await f.tick(500);
+  assert.ok(f.calls.length > baseline);
+  proven = true;
+  const backedOff = f.calls.length;
+  await f.tick(500);
+  assert.equal(f.calls.length, backedOff);
+  assert.equal(f.watches.list()[0].pushBacked, true);
+  await f.watches.dispose();
+});
+
+test('a report containing a quoted question emits ready rather than input_required', async () => {
+  const f = fixture();
+  f.setText('Thinking… (esc to interrupt)');
+  await f.watches.create({ ...config, adapter: 'claude' });
+  f.setText('Verified the policy answer to "Which fares are covered?".\n❯ ');
+  await f.tick();
+  assert.deepEqual(
+    f.events.map((event) => event.kind),
+    ['ready'],
+  );
+  assert.equal(f.watches.list()[0].status, 'READY_FOR_PROMPT');
+  await f.watches.dispose();
 });

@@ -59,7 +59,7 @@ export const verificationSchema = z
 export const attemptSchema = z
   .object({
     id: z.uuid(),
-    agentId: z.uuid(),
+    agentId: z.uuid().nullable(),
     startedAt: z.iso.datetime(),
     specification: z
       .object({
@@ -80,7 +80,9 @@ export const completionFields = {
   currentAttemptId: z.uuid().nullable(),
   legacyCompletion: z.boolean(),
 };
-export const startAttemptSchema = z.object(identity).strict();
+export const startAttemptSchema = z
+  .object({ ...identity, executor: z.enum(['worker', 'supervisor']).default('worker') })
+  .strict();
 export const reportResultSchema = z.object({ ...identity, attemptId: z.uuid(), ...reportFields }).strict();
 export const verifyTaskSchema = z
   .object({ ...identity, attemptId: z.uuid(), ...verificationFields, complete: z.boolean().default(false) })

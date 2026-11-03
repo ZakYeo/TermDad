@@ -179,13 +179,13 @@ export class TaskBoard {
       }),
     );
   }
-  private change(taskId: string, expectedRevision: number, apply: (task: Task) => void) {
+  private change(taskId: string, expectedRevision: number, apply: (task: Task, state: TaskState) => void) {
     return this.storage.transaction(true, (state) => {
       const task = this.find(state, taskId);
       if (task.revision !== expectedRevision)
         throw new Error('TASK_REVISION_CONFLICT: reload the task before retrying');
       if (task.revision === Number.MAX_SAFE_INTEGER) throw new Error('TASK_REVISION_OVERFLOW');
-      apply(task);
+      apply(task, state);
       task.revision++;
       task.updatedAt = new Date(Math.max(Date.now(), Date.parse(task.updatedAt))).toISOString();
       validateTaskState(state);
@@ -194,21 +194,30 @@ export class TaskBoard {
   }
   update(input: unknown) {
     return this.run(async () => {
-      const { taskId, expectedRevision, patch } = updateTaskSchema.parse(input);
+      const { taskId, expectedRevision, patch, invalidateAttempt } = updateTaskSchema.parse(input);
       return this.change(taskId, expectedRevision, (task) => {
         if (task.archived) throw new Error('TASK_ARCHIVED: unarchive before editing');
+        const resetsLifecycle =
+          patch.status !== undefined &&
+          patch.status !== task.status &&
+          (task.status === 'done' || ['todo', 'cancelled'].includes(patch.status));
         const invalidates =
           Object.keys(patch).some(
             (key) =>
-              ['goal', 'acceptanceCriteria', 'dependencies', 'assignedAgentId', 'blockers'].includes(key) &&
+              ['goal', 'dependencies', 'assignedAgentId'].includes(key) &&
               JSON.stringify(patch[key as keyof typeof patch]) !== JSON.stringify(task[key as keyof Task]),
           ) ||
-          (patch.status !== undefined &&
-            patch.status !== task.status &&
-            (task.status === 'done' || ['todo', 'cancelled'].includes(patch.status)));
+          (patch.acceptanceCriteria !== undefined &&
+            JSON.stringify(patch.acceptanceCriteria.map(({ id, description }) => ({ id, description }))) !==
+              JSON.stringify(task.acceptanceCriteria.map(({ id, description }) => ({ id, description })))) ||
+          resetsLifecycle;
         if (invalidates) {
           if (task.status === 'done' && (!patch.status || patch.status === 'done'))
             throw new Error('TASK_REOPEN_REQUIRED');
+          if (task.currentAttemptId && !invalidateAttempt && !resetsLifecycle)
+            throw new Error(
+              'TASK_ATTEMPT_INVALIDATION_REQUIRED: this edit detaches the current attempt, report and verification; history is retained. Set invalidateAttempt:true or explicitly reopen the task.',
+            );
           task.currentAttemptId = null;
           task.legacyCompletion = false;
         }
@@ -241,12 +250,21 @@ export class TaskBoard {
       throw new Error('TASK_ATTEMPT_STALE');
     return attempt;
   }
+  private unblocked(task: Task, state: TaskState) {
+    if (taskView(task, state).blocked)
+      throw new Error(
+        'TASK_START_BLOCKED: resolve blockers and complete dependencies before starting or dispatching work',
+      );
+  }
   startAttempt(input: unknown) {
     return this.run(async () => {
       const o = startAttemptSchema.parse(input);
-      return this.change(o.taskId, o.expectedRevision, (task) => {
+      return this.change(o.taskId, o.expectedRevision, (task, state) => {
         this.editable(task);
-        if (!task.assignedAgentId) throw new Error('TASK_ASSIGNMENT_REQUIRED');
+        this.unblocked(task, state);
+        if (o.executor === 'worker' && !task.assignedAgentId) throw new Error('TASK_ASSIGNMENT_REQUIRED');
+        if (o.executor === 'supervisor' && task.assignedAgentId)
+          throw new Error('TASK_SUPERVISOR_ASSIGNMENT: unassign the worker before starting supervisor work');
         if (task.attempts.length >= 20) throw new Error('TASK_ATTEMPT_LIMIT');
         const attempt: Attempt = {
           id: randomUUID(),
@@ -340,6 +358,7 @@ export class TaskBoard {
         const task = this.find(state, taskId);
         this.editable(task);
         const attempt = this.current(task, attemptId);
+        this.unblocked(task, state);
         if (attempt.agentId !== agentId) throw new Error('TASK_ASSIGNMENT_MISMATCH');
         return { result: undefined };
       }),

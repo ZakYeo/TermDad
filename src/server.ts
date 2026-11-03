@@ -340,7 +340,7 @@ export function createServer(
   register('agent.forget', 'Remove a saved mapping without closing its pane.', agent, (a) => agents.forget(a.agentId));
   register(
     'agent.send',
-    'Submit a task only at a ready prompt by default. Required input must be surfaced to the user unless explicitly authorized. requireReady:false sends literal replies after inspection without initializing the worker skill. First ready task initializes the Codex worker skill.',
+    'Submit text (alias message) to agentId (alias to) only at a ready prompt by default. sent means terminal submission, not worker consumption (unknown). Required input must be surfaced to the user unless explicitly authorized. requireReady:false sends literal replies after inspection without initializing the worker skill. First ready task initializes the Codex worker skill.',
     {
       agentId: agent.agentId.optional().describe('Worker ID or name (alias to).'),
       to: agent.agentId.optional().describe('Alias for agentId.'),

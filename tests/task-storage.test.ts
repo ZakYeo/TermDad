@@ -63,7 +63,7 @@ test('reads are lazy; corruption, invalid graphs, oversize files and unsafe perm
     task = await board.create(input),
     path = join(directory, 'tasks.json'),
     valid = await readFile(path, 'utf8');
-  for (const invalid of ['not-json', JSON.stringify({ ...JSON.parse(valid), version: 3 }), 'x'.repeat(4_000_001)]) {
+  for (const invalid of ['not-json', JSON.stringify({ ...JSON.parse(valid), version: 4 }), 'x'.repeat(4_000_001)]) {
     await writeFile(path, invalid);
     await assert.rejects(board.list(), /TASK_STATE_CORRUPT/);
     assert.equal(await readFile(path, 'utf8'), invalid);

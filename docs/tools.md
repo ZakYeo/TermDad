@@ -392,9 +392,9 @@ re-key leaves the worker unregistered and reports `credential:"unwritable"`.
 
 An accepted push publishes the event and then samples the pane, so the recorded
 status comes from the terminal rather than from the worker's claim. A watch on a
-push-backed pane polls on `pushPollMs` instead of `pollMs`, keeping a liveness
+pane with both deliverable and proven push polls on `pushPollMs` instead of `pollMs`, keeping a liveness
 backstop for a pane that is killed without ever running a hook; disabling push
-restores the normal interval immediately. That back-off follows *deliverability*,
+restores the normal interval immediately. That back-off requires *deliverability and a proven delivery*,
 not intent: a registration that is enabled while this server's socket did not
 bind keeps the normal `pollMs`, so a channel that cannot deliver never costs the
 pane its polling backstop too. A pushed `ready` still means only that
@@ -499,7 +499,7 @@ See the [task-board contract](plans/persistent-task-board.md).
 | `task.create` | Required `boardId`, `title`, `goal`; optional `priority`, `assignedAgentId`, `dependencies`, `blockers`, `acceptanceCriteria`. Creates a `todo` task at revision 1. |
 | `task.get` | `taskId`; returns the task even when archived, plus `blocked`, `unresolvedDependencyIds` and `ready`. |
 | `task.list` | Optional `boardId`, `assignedAgentId` (null means unassigned), `status`, `priority`, `readyOnly`, `includeArchived`, `offset` and `limit`. Filters combine with AND. Returns `tasks`, `total`, `nextOffset` and `storageWarning`. |
-| `task.update` | `taskId`, `expectedRevision`, nonempty `patch`. Editable fields are title, goal, priority, assignment, dependencies, blockers, criteria and status. Arrays replace previous values. |
+| `task.update` | `taskId`, `expectedRevision`, nonempty `patch`, optional `invalidateAttempt` (default false). Editable fields are title, goal, priority, assignment, dependencies, blockers, criteria and status. Arrays replace previous values. |
 | `task.assign` | `taskId`, `expectedRevision`, `agentId` (worker UUID or null). Records assignment without worker lookup or terminal input. |
 | `task.archive` | `taskId`, `expectedRevision`, `archived` boolean. Hides/restores the record without deleting it or satisfying dependencies. |
 
@@ -558,7 +558,7 @@ content, never automatically extracted from terminal text.
 
 | Tool | Inputs and behavior |
 | --- | --- |
-| `task.start_attempt` | `taskId, expectedRevision`. Requires an assigned worker UUID and an editable task. Records the goal/criteria/dependencies and starts `in_progress`; supersedes earlier attempts without dispatching input. |
+| `task.start_attempt` | `taskId, expectedRevision, executor?`. Default `executor:"worker"` requires an assigned worker UUID; `executor:"supervisor"` requires no worker assignment. Both require an editable task with resolved dependencies and no blockers. Records the goal/criteria/dependencies and starts `in_progress`; supersedes earlier attempts without dispatching input. |
 | `task.report_result` | `taskId, expectedRevision, attemptId`, plus the report fields below. Only the current attempt can report. Replaces the current result by appending history and makes earlier verification stale. |
 | `task.verify` | `taskId, expectedRevision, attemptId, reportId, workVersion, result, rationale, criteria, complete?`. Records a decision against the current report; `complete:true` atomically marks the task done when verification passes. |
 | `task.history` | `taskId, offset?, limit?` (default 5, maximum 20). Returns full attempts with reports and decisions, total, nextOffset and current revision. |
@@ -586,9 +586,17 @@ establish criterion satisfaction. A passing decision updates criterion evidence;
 Task reads include `currentAttemptId`, compact `currentAttempt`, `latestReport`,
 and `verification` summaries. Verification status is `unverified`, `passed`,
 `failed`, `inconclusive`, `stale`, or `legacy_unverified`. Full evidence appears
-only in `task.history`. A new attempt, report, changed requirements, changed
-blockers, reassignment, cancellation, or reopening invalidates current verification.
-Title, priority and archival preserve it. Completed tasks must be reopened before
+only in `task.history`. A new attempt, report, changed requirements,
+reassignment, cancellation, or reopening invalidates current verification.
+Title, priority, archival, and criterion evidence edits preserve the attempt.
+Changing goal, criterion identities/descriptions, dependencies or assignment through
+`task.update` rejects with `TASK_ATTEMPT_INVALIDATION_REQUIRED` when it would detach
+an active attempt. Explicitly pass `invalidateAttempt:true` to accept that effect;
+prior reports and verification remain in history. Explicit lifecycle reopening or
+cancellation also detaches the attempt. Blocker edits retain reports; adding a blocker
+to a passed verification is rejected until that verification is invalidated by reopening
+or starting a new attempt. Blockers and unresolved dependencies prevent starting an
+attempt, tracked dispatch and passing verification. Completed tasks must be reopened before
 invalidating edits; reopen dependents before their completed prerequisites.
 External file edits are not monitored: verification covers only the recorded work
 version. Failed or blocked reports leave task lifecycle status unchanged.
@@ -596,11 +604,18 @@ version. Failed or blocked reports leave task lifecycle status unchanged.
 Attempts are capped at 20 per task, with 20 reports and 20 verification decisions
 per attempt and 50 artifacts/checks per report. The existing 4 MB global bound
 still applies; capacity errors never purge evidence. Archived history counts.
-Old version-1 task journals are validated and migrated in memory on reads, and
-written as version 2 on the next successful mutation. Existing done tasks remain
+Old version-1 and version-2 task journals are validated and migrated in memory on reads, and
+written as version 3 on the next successful mutation. Version 3 permits supervisor
+attempts with `agentId:null`; their reports and checks must use `supervisor_recorded`. Existing done tasks remain
 `legacy_unverified` and continue satisfying dependencies; reopening requires the
-new verification workflow. Old server versions cannot read version-2 journals;
+new verification workflow. Old server versions cannot read version-3 journals;
 restart all clients on the new build before making writes.
+
+For supervisor work (merges, coordination, or other directly performed actions),
+leave the task unassigned and call `task.start_attempt` with `executor:"supervisor"`.
+Record the actual outcome with `task.report_result` and `provenance:"supervisor_recorded"`,
+then supply criterion evidence to `task.verify(complete:true)`. This is the same
+verification gate as worker work; it does not fabricate a worker or infer success.
 
 Example workflow (use returned UUIDs and revisions at every step):
 
@@ -617,8 +632,11 @@ task.verify({taskId, expectedRevision, attemptId, reportId, workVersion:"commit:
 
 Managed `agent.send` and prompted `agent.spawn` return `turnId`; observations and
 worker lists expose it. Every managed text submission gets a fresh durable ID
-before delivery, including follow-ups. `agent.send` optionally accepts
-`attempt:{taskId,attemptId}` and checks current assignment before sending. Task
+before delivery, including follow-ups. `agent.send` returns `sent:true`,
+`delivery:"submitted_to_terminal"` and `consumption:"unknown"`. The worker may queue
+input while busy; no application acknowledgment is available, so this does not
+claim the worker read the text or began the new task. `agent.send` optionally accepts
+`attempt:{taskId,attemptId}` and checks current assignment, blockers and dependencies before sending. Task
 validation and terminal delivery are separate transactions, not an atomic dispatch
 reservation. Raw terminal input is not tracked as a managed turn.
 
@@ -889,3 +907,14 @@ input or lifecycle changes return `WORKER_BUSY` without sending. Readiness and
 permission checks run after acquiring the lock. No delivery code is retried, and
 `requireReady:false` retains fail-fast locking. If contention persists, inspect
 the worker and serialize operations before retrying; never bypass the lock.
+
+### Shell overrides and push diagnosis
+
+Omit `agent.spawn.command` for the configured launcher, which forwards hook flags
+to the CLI. A custom shell command such as `["zsh","-lic","claude"]` consumes
+appended arguments as shell positional parameters; it does not pass them to Claude.
+Recognized shell overrides without the supported argv-forwarding form launch
+unchanged but cannot enable push (`PUSH_NOT_WIRED`). `push.status` explains why.
+Other custom launchers must forward appended flags themselves; configured wiring
+is not proof that their hooks execute. Keep the normal watch polling interval until
+`proven:true`; only a successful delivery permits the slower liveness interval.

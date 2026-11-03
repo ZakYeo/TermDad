@@ -193,3 +193,18 @@ test('an unwritable credential store degrades the worker to polling and still sa
     rmSync(broken, { recursive: true, force: true });
   }
 });
+
+test('non-forwarding shell overrides launch unchanged and explicitly remain polling-only', async () => {
+  const f = fixture();
+  const command = ['zsh', '-lic', 'claude'];
+  const worker = await f.agents.spawn({ name: 'wrapped', cli: 'claude', command });
+  assert.deepEqual(f.spawns[0].slice(-3), command);
+  const status = await f.push.status(worker.agentId);
+  assert.equal(status.deliverable, false);
+  assert.equal(status.registered, false);
+  assert.equal(status.hookSurface, null);
+  assert.match(status.reason!, /does not forward hook flags/);
+  await assert.rejects(f.push.setEnabled(worker.agentId, true), /PUSH_NOT_WIRED/);
+  assert.equal((await f.agents.list())[0].push, undefined);
+  await f.agents.close();
+});

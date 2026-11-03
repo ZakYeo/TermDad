@@ -16,8 +16,9 @@ the outcome here, including incomplete work.
 ## Briefs
 
 A brief carries exactly: ticket key, purpose, observable acceptance criteria,
-and boundaries (branch, worktree, what not to touch, who integrates). Cap it at
-about 1,500 characters, name no file paths, symbols or code, and leave the
+and boundaries (branch, worktree, what not to touch, who integrates), plus a
+one-message report request: outcome, artifact/work version, checks and results,
+and remaining risks. Cap it at about 1,500 characters, name no file paths, symbols or code, and leave the
 implementation open. Concurrent workers get isolated worktrees, clear ownership,
 agreed interfaces before dependent work and a named integrator. Follow the
 user's existing authorization for commits, merges, pushes and external actions.
@@ -48,13 +49,35 @@ fresh or compacted session recovers it: `task.create` per work item (`boardId`
 `priority`) plus one `Plan: <goal>` task holding ordering and decisions. On
 session start, reconnect or compact: `agent.list`, then `task.list({boardId})`.
 
+## Preserve context and current instructions
+
+Keep original implementation sessions available through conflict resolution,
+integration and acceptance. Remove accepted-result watches to prevent repeated
+attention alerts, but leave panes open unless closing them is authorized.
+When work overlaps, integrate sequentially and tell the next worker which accepted
+changes it must preserve; parallel workers are not automatically faster.
+
+Before briefing, reconcile remembered restrictions with this session's instructions
+and current repository guidance. Do not add testing restrictions that contradict
+standing authorization. Check the current branch rules before imposing an
+up-to-date requirement. Evaluate permission prompts against the actual requested
+action and existing authorization; a stale blanket memory is not a new rule.
+Record corrections with their scope and source, not as universal permissions.
+
 ## Tracked dispatch
 
-`task.assign`, `task.start_attempt`, then `agent.send` with the attempt
-reference; keep the returned `turnId`. `task.report_result` records only what
+Resolve recorded dependencies and blockers first. `task.assign`,
+`task.start_attempt`, then `agent.send` with the attempt reference; keep the returned `turnId`. `task.report_result` records only what
 was actually reported (unknown exit codes stay null; distinguish worker-reported
 from your own checks); `task.verify` decides, and `complete:true` completes only
 on a pass. Reopen and start a new attempt when requirements or the work change.
+Requirement edits with an active attempt need explicit `invalidateAttempt:true`;
+read the error before accepting invalidation, and use `task.history` for old evidence.
+For work you perform yourself, leave the task unassigned, start with
+`executor:"supervisor"`, record `supervisor_recorded` evidence and verify normally.
+Do not remove a real dependency just to work around an unfinished task record.
+`sent:true` confirms terminal submission only; consumption is unknown. A busy
+worker may queue your correction, so do not assume its current work has changed.
 
 ## Call parameters and keys
 
@@ -157,10 +180,13 @@ accepted. Inspect prompts and follow the user's authorization. Ask in the superv
 ## Push
 
 Push is off per pane until `push.set` enables it. Enable it for assignments
-measured in minutes so the worker reports its own turn ends and the watch drops
-to a slow liveness poll; shell workers always poll. `enabled` is intent and
+measured in minutes so the worker reports its own turn ends. After a hook has
+delivered, the watch drops to a slow liveness poll; shell workers always poll. `enabled` is intent and
 `proven` is the only evidence a hook has fired, so report "enabled, unproven"
-until then. An adopted pane fails with `PUSH_NOT_WIRED`; a worker that survived
+until then. Omit custom shell commands when spawning through the configured
+launcher: `zsh -lic claude` does not forward injected hook flags. A wiring failure
+means keep polling and inspect `push.status`, not repeatedly enable the same channel.
+An adopted pane fails with `PUSH_NOT_WIRED`; a worker that survived
 a supervisor restart shows `hookSurface` with `enabled:false` and one `push.set`
 restores it. Never kill a survivor to restore push.
 

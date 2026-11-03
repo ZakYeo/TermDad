@@ -68,3 +68,16 @@ test('a credential path containing shell metacharacters stays one quoted argumen
     `unexpected quoting: ${command}`,
   );
 });
+
+test('shell wrappers must forward hook argv; reproduce the report without launching Claude', async () => {
+  const { forwardsHookArguments } = await import('../src/worker-hooks.js');
+  const { execute } = await import('../src/backend.js');
+  // This executes only printf in a shell, never a Claude session.
+  const lost = await execute('/bin/sh', ['-c', 'printf "[%s]" "$@"', '--settings', 'hook-json']);
+  assert.equal(lost, '[hook-json]', 'appended --settings became shell $0');
+  for (const shell of ['sh', '/bin/bash', 'zsh', 'fish'])
+    assert.equal(forwardsHookArguments([shell, '-lic', 'claude']), false);
+  assert.equal(forwardsHookArguments(['/bin/zsh', '-lic', 'exec "$@"', 'term-dad-worker', 'claude']), true);
+  assert.equal(forwardsHookArguments(['fish', '-lic', 'exec $argv', 'codex']), true);
+  assert.equal(forwardsHookArguments(['claude']), true);
+});

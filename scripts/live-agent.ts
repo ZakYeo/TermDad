@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
 import { LiveSession, parentPane } from './live-support.js';
 const cli = process.argv[2] ?? 'claude';
+const checkPush = process.env.TERM_DAD_TEST_PUSH === '1';
 if (!['claude', 'codex'].includes(cli)) throw new Error('Choose claude or codex');
 const session = await LiveSession.create(),
   call = session.call;
@@ -14,6 +15,7 @@ try {
   });
   const agentId = a.agentId;
   await call('agent.wait_until_idle', { agentId, timeoutMs: 30000 });
+  if (checkPush) await call('push.set', { agentId, enabled: true });
   await call('agent.send', {
     agentId,
     text: 'This is a terminal transport smoke test. Do not use tools or modify files. Reply with just the concatenation of TERM_DAD_ and FIRST_OK.',
@@ -35,6 +37,17 @@ try {
   const second = await call('agent.wait_for_text', { agentId, text: 'TERM_DAD_SECOND_OK', timeoutMs: 120000 });
   assert.equal(second.paneId, a.paneId);
   await call('agent.wait_until_idle', { agentId, timeoutMs: 30000 });
+  if (checkPush) {
+    const deadline = Date.now() + 10000;
+    let push = (await call('push.status', { agentId })).worker;
+    while (!push.proven && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      push = (await call('push.status', { agentId })).worker;
+    }
+    assert.equal(push.proven, true, 'expected an actual worker hook delivery, not just configured wiring');
+    assert.equal(push.deliveries.lastKind, 'ready');
+    console.log(`PASS: real ${cli} hook delivery (${push.deliveries.count} accepted events)`);
+  }
   await call('agent.interrupt', { agentId });
   await session.stopAgent(agentId, a.paneId);
   console.log(
