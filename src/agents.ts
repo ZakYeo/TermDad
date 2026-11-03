@@ -421,6 +421,7 @@ export class Agents {
     if (current.revision !== expected.revision || current.paneId !== expected.paneId)
       throw new Error('Worker was reattached during observation; retry or recreate its watch');
   }
+  private instanceProbeOffset = 0;
   private async listed(read: TerminalRead) {
     let workers = await this.saved();
     const entry = (worker: WorkerRecord, attachment: string, reason: string | null) => ({
@@ -436,19 +437,30 @@ export class Agents {
       identityAvailable = false;
     }
     const probes = new Map<string, 'alive' | 'exited' | 'unknown'>();
+    const candidates = [
+      ...new Map(
+        workers
+          .filter((w) => w.instance && !this.attached(w, instance))
+          .map((w) => [JSON.stringify(w.instance), w.instance!]),
+      ).entries(),
+    ];
+    // At most two distinct foreign identities per sweep; rotate so unknown records cannot starve others.
+    if (this.backend.probeInstance && candidates.length) {
+      for (let i = 0; i < Math.min(2, candidates.length); i++) {
+        const [key, saved] = candidates[(this.instanceProbeOffset + i) % candidates.length];
+        try {
+          probes.set(key, await this.backend.probeInstance(saved));
+        } catch {
+          probes.set(key, 'unknown');
+        }
+      }
+      this.instanceProbeOffset = (this.instanceProbeOffset + 2) % candidates.length;
+    }
     const retained: WorkerRecord[] = [];
     for (const w of workers) {
       if (w.instance && !this.attached(w, instance) && this.backend.probeInstance) {
         const key = JSON.stringify(w.instance);
-        let state = probes.get(key);
-        if (!state) {
-          try {
-            state = await this.backend.probeInstance(w.instance);
-          } catch {
-            state = 'unknown';
-          }
-          probes.set(key, state);
-        }
+        const state = probes.get(key) ?? 'unknown';
         if (state === 'exited') {
           try {
             await this.locked(w.agentId, async (current) => {

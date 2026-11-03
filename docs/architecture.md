@@ -522,3 +522,9 @@ explicit existing-worker bindings remain in account configuration. Optional usag
 projection failures leave worker/task status available with explicit unavailable
 usage metadata. Event publication and bounded desktop retries run independently;
 an idle timer performs no durable write when no reset deadline is due.
+
+Saved GUI reconciliation probes at most two distinct foreign identities per read
+sweep, rotating the starting position to avoid starvation. Windows probes and
+path conversions have one-second subprocess deadlines. Invalid or unsupported
+identity formats and all probe failures remain unknown. A confirmed exit is
+removed only under the worker lock after checking the binding revision again.

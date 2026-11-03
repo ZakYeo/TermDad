@@ -31,14 +31,17 @@ export function windowsInstance(binary: string, run: typeof execute): InstanceRe
     target?: TerminalInstance,
   ): Promise<unknown> {
     const script = fileURLToPath(new URL('../scripts/instance-windows.ps1', import.meta.url));
-    helperPath ??= wsl ? run('wslpath', ['-w', script]).then((s) => s.trim()) : Promise.resolve(script);
+    helperPath ??= wsl
+      ? run('wslpath', ['-w', script], undefined, 1000).then((s) => s.trim())
+      : Promise.resolve(script);
     const powershell = wsl ? '/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe' : 'powershell.exe';
-    const windowsBinary = wsl ? (await run('wslpath', ['-w', binary])).trim() : binary;
+    const windowsBinary = wsl ? (await run('wslpath', ['-w', binary], undefined, 1000)).trim() : binary;
     return JSON.parse(
       await run(
         powershell,
         ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', await helperPath],
         JSON.stringify({ action, endpoint, binary: windowsBinary, key, target }),
+        action === 'probe' ? 1000 : 15000,
       ),
     );
   }

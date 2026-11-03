@@ -9,9 +9,14 @@ try {
     $target = $request.target
     $parts = ([string]$target.key).Split(':', 3)
     if ($parts.Count -ne 3 -or $parts[0] -cne $env:COMPUTERNAME -or
+        $parts[1] -notmatch '^[1-9][0-9]{0,9}$' -or
+        $parts[2] -notmatch '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{7}Z$' -or
         (Split-Path $target.endpoint -Leaf) -cne ('gui-sock-' + $parts[1])) {
       ConvertTo-Json -InputObject 'unknown'; exit 0
     }
+    $parsedStart = [datetime]::MinValue
+    if (-not [datetime]::TryParseExact($parts[2], 'o', [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind, [ref]$parsedStart) -or
+        [long]$parts[1] -gt [int]::MaxValue) { ConvertTo-Json -InputObject 'unknown'; exit 0 }
     try { $saved = Get-Process -Id ([int]$parts[1]) -ErrorAction Stop }
     catch {
       if ($_.FullyQualifiedErrorId -like 'NoProcessFoundForGivenId*') {
