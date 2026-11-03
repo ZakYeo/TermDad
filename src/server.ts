@@ -1,3 +1,4 @@
+import { closePanes } from './terminal-close.js';
 import { workspaceContexts } from './workspace-context.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
@@ -242,10 +243,27 @@ export function createServer(
   };
   register(
     'terminal.close',
-    'Kill all processes in the selected pane, tab or window (id with target, or paneId).',
-    target,
+    'Close explicit pane IDs in one batch with expectedInstanceKey from terminal.list; returns per-pane outcomes. Alternatively close one pane/tab/window. Kills their processes; never infers completion or selects candidates.',
+    {
+      ...target,
+      target: z.enum(['pane', 'tab', 'window']).optional(),
+      paneIds: z.array(id).min(1).max(100).optional(),
+      expectedInstanceKey: z.string().min(1).max(1024).optional(),
+    },
     async (a) => {
-      const panes = await selected(a);
+      if (a.paneIds !== undefined) {
+        if (a.id !== undefined || a.paneId !== undefined || a.target !== undefined)
+          throw new CodedError(
+            'ARGUMENT_CONFLICT',
+            'paneIds cannot be combined with single pane/tab/window targeting.',
+          );
+        if (!a.expectedInstanceKey)
+          throw new CodedError('ARGUMENT_INVALID', 'Batch close requires expectedInstanceKey from terminal.list.');
+        return closePanes(backend, a.paneIds, a.expectedInstanceKey, (paneId) => agents.reconcileClosed(paneId));
+      }
+      if (a.expectedInstanceKey !== undefined && (await backend.instance?.())?.key !== a.expectedInstanceKey)
+        throw new CodedError('TERMINAL_IDENTITY_MISMATCH', 'Terminal identity differs or is unavailable.');
+      const panes = await selected({ ...a, target: a.target ?? 'pane' });
       if (!panes.length) throw new Error('Target not found');
       for (const p of panes) {
         await backend.close(p.pane_id);
