@@ -713,3 +713,12 @@ Stop hooks. Existing timer, retry, and collector regressions also passed.
 input, broadcast, task attention/verification, pane operations, interruption, and
 cleanup. No inference was requested and no personal hook configuration changed.
 These checks do not establish live assistant idle wake or model-directed resumption.
+
+### v1 live-test isolation
+
+Live test sessions require `WEZTERM_UNIX_SOCKET` to identify the intended GUI.
+They set `TERM_DAD_STRICT_INSTANCE=1`, refuse discovery fallback, and verify the
+same process/start identity before terminal operations, including cleanup after
+restart. Pane and worker mutations are restricted to explicitly created/adopted
+test resources; tests cannot select another GUI, create windows, or close tabs.
+Failed identity verification retains cleanup metadata instead of guessing.
