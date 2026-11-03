@@ -4,7 +4,12 @@ import { WezTermBackend } from '../src/backend.js';
 import { command, type DemoRun } from './runtime.js';
 import { join } from 'node:path';
 
-export async function preflight(cwd: string, env = process.env, run = command, backend = new WezTermBackend()) {
+export async function preflight(
+  cwd: string,
+  env = process.env,
+  run = command,
+  backend: { instance: WezTermBackend['instance']; list: () => Promise<{ pane_id: number }[]> } = new WezTermBackend(),
+) {
   if (Number(process.versions.node.split('.')[0]) < 22) throw new Error('Node.js 22+ is required');
   if (!env.WEZTERM_PANE || !/^\d+$/.test(env.WEZTERM_PANE) || !env.WEZTERM_UNIX_SOCKET)
     throw new Error(
@@ -15,6 +20,8 @@ export async function preflight(cwd: string, env = process.env, run = command, b
   await run('codex', ['login', 'status'], cwd);
   const identity = await backend.instance();
   if (!identity) throw new Error('This demo requires verified WezTerm GUI identity (currently Windows/WSL).');
+  if (identity.endpoint !== env.WEZTERM_UNIX_SOCKET)
+    throw new Error('Selected GUI does not match the invoking WezTerm socket. Open a fresh pane and retry.');
   if (!(await backend.list()).some((p) => p.pane_id === Number(env.WEZTERM_PANE)))
     throw new Error('The invoking pane is not in the selected WezTerm GUI.');
   return { parentPane: Number(env.WEZTERM_PANE), ...identity };
