@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 import { LiveGuard } from '../scripts/live-guard.js';
 
 test('live identity remains pinned across reconnect and rejects another GUI or reused PID', () => {
-  const guard = new LiveGuard('C:\\gui-sock-12');
+  const guard = new LiveGuard('C:\\gui-sock-12', 0, 'host:12:first');
   guard.verify({ endpoint: 'C:\\gui-sock-12', key: 'host:12:first' });
   guard.verify({ endpoint: 'C:\\gui-sock-12', key: 'host:12:first' });
   assert.throws(() => guard.verify({ endpoint: 'C:\\gui-sock-12', key: 'host:12:second' }), /identity changed/);
-  assert.throws(() => guard.verify({ endpoint: 'C:\\gui-sock-13', key: 'other' }), /configured/);
-  assert.throws(() => guard.verify(null), /configured/);
-  assert.throws(() => new LiveGuard(undefined).verify({ endpoint: 'x', key: 'y' }), /configured/);
+  assert.throws(() => guard.verify({ endpoint: 'C:\\gui-sock-13', key: 'other' }), /identity changed/);
+  assert.throws(() => guard.verify(null), /explicit/);
+  assert.throws(() => new LiveGuard(undefined).verify({ endpoint: 'x', key: 'y' }), /explicit/);
 });
 test('only owned pane and worker operations are permitted', () => {
   const guard = new LiveGuard('endpoint');

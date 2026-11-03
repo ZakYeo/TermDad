@@ -159,7 +159,11 @@ test('local spawn prompt rejection does not retain unused recovery state', async
 });
 
 test('actual live call wrapper rejects changed GUI before dispatch after restart', async () => {
-  const session = await LiveSession.create({ WEZTERM_UNIX_SOCKET: 'C:\\gui-sock-12', TERM_DAD_TEST_PANE: '1' });
+  const session = await LiveSession.create({
+    TERM_DAD_TEST_ENDPOINT: 'C:\\gui-sock-12',
+    TERM_DAD_TEST_INSTANCE_KEY: 'first',
+    TERM_DAD_TEST_PANE: '1',
+  });
   let key = 'first';
   const calls: string[] = [];
   const inject = () => {
@@ -181,6 +185,25 @@ test('actual live call wrapper rejects changed GUI before dispatch after restart
     assert.ok(session.owned.has(42));
   } finally {
     session.owned.clear();
+    await session.dispose();
+  }
+});
+
+test('inherited terminal variables cannot authorize any live call', async () => {
+  const session = await LiveSession.create({
+    WEZTERM_UNIX_SOCKET: 'C:\\wrong-gui',
+    TERM_DAD_TEST_ENDPOINT: '',
+    TERM_DAD_TEST_INSTANCE_KEY: '',
+  });
+  let dispatched = false;
+  session.client.callTool = async () => {
+    dispatched = true;
+    throw new Error('Must not dispatch');
+  };
+  try {
+    await assert.rejects(session.call('terminal.spawn', { paneId: 0 }), /explicit TERM_DAD_TEST/);
+    assert.equal(dispatched, false);
+  } finally {
     await session.dispose();
   }
 });

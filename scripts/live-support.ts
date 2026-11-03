@@ -16,8 +16,9 @@ export class LiveSession {
     private readonly env: Record<string, string>,
   ) {
     this.guard = new LiveGuard(
-      env.WEZTERM_UNIX_SOCKET ?? process.env.WEZTERM_UNIX_SOCKET,
-      Number(env.TERM_DAD_TEST_PANE ?? process.env.TERM_DAD_TEST_PANE ?? process.env.WEZTERM_PANE),
+      env.TERM_DAD_TEST_ENDPOINT ?? process.env.TERM_DAD_TEST_ENDPOINT,
+      Number(env.TERM_DAD_TEST_PANE ?? process.env.TERM_DAD_TEST_PANE),
+      env.TERM_DAD_TEST_INSTANCE_KEY ?? process.env.TERM_DAD_TEST_INSTANCE_KEY,
     );
     this.owned = this.guard.panes;
   }
@@ -41,6 +42,7 @@ export class LiveSession {
           ...this.env,
           TERM_DAD_STATE_DIR: this.directory,
           TERM_DAD_STRICT_INSTANCE: '1',
+          WEZTERM_UNIX_SOCKET: this.env.TERM_DAD_TEST_ENDPOINT ?? process.env.TERM_DAD_TEST_ENDPOINT ?? '',
         } as Record<string, string>,
         stderr: 'inherit',
       }),
@@ -53,6 +55,13 @@ export class LiveSession {
   }
   call = async (name: string, args: Record<string, unknown> = {}) => {
     if (name.startsWith('terminal.') || name.startsWith('agent.')) {
+      if (
+        !(this.env.TERM_DAD_TEST_ENDPOINT ?? process.env.TERM_DAD_TEST_ENDPOINT) ||
+        !(this.env.TERM_DAD_TEST_INSTANCE_KEY ?? process.env.TERM_DAD_TEST_INSTANCE_KEY)
+      )
+        throw new Error(
+          'Live operations require explicit TERM_DAD_TEST_ENDPOINT, TERM_DAD_TEST_INSTANCE_KEY and TERM_DAD_TEST_PANE; inherited WezTerm variables are not authorization',
+        );
       const identity = await this.rawCall('terminal.list_instances');
       this.guard.verify(identity.selected);
       this.guard.authorize(name, args);
@@ -135,9 +144,9 @@ export class LiveSession {
 }
 
 export function parentPane(panes: { pane_id: number }[]) {
-  const requested = process.env.TERM_DAD_TEST_PANE ?? process.env.WEZTERM_PANE;
+  const requested = process.env.TERM_DAD_TEST_PANE;
   const pane = requested === undefined ? undefined : Number(requested);
   if (!Number.isSafeInteger(pane) || !panes.some((p) => p.pane_id === pane))
-    throw new Error('Running WezTerm GUI and a valid TERM_DAD_TEST_PANE (if set) required');
+    throw new Error('Explicit TERM_DAD_TEST_PANE in the verified test GUI required');
   return pane!;
 }

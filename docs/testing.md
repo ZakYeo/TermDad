@@ -716,9 +716,17 @@ These checks do not establish live assistant idle wake or model-directed resumpt
 
 ### v1 live-test isolation
 
-Live test sessions require `WEZTERM_UNIX_SOCKET` to identify the intended GUI.
+Live test sessions require the explicit test target described below to identify the intended GUI.
 They set `TERM_DAD_STRICT_INSTANCE=1`, refuse discovery fallback, and verify the
 same process/start identity before terminal operations, including cleanup after
 restart. Pane and worker mutations are restricted to explicitly created/adopted
 test resources; tests cannot select another GUI, create windows, or close tabs.
 Failed identity verification retains cleanup metadata instead of guessing.
+
+Live tests now require an explicit three-part target: `TERM_DAD_TEST_ENDPOINT`,
+`TERM_DAD_TEST_INSTANCE_KEY` (the exact process/start key from read-only GUI
+identity discovery), and `TERM_DAD_TEST_PANE` (the intended parent in that GUI).
+Inherited `WEZTERM_UNIX_SOCKET` and `WEZTERM_PANE` are **not** accepted as test
+authorization: a long-lived client may inherit another still-live GUI's values.
+Discover identities and identify the intended GUI before setting these variables.
+The test endpoint overrides the inherited endpoint for the test server only.

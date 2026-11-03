@@ -8,14 +8,21 @@ export class LiveGuard {
   constructor(
     private readonly endpoint: string | undefined,
     private readonly parent?: number,
+    private readonly expectedKey?: string,
   ) {}
   verify(instance: TerminalInstance | null) {
+    if (this.identity && instance && instance.key !== this.identity.key)
+      throw new Error('Live test terminal identity changed; refusing operation and cleanup');
     if (
       !this.endpoint ||
+      !this.expectedKey ||
+      instance?.key !== this.expectedKey ||
       !instance ||
       instance.endpoint.replaceAll('\\', '/').toLowerCase() !== this.endpoint.replaceAll('\\', '/').toLowerCase()
     )
-      throw new Error('Live tests require the explicitly configured, verified WezTerm endpoint');
+      throw new Error(
+        'Live tests require the explicit TERM_DAD_TEST_ENDPOINT and TERM_DAD_TEST_INSTANCE_KEY matching the verified GUI',
+      );
     if (this.identity && (instance.key !== this.identity.key || instance.endpoint !== this.identity.endpoint))
       throw new Error('Live test terminal identity changed; refusing operation and cleanup');
     this.identity ??= instance;
