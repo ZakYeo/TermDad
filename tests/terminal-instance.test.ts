@@ -224,3 +224,31 @@ test('strict instance mode never discovers another GUI after an inherited endpoi
     else process.env.TERM_DAD_STRICT_INSTANCE = oldStrict;
   }
 });
+
+test('saved instance probes are independent of selection and fail to unknown', async () => {
+  let result = 'alive';
+  const requests: any[] = [];
+  const resolver = windowsInstance(binary, async (file, _args, input) => {
+    if (file === 'wslpath') return 'C:\\helper';
+    const request = JSON.parse(input!);
+    requests.push(request);
+    if (request.action === 'probe') {
+      if (result === 'failure') throw new Error('permission denied');
+      return JSON.stringify(result);
+    }
+    return JSON.stringify({ endpoint: 'C:\\gui-sock-12', key: 'current' });
+  });
+  const saved = { endpoint: 'C:\\gui-sock-99', key: 'saved' };
+  for (const state of ['alive', 'exited', 'unknown'] as const) {
+    result = state;
+    assert.equal(await resolver.probe(saved), state);
+  }
+  result = 'failure';
+  assert.equal(await resolver.probe(saved), 'unknown');
+  assert.equal((await resolver())?.key, 'current');
+  assert.deepEqual(requests[0].target, saved);
+  assert.equal(
+    requests.some((r) => r.action === 'select'),
+    false,
+  );
+});

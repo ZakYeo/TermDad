@@ -9,6 +9,7 @@ export interface InstanceResolver {
   (): Promise<TerminalInstance | null>;
   list(): Promise<GuiInstance[]>;
   select(key: string): Promise<TerminalInstance>;
+  probe(instance: TerminalInstance): Promise<'alive' | 'exited' | 'unknown'>;
 }
 
 /** Host-side identity only. No command is ever injected into a worker pane. */
@@ -24,7 +25,11 @@ export function windowsInstance(binary: string, run: typeof execute): InstanceRe
     new Error(
       'GUI selection is unsupported for this backend; configure TERM_DAD_WEZTERM and WEZTERM_UNIX_SOCKET, then restart the MCP server',
     );
-  async function request(action: 'resolve' | 'list' | 'select', key?: string): Promise<unknown> {
+  async function request(
+    action: 'resolve' | 'list' | 'select' | 'probe',
+    key?: string,
+    target?: TerminalInstance,
+  ): Promise<unknown> {
     const script = fileURLToPath(new URL('../scripts/instance-windows.ps1', import.meta.url));
     helperPath ??= wsl ? run('wslpath', ['-w', script]).then((s) => s.trim()) : Promise.resolve(script);
     const powershell = wsl ? '/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe' : 'powershell.exe';
@@ -33,7 +38,7 @@ export function windowsInstance(binary: string, run: typeof execute): InstanceRe
       await run(
         powershell,
         ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', await helperPath],
-        JSON.stringify({ action, endpoint, binary: windowsBinary, key }),
+        JSON.stringify({ action, endpoint, binary: windowsBinary, key, target }),
       ),
     );
   }
@@ -71,6 +76,14 @@ export function windowsInstance(binary: string, run: typeof execute): InstanceRe
       }
     },
     {
+      async probe(instance: TerminalInstance): Promise<'alive' | 'exited' | 'unknown'> {
+        if (!supported) return 'unknown';
+        try {
+          return z.enum(['alive', 'exited', 'unknown']).parse(await request('probe', undefined, instance));
+        } catch {
+          return 'unknown';
+        }
+      },
       async list(): Promise<GuiInstance[]> {
         if (!supported) throw unsupported();
         return z
