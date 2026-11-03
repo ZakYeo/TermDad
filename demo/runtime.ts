@@ -23,7 +23,7 @@ export interface DemoRun {
   parentPane: number;
   instanceKey: string;
   endpoint: string;
-  tickets: ((typeof ticketDefinitions)[number] & { worktree: string; taskId?: string })[];
+  tickets: ((typeof ticketDefinitions)[number] & { worktree: string; taskId?: string; agentId?: string })[];
   panes: number[];
 }
 export async function saveRun(run: DemoRun) {

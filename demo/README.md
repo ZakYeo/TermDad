@@ -123,3 +123,18 @@ The supervisor itself may ask you to trust its new folder before it can run; Dad
 handles the three worker trust screens under your demo authorization. No global
 trust entries are written by the launcher, although Codex may remember a trust
 decision after Dad selects it.
+
+## Reopen a completed result
+
+Run `npm run demo:view -- /tmp/term-dad-demo-XXXXXX` and open the printed URL.
+This reads recorded tasks and Git evidence without launching workers or requiring
+WezTerm. Completed, verified merges remain completed even if a worker later asks
+for permission or disappears. The final preview still requires a clean release
+and passing acceptance checks. Ctrl+C stops the viewer.
+
+After Start, the launcher now creates the three panes, adopts their workers, and
+assigns their tasks directly through MCP before opening the supervisor. Dad can
+go straight to approval/readiness and dispatch instead of narrating each setup
+mutation. Worker sessions still do not start before the browser button is clicked.
+Independent readiness observations are batched; shared task writes remain serial.
+Timing still depends on model/tool approval latency and is not guaranteed.

@@ -9,6 +9,7 @@ import { collectStatus } from '../demo/status.js';
 import { startPresentation } from '../demo/presentation.js';
 import { createStartGate } from '../demo/start-gate.js';
 import { demoOptions, loadPrepared, claimPrepared } from '../demo/prepared.js';
+import { bootstrapWorkers } from '../demo/bootstrap.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 let closeMcp: (() => Promise<void>) | undefined;
@@ -104,6 +105,8 @@ To open it: npm run demo -- --prepared ${run.directory}`);
         !freshPanes.panes.some((pane: { pane_id: number }) => pane.pane_id === run.parentPane)
       )
         throw new Error('The invoking terminal changed while waiting. Start a fresh demo.');
+      console.log('Preparing the three worker panes…');
+      await bootstrapWorkers(run, mcp.call);
       const env = demoEnvironment(run);
       for (const key of [
         'CODEX_THREAD_ID',
