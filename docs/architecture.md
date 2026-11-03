@@ -549,3 +549,16 @@ key and rechecks identity around listing and before close. Any identity failure
 latches a stop for the remaining batch. The existing server selection gate
 prevents explicit GUI selection during a batch, but backend list/close remain
 separate operations. Per-pane outcomes preserve partial success.
+
+## Dispatch readiness
+
+Managed task submission now samples readiness under the existing worker input
+lock before recording a turn, initializing the worker skill, or sending text.
+The default rejects unresolved input and unready screens without terminal input.
+Explicit `requireReady:false` remains available for intentional responses.
+The bounded readiness wait returns early on input requests instead of waiting
+for an idle timeout. Observations remain heuristic and permissions take precedence.
+No core tool approves requests automatically: supervisors ask the user by default
+and may act on explicit, scoped user authorization. The internal demo supplies
+that authorization for its fresh scratch project; it does not pre-trust folders
+or change global approval settings.

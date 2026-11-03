@@ -156,7 +156,7 @@ test('Codex gets the bundled worker skill with its initial task only, even with 
     a = new Agents(f.backend);
   f.setText('OpenAI Codex\n› Explain this codebase');
   await a.spawn({ name: 'worker', cli: 'codex', command: ['custom-codex'], prompt: 'Implement the feature.' });
-  await a.send('worker', 'Report your results.');
+  await a.send('worker', 'Report your results.', undefined, false);
   const inputs = f.calls.filter((c) => c.args[0] === 'send-text' && !c.args.includes('--no-paste')).map((c) => c.input);
   assert.match(inputs[0], /^\$term-dad-worker\n/);
   assert.match(inputs[0], /Own investigation, design, implementation and verification/);
@@ -184,6 +184,7 @@ test('Codex initialization is deferred without a task, and survives an onboardin
 test('failed Codex input keeps initialization pending; concurrent input cannot duplicate it', async () => {
   const f = fake(),
     a = new Agents(f.backend);
+  f.setText('› Ready');
   await a.spawn({ name: 'worker', cli: 'codex' });
   const send = f.backend.sendText.bind(f.backend);
   let fail = true;
@@ -198,10 +199,15 @@ test('failed Codex input keeps initialization pending; concurrent input cannot d
   await assert.rejects(a.send('worker', 'retry without recovery'), /WORKER_DELIVERY_UNCERTAIN/);
   await a.reattach({ agentId: 'worker', paneId: 7, acknowledgeUncertainDelivery: true, workerSkillInitialized: false });
   assert.notEqual(a.get('worker').workerSkillSent, true);
+  f.setText('› Ready for retry');
+  await a.storage.transaction(true, (state) => {
+    state.workers[0].lastInputAt = Date.now() - 1000;
+    return { state, result: undefined };
+  });
   const first = a.send('worker', 'retry');
   await assert.rejects(a.send(a.get('worker').agentId, 'concurrent'), /WORKER_BUSY/);
   await first;
-  await a.send('worker', 'follow-up');
+  await a.send('worker', 'follow-up', undefined, false);
   const inputs = f.calls.filter((c) => c.args[0] === 'send-text' && !c.args.includes('--no-paste')).map((c) => c.input);
   assert.match(inputs[0], /^\$term-dad-worker\n/);
   assert.equal(inputs[1], 'follow-up');
@@ -211,6 +217,7 @@ test('Claude and shell task text stays literal', async () => {
   for (const cli of ['claude', 'shell'] as const) {
     const f = fake(),
       a = new Agents(f.backend);
+    f.setText(cli === 'claude' ? '❯ Ready' : '$ ');
     await a.spawn({ name: 'worker', cli });
     await a.send('worker', 'literal task');
     assert.equal(f.calls.find((c) => c.args[0] === 'send-text').input, 'literal task');

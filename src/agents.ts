@@ -676,7 +676,7 @@ export class Agents {
       }),
     );
   }
-  send(agentId: string, text: string, attempt?: z.infer<typeof attemptReferenceSchema>) {
+  send(agentId: string, text: string, attempt?: z.infer<typeof attemptReferenceSchema>, requireReady = true) {
     return this.run(() =>
       this.locked(agentId, async (w) => {
         z.string().max(100000).parse(text);
@@ -684,10 +684,22 @@ export class Agents {
         const { a } = await this.checked(w);
         if (a.deliveryPending)
           throw new Error('WORKER_DELIVERY_UNCERTAIN: inspect and agent.reattach before further input');
-        const initialize = a.cli === 'codex' && !a.workerSkillSent,
+        z.boolean().parse(requireReady);
+        const readySample = requireReady ? await this.sample(w, false) : undefined;
+        if (readySample?.observation.inputRequired)
+          throw new CodedError(
+            'WORKER_INPUT_REQUIRED',
+            'Worker needs input; inspect the request and ask the user unless explicitly authorized. No text was sent.',
+          );
+        if (readySample && !readySample.observation.readyForPrompt)
+          throw new CodedError(
+            'WORKER_NOT_READY',
+            'Worker is not ready for a task. Use agent.wait_until_ready. No text was sent.',
+          );
+        const initialize = requireReady && a.cli === 'codex' && !a.workerSkillSent,
           prompt = initialize ? initialWorkerPrompt(text) : text;
         z.string().max(100000).parse(prompt);
-        const hash = hashOutput(await this.screen(a.paneId));
+        const hash = readySample?.observation.outputHash ?? hashOutput(await this.screen(a.paneId));
         await this.change(a.agentId, (w) => {
           w.inputOutputHash = hash;
           w.lastInputAt = Date.now();
@@ -854,6 +866,49 @@ export class Agents {
       throw new Error(
         `Timed out waiting for ${agentId}; last status ${last?.status ?? 'unavailable'}${contended ? '; lock contention prevented observation' : ''}`,
       );
+    });
+  }
+  waitUntilReady(agentId: string, timeoutMs = 30000, signal?: AbortSignal) {
+    return this.run(async () => {
+      z.number().int().min(1).max(120000).parse(timeoutMs);
+      const deadline = Date.now() + timeoutMs;
+      const binding = await this.waitRead(() => this.lookup(agentId), deadline, signal);
+      if (!binding) return { reason: 'timeout', lastObservation: null };
+      let last: Sample | undefined;
+      const shown = () => {
+        if (!last) return null;
+        this.keep(last);
+        return this.present(last, undefined, 20);
+      };
+      do {
+        this.checkWait(signal);
+        try {
+          const current = await this.resolveOptional(binding.agentId);
+          if (!current) {
+            if (!(await this.bindingPaneExists(binding)))
+              return { reason: 'worker_disappeared', lastObservation: shown() };
+            throw new Error('WORKER_NO_LONGER_MANAGED');
+          }
+          this.sameBinding(current, binding);
+          last = await this.locked(binding.agentId, async (w) => {
+            this.sameBinding(w, binding);
+            return this.sample(w, false);
+          });
+          this.checkWait(signal);
+          if (last.observation.inputRequired) return { reason: 'input_required', lastObservation: shown() };
+          if (last.observation.status === 'ERROR' || last.observation.deliveryPending)
+            return { reason: 'error', lastObservation: shown() };
+          if (last.observation.readyForPrompt) return { reason: 'ready', lastObservation: shown() };
+        } catch (e) {
+          this.checkWait(signal);
+          if (hasCode(e, 'WORKER_PANE_DISAPPEARED') && !(await this.bindingPaneExists(binding)))
+            return { reason: 'worker_disappeared', lastObservation: shown() };
+          if (!Agents.busy(e)) throw e;
+        }
+        if (Date.now() >= deadline) break;
+        await this.pauseWait(deadline, signal);
+      } while (Date.now() < deadline);
+      return { reason: 'timeout', lastObservation: shown() };
     });
   }
   waitForOutcome(

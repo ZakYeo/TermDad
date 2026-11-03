@@ -90,7 +90,7 @@ test('restart retains identity, deferred skill and stale guard, but resets obser
     return { state: s, result: undefined };
   });
   assert.equal((await third.observe(spawned.agentId)).status, 'WORKING');
-  await third.send(spawned.agentId, 'follow-up');
+  await third.send(spawned.agentId, 'follow-up', undefined, false);
   assert.equal(f.inputs[2], 'follow-up');
   const journal = await readFile(join(dir, 'workers.json'), 'utf8');
   for (const secret of ['SECRET_TASK', 'SECRET_TITLE', 'SECRET_CWD', 'Explain this codebase', 'term-dad-worker'])
@@ -107,7 +107,7 @@ test('identity mismatch and reused pane/process IDs never read or control saved 
   assert.equal((await next.list())[0].attachment, 'detached');
   for (const action of [
     () => next.observe('old'),
-    () => next.send('old', 'x'),
+    () => next.send('old', 'x', undefined, false),
     () => next.interrupt('old'),
     () => next.stop('old'),
     () =>
@@ -139,7 +139,7 @@ test('adopt and reattach send nothing; initialized Codex follow-up stays literal
   await f.agents.reattach({ agentId: 'adopted', paneId: 7 });
   assert.equal(f.inputs.length, 0);
   assert.ok(!f.calls.includes('spawn'));
-  await f.agents.send('adopted', 'literal');
+  await f.agents.send('adopted', 'literal', undefined, false);
   assert.equal(f.inputs[0], 'literal');
   await f.agents.forget('adopted');
   assert.deepEqual(await f.agents.list(), []);
@@ -165,10 +165,10 @@ test('partial paste failure blocks replay across restart until explicit uncertai
     if (raw) throw new Error('lost Enter response');
     await send(pane, text, raw);
   };
-  await assert.rejects(f.agents.send('worker', 'task'), /DELIVERY_UNCERTAIN/);
+  await assert.rejects(f.agents.send('worker', 'task', undefined, false), /DELIVERY_UNCERTAIN/);
   assert.equal(f.inputs.length, 1);
   const next = new Agents(f.backend, f.storage);
-  await assert.rejects(next.send('worker', 'retry'), /DELIVERY_UNCERTAIN/);
+  await assert.rejects(next.send('worker', 'retry', undefined, false), /DELIVERY_UNCERTAIN/);
   await assert.rejects(next.reattach({ agentId: 'worker', paneId: 7 }), /DELIVERY_UNCERTAIN/);
   await next.reattach({
     agentId: 'worker',
@@ -177,7 +177,7 @@ test('partial paste failure blocks replay across restart until explicit uncertai
     workerSkillInitialized: true,
   });
   f.backend.sendText = send;
-  await next.send('worker', 'new task');
+  await next.send('worker', 'new task', undefined, false);
   assert.equal(f.inputs[1], 'new task');
 });
 test('cross-instance input/lifecycle exclusion prevents interleaved pastes and duplicate initialization', async (t) => {
@@ -198,10 +198,10 @@ test('cross-instance input/lifecycle exclusion prevents interleaved pastes and d
     await gate;
     return send(...args);
   };
-  const first = f.agents.send('worker', 'first');
+  const first = f.agents.send('worker', 'first', undefined, false);
   await ready;
   for (const action of [
-    () => next.send('worker', 'second'),
+    () => next.send('worker', 'second', undefined, false),
     () => next.stop('worker'),
     () => next.forget('worker'),
     () => next.reattach({ agentId: 'worker', paneId: 7 }),
@@ -209,7 +209,7 @@ test('cross-instance input/lifecycle exclusion prevents interleaved pastes and d
     await assert.rejects(action(), /WORKER_BUSY/);
   release();
   await first;
-  await next.send('worker', 'follow-up');
+  await next.send('worker', 'follow-up', undefined, false);
   assert.equal(f.inputs[2], 'follow-up');
 });
 test('spawn reservations reject duplicate names before backend finishes and failures are recoverable', async () => {
@@ -314,7 +314,7 @@ test('close drains an accepted input, leaves panes open and rejects subsequent o
     entered();
     await gate;
   };
-  const sending = f.agents.send('worker', 'x');
+  const sending = f.agents.send('worker', 'x', undefined, false);
   await ready;
   let closed = false;
   const closing = f.agents.close().then(() => {
@@ -325,7 +325,7 @@ test('close drains an accepted input, leaves panes open and rejects subsequent o
   release();
   await sending;
   await closing;
-  await assert.rejects(f.agents.send('worker', 'x'), /WORKER_CLOSED/);
+  await assert.rejects(f.agents.send('worker', 'x', undefined, false), /WORKER_CLOSED/);
   assert.ok(!f.calls.includes('kill-pane'));
 });
 test('Windows endpoint forwarding replaces conflicting WSLENV flags without modifying process environment', () => {
@@ -478,12 +478,12 @@ test('worker lock cleanup failure preserves committed success and actionable del
       f.backend.sendText = async () => {
         throw new Error('transport');
       };
-    if (failInput) await assert.rejects(f.agents.send('worker', 'task'), /WORKER_DELIVERY_UNCERTAIN/);
-    else assert.equal((await f.agents.send('worker', 'task')).sent, true);
+    if (failInput) await assert.rejects(f.agents.send('worker', 'task', undefined, false), /WORKER_DELIVERY_UNCERTAIN/);
+    else assert.equal((await f.agents.send('worker', 'task', undefined, false)).sent, true);
     const record = (await f.agents.list())[0];
     assert.equal(record.deliveryPending, failInput);
     assert.match(record.storageWarning!, /WORKER_LOCK_CLEANUP_WARNING/);
-    await assert.rejects(f.agents.send('worker', 'retry'), /WORKER_BUSY/);
+    await assert.rejects(f.agents.send('worker', 'retry', undefined, false), /WORKER_BUSY/);
   }
 });
 
@@ -499,11 +499,11 @@ test('successful terminal submission with a failed metadata commit remains uncer
   };
   const f = fixture(broken);
   await f.agents.adopt({ name: 'worker', cli: 'shell', paneId: 7 });
-  await assert.rejects(f.agents.send('worker', 'task'), /DELIVERY_UNCERTAIN/);
+  await assert.rejects(f.agents.send('worker', 'task', undefined, false), /DELIVERY_UNCERTAIN/);
   assert.deepEqual(f.inputs, ['task', '\r']);
   const restarted = new Agents(f.backend, broken);
   assert.equal((await restarted.list())[0].deliveryPending, true);
-  await assert.rejects(restarted.send('worker', 'retry'), /DELIVERY_UNCERTAIN/);
+  await assert.rejects(restarted.send('worker', 'retry', undefined, false), /DELIVERY_UNCERTAIN/);
   assert.equal(f.inputs.length, 2);
 });
 
@@ -524,7 +524,7 @@ test('observe waits through a briefly held worker lock instead of surfacing WORK
     await gate;
     return send(...args);
   };
-  const first = f.agents.send('worker', 'first');
+  const first = f.agents.send('worker', 'first', undefined, false);
   await ready;
   const observing = next.observe('worker');
   setTimeout(release, 100);
@@ -559,7 +559,7 @@ test('observe gives up on WORKER_BUSY after its bounded retry schedule', async (
 test('wait_for_outcome keeps polling through a transient WORKER_BUSY', async () => {
   const f = fixture();
   const adopted = await f.agents.adopt({ name: 'worker', cli: 'codex', paneId: 7 });
-  const sent = await f.agents.send('worker', 'task');
+  const sent = await f.agents.send('worker', 'task', undefined, false);
   f.text('OpenAI Codex\n› done');
   let release!: () => void;
   const gate = new Promise<void>((r) => {
@@ -591,7 +591,7 @@ test('wait_for_outcome absorbs a journal-busy read between sampling and the turn
   };
   const f = fixture(storage);
   await f.agents.adopt({ name: 'worker', cli: 'codex', paneId: 7 });
-  const sent = await f.agents.send('worker', 'task');
+  const sent = await f.agents.send('worker', 'task', undefined, false);
   f.text('OpenAI Codex\n› done');
   const read = f.backend.read.bind(f.backend);
   f.backend.read = async (...args) => {
@@ -620,7 +620,7 @@ test('wait_for_text and wait_until_idle retry through a briefly held worker lock
     await gate;
     return send(...args);
   };
-  const first = f.agents.send('worker', 'first');
+  const first = f.agents.send('worker', 'first', undefined, false);
   await ready;
   const waiting = next.wait('worker', (o) => o.recentText.includes('Codex'), 2000);
   setTimeout(release, 100);
@@ -645,7 +645,7 @@ test('one managed operation resolves terminal identity once, so no lock is held 
   await agents.observe('w');
   assert.equal(resolutions, 1);
   resolutions = 0;
-  await agents.send('w', 'echo hi');
+  await agents.send('w', 'echo hi', undefined, false);
   assert.equal(resolutions, 1);
 });
 
@@ -661,7 +661,7 @@ test('persistent contention ends as timeout in every worker wait, including init
     };
     const f = fixture(storage);
     await f.agents.adopt({ name: 'worker', cli: 'shell', paneId: 7 });
-    const sent = await f.agents.send('worker', 'task');
+    const sent = await f.agents.send('worker', 'task', undefined, false);
     busy = true;
     assert.deepEqual(await f.agents.waitForOutcome('worker', sent.turnId, 20), {
       reason: 'timeout',
@@ -677,7 +677,7 @@ test('persistent contention ends as timeout in every worker wait, including init
 test('legacy waits survive contention and cancellation/shutdown interrupts wait delays', async () => {
   const f = fixture();
   const w = await f.agents.adopt({ name: 'worker', cli: 'shell', paneId: 7 });
-  const sent = await f.agents.send('worker', 'task');
+  const sent = await f.agents.send('worker', 'task', undefined, false);
   let release!: () => void;
   const held = f.storage.exclusive(
     w.agentId,
@@ -726,7 +726,7 @@ test('outcome timeout preserves its last sample when the post-observation journa
   };
   const f = fixture(storage);
   await f.agents.adopt({ name: 'worker', cli: 'shell', paneId: 7 });
-  const sent = await f.agents.send('worker', 'task');
+  const sent = await f.agents.send('worker', 'task', undefined, false);
   const read = f.backend.read.bind(f.backend);
   f.backend.read = async (...args) => {
     const text = await read(...args);

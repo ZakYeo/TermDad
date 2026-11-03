@@ -91,7 +91,7 @@ test('sending an answer does not resolve pending input; unknown observation reta
   f.text('Which package?');
   const first = await f.agents.observe(f.worker.agentId);
   assert.equal((await f.agents.observe(f.worker.agentId)).inputRequest!.id, first.inputRequest!.id);
-  await f.agents.send(f.worker.agentId, 'Use existing');
+  await f.agents.send(f.worker.agentId, 'Use existing', undefined, false);
   assert.ok(f.agents.get(f.worker.agentId).request);
   f.text('screen redraw');
   const unknown = await f.agents.observe(f.worker.agentId);
@@ -106,7 +106,7 @@ test('turn identity survives restart; superseded turns and changed bindings reje
   const restarted = new Agents(f.backend, f.storage);
   assert.equal((await restarted.observe(f.worker.agentId)).turnId, f.send.turnId);
   assert.equal((await restarted.waitForOutcome(f.worker.agentId, f.send.turnId, 1)).reason, 'timeout');
-  const next = await restarted.send(f.worker.agentId, 'Follow-up');
+  const next = await restarted.send(f.worker.agentId, 'Follow-up', undefined, false);
   await assert.rejects(restarted.waitForOutcome(f.worker.agentId, f.send.turnId, 1), /TURN_SUPERSEDED/);
   await restarted.reattach({ agentId: f.worker.agentId, paneId: 7 });
   await assert.rejects(restarted.waitForOutcome(f.worker.agentId, next.turnId, 1), /BINDING_CHANGED/);
@@ -132,7 +132,7 @@ test('uncertain submission retains turn identity and cannot produce a completion
   f.backend.sendText = async () => {
     throw new Error('lost response');
   };
-  await assert.rejects(f.agents.send(f.worker.agentId, 'Next'), /DELIVERY_UNCERTAIN/);
+  await assert.rejects(f.agents.send(f.worker.agentId, 'Next', undefined, false), /DELIVERY_UNCERTAIN/);
   const stored = await f.agents.resolve(f.worker.agentId);
   assert.ok(stored.turn);
   assert.notEqual(stored.turn.id, f.send.turnId);
