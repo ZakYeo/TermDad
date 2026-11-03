@@ -1,3 +1,5 @@
+import { boundedMap } from './bounded-map.js';
+import type { ActivityContext } from './terminal-list.js';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
@@ -417,7 +419,7 @@ export class Agents {
       TerminalRead.run(this.backend, async (read) => (await this.listed(read)).map((entry) => entry.view)),
     );
   }
-  inventory() {
+  inventory(inspectActivity = false) {
     return this.run(() =>
       TerminalRead.run(this.backend, async (read) => {
         const panes = await read.panes();
@@ -425,13 +427,40 @@ export class Agents {
         const notes: string[] = [];
         if (!selected)
           notes.push('Terminal identity is unavailable; pane IDs alone cannot establish worker association.');
-        const workers = await this.listed(read)
-          .then((entries) => entries.map((entry) => entry.view))
-          .catch(() => {
-            notes.push('Saved worker metadata unavailable; live panes remain listed.');
-            return [];
-          });
-        return { selected, panes, workers, notes };
+        const entries = await this.listed(read).catch(() => {
+          notes.push('Saved worker metadata unavailable; live panes remain listed.');
+          return [];
+        });
+        const activities: Record<number, ActivityContext> = {};
+        if (inspectActivity)
+          await boundedMap(
+            entries.filter((e) => e.view.attachment === 'attached'),
+            4,
+            async ({ worker }) => {
+              if (worker.paneId === null) return;
+              try {
+                const observation = await this.retrying(() =>
+                  this.locked(worker.agentId, async (current) => {
+                    this.sameBinding(current, worker);
+                    return (await this.sample(current, false, read)).observation;
+                  }),
+                );
+                activities[worker.paneId] = {
+                  status: observation.status,
+                  source: 'screen_classifier',
+                  observedAt: observation.observedAt,
+                  inputRequired: observation.inputRequired,
+                };
+              } catch {
+                activities[worker.paneId] = {
+                  status: 'UNKNOWN',
+                  source: 'unavailable',
+                  note: 'Activity inspection failed; retry a targeted observation.',
+                };
+              }
+            },
+          );
+        return { selected, panes, workers: entries.map((entry) => entry.view), notes, activities };
       }),
     );
   }

@@ -53,3 +53,35 @@ test('real tab titles win; empty directory falls back to pane ID', () => {
   assert.equal(result.panes[0].tabLabel, 'Actual tab');
   assert.equal(result.panes[0].tabLabelSource, 'tab_title');
 });
+
+test('activity inspection is optional, bounded, text-free and tolerates one failed screen', async () => {
+  let active = 0,
+    peak = 0,
+    reads = 0;
+  const backend = new WezTermBackend(
+    async (args) => {
+      if (args[0] === 'list') return JSON.stringify(Array.from({ length: 7 }, (_, i) => pane(i)));
+      if (args[0] === 'get-text') {
+        reads++;
+        active++;
+        peak = Math.max(peak, active);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        active--;
+        if (args.includes('6')) throw new Error('pane disappeared');
+        return '$ ';
+      }
+      return '';
+    },
+    async () => ({ endpoint: 'local', key: 'local' }),
+  );
+  const agents = new Agents(backend);
+  for (let i = 0; i < 7; i++) await agents.adopt({ name: `shell-${i}`, cli: 'shell', paneId: i });
+  await agents.inventory();
+  assert.equal(reads, 0);
+  const result = compactInventory(await agents.inventory(true));
+  assert.equal(peak, 4);
+  assert.equal(reads, 7);
+  assert.equal(result.panes[0].activity.status, 'READY_FOR_PROMPT');
+  assert.equal(result.panes[6].activity.status, 'UNKNOWN');
+  assert.equal('recentText' in result.panes[0].activity, false);
+});

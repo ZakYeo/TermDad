@@ -118,9 +118,13 @@ export function createServer(
   const body = (a: { text?: string; message?: string }) => oneOf<string>(a, ['text', 'message']);
   register(
     'terminal.list',
-    'Start here to see which terminal windows, tabs, panes or sessions are open. Compact metadata by default; verbose adds raw terminal details, includeDetached explains saved workers. No screen reads.',
-    { verbose: z.boolean().default(false), includeDetached: z.boolean().default(false) },
-    async (a) => compactInventory(await agents.inventory(), a),
+    'Start here to see which terminal windows, tabs, panes or sessions are open. Compact metadata by default; verbose adds raw terminal details, includeDetached explains saved workers. Activity inspection is opt-in and reads managed screens; default listing reads no screen text.',
+    {
+      verbose: z.boolean().default(false),
+      includeDetached: z.boolean().default(false),
+      activity: z.enum(['none', 'inspect']).default('none'),
+    },
+    async (a) => compactInventory(await agents.inventory(a.activity === 'inspect'), a),
   );
   register(
     'terminal.list_instances',

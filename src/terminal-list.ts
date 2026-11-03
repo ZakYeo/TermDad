@@ -4,7 +4,20 @@ import type { Agents } from './agents.js';
 import type { TerminalInstance } from './worker-storage.js';
 
 type WorkerView = Awaited<ReturnType<Agents['list']>>[number];
-export type Inventory = { selected: TerminalInstance | null; panes: Pane[]; workers: WorkerView[]; notes: string[] };
+export type ActivityContext = {
+  status: string;
+  source: string;
+  observedAt?: string;
+  inputRequired?: boolean;
+  note?: string;
+};
+export type Inventory = {
+  activities?: Record<number, ActivityContext>;
+  selected: TerminalInstance | null;
+  panes: Pane[];
+  workers: WorkerView[];
+  notes: string[];
+};
 export type ListOptions = { verbose?: boolean; includeDetached?: boolean };
 const nonempty = (value: unknown): string | undefined =>
   typeof value === 'string' && value.trim() ? value.trim() : undefined;
@@ -35,6 +48,7 @@ export function compactInventory(inventory: Inventory, options: ListOptions = {}
       label,
       labelSource,
       session: sessionContext(pane, worker),
+      activity: inventory.activities?.[pane.pane_id] ?? { status: 'UNKNOWN', source: 'not_inspected' },
       worker: worker ? { agentId: worker.agentId, name: worker.name, cli: worker.cli } : null,
       ...(options.verbose ? { raw: pane } : {}),
     };
