@@ -749,3 +749,35 @@ input-token cap. Quota/authentication failures stop the run. Reports default to
 `TERM_DAD_EVAL_MODEL` optionally selects a model; otherwise Codex chooses its default.
 Deterministic routing-contract tests are part of `npm run check`. Model evaluation
 scores tool selection/arguments and ordering, not natural-language answer quality.
+
+### v1.0 implementation evidence — 2026-11-03
+
+- Full build, formatting and automated suite passed: 383 tests, including final
+  routing-review regressions.
+- Live recovery passed in explicitly targeted GUI 15444: MCP restart, stable
+  worker identity, follow-up input, task retention, adoption and owned cleanup.
+- Live inventory passed: compact/raw reads, session/activity/workspace fields,
+  batch closing newly created panes 3 and 4, and preservation of the baseline pane.
+- The Codex interactive smoke passed: readiness, two marker responses, interrupt
+  and owned cleanup. No Claude or Copilot sessions were launched.
+- Full live shell orchestration passed: spawn, split, resize, focus, move,
+  broadcast, snapshots, task attention/verification, interrupt and cleanup.
+- Read-only Windows probes returned alive for the intended GUI, unknown for an
+  unsupported identity format and exited for a nonexistent PID.
+- Local Git inspector returned this checkout's repository/worktree/branch/commit
+  in a direct host-side check. WSL panes without verified domain metadata remain
+  unavailable by design; this does not establish cross-domain Git support.
+- One model-driven inventory case passed with exactly one `terminal.list` call
+  and no enrichment: 114 output tokens reported. Five earlier evaluation attempts
+  were blocked before mock dispatch by the child client's approval policy; they
+  are not routing successes. The mock registration was corrected and no further
+  paid routing cases were run. Draft/unavailable review outcomes and concurrent
+  close-before-verification are covered by deterministic tests.
+
+The first recovery run mistakenly targeted a different still-live GUI through
+inherited environment values. Its owned test panes were cleaned up. The harness
+was corrected to require explicit endpoint/process-start key/parent selection;
+all subsequent live checks used GUI 15444. Final metadata verification preserved
+its original pane 0 and found no remaining test panes. No pre-existing pane was
+closed. These machine-specific GUI identifiers are evidence, not configuration
+values to copy on another run.
