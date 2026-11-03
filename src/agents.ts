@@ -84,7 +84,7 @@ export class Agents {
   private operations = new Set<Promise<unknown>>();
   private closed = false;
   private readonly waitShutdown = new AbortController();
-  /** Back-off between read retries when another operation holds the worker or journal lock. Reads only: writes still fail fast. */
+  /** Bounded back-off for reads and pre-delivery acquisition of readiness-checked sends. */
   busyRetryMs = [50, 100, 200, 400, 800];
   constructor(
     readonly backend: TerminalBackend,
@@ -221,6 +221,32 @@ export class Agents {
   private async locked<T>(agentId: string, fn: (w: WorkerRecord) => Promise<T>) {
     const w = await this.lookup(agentId);
     return this.storage.exclusive(w.agentId, async () => fn(await this.lookup(w.agentId)));
+  }
+  /** Retry acquisition only: never replay readiness checks, metadata writes or terminal input. */
+  private async sendLocked<T>(agentId: string, requireReady: boolean, fn: (w: WorkerRecord) => Promise<T>) {
+    if (!requireReady) return this.locked(agentId, fn);
+    const original = await this.retrying(() => this.lookup(agentId));
+    // Observations do not change durable worker metadata. Any change while waiting
+    // means another input or lifecycle operation intervened, so require inspection.
+    const expected = JSON.stringify(original);
+    for (let attempt = 0; ; attempt++) {
+      let entered = false;
+      try {
+        return await this.storage.exclusive(original.agentId, async () => {
+          entered = true;
+          const current = await this.lookup(original.agentId);
+          if (JSON.stringify(current) !== expected)
+            throw new CodedError(
+              'WORKER_BUSY',
+              'Worker changed while waiting to send. Inspect its current turn before retrying. No text was sent.',
+            );
+          return fn(current);
+        });
+      } catch (error) {
+        if (entered || !Agents.busy(error) || attempt >= this.busyRetryMs.length) throw error;
+        await new Promise((resolve) => setTimeout(resolve, this.busyRetryMs[attempt]));
+      }
+    }
   }
   spawn(
     o: SpawnOptions & {
@@ -678,7 +704,7 @@ export class Agents {
   }
   send(agentId: string, text: string, attempt?: z.infer<typeof attemptReferenceSchema>, requireReady = true) {
     return this.run(() =>
-      this.locked(agentId, async (w) => {
+      this.sendLocked(agentId, requireReady, async (w) => {
         z.string().max(100000).parse(text);
         if (attempt) attemptReferenceSchema.parse(attempt);
         const { a } = await this.checked(w);

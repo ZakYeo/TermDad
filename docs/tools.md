@@ -121,8 +121,10 @@ occupied targets. It invalidates observation history; recreate existing watches
 following reattachment. On a changed binding, old input hashes are cleared.
 Skill state is preserved unless `workerSkillInitialized` is supplied.
 
-Managed input/lifecycle operations use exclusive per-worker locks. A concurrent
-write returns `WORKER_BUSY`; retry after the active operation finishes. Standalone reads (`agent.observe`, `agent.status`) retry through a bounded
+Managed input/lifecycle operations use exclusive per-worker locks. Readiness-checked
+sends briefly wait for acquisition and reject intervening worker changes; other
+concurrent writes return `WORKER_BUSY` immediately. Retry only after the active
+operation finishes. Standalone reads (`agent.observe`, `agent.status`) retry through a bounded
 back-off of about 1.5 seconds. All worker waits absorb worker/journal contention
 through their original deadline, including initial lookup. Outcome waits return
 `reason:timeout` with the last observation or null; idle/text waits report a
@@ -879,3 +881,11 @@ ready task (`requireReady:true`). The override does not bypass uncertain-deliver
 explicit terminal keys for menus. Existing clients that intentionally submitted
 text to non-ready workers must now opt out explicitly. A normal ready prompt's
 legacy `awaitingInput:true` is not an approval request; use `inputRequired`.
+
+Readiness-checked sends briefly retry worker/journal lock acquisition (up to 1.55
+seconds of back-off), allowing a background status observation to finish. The
+worker's durable metadata must remain unchanged during that wait; competing
+input or lifecycle changes return `WORKER_BUSY` without sending. Readiness and
+permission checks run after acquiring the lock. No delivery code is retried, and
+`requireReady:false` retains fail-fast locking. If contention persists, inspect
+the worker and serialize operations before retrying; never bypass the lock.

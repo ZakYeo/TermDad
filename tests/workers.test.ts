@@ -820,3 +820,111 @@ test('reattachment while an exited-instance probe is pending prevents stale dele
   await listing;
   assert.equal((await f.agents.list())[0].attachment, 'attached');
 });
+
+for (const permission of [false, true]) {
+  test(`ready send waits for another server's status sample, then checks the current screen (permission=${permission})`, async (t) => {
+    const dir = await directory(t);
+    const f = fixture(new FileWorkerStorage(dir));
+    await f.agents.adopt({ name: 'worker', cli: 'codex', paneId: 7 });
+    const sender = new Agents(f.backend, new FileWorkerStorage(dir));
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const read = f.backend.read.bind(f.backend);
+    let first = true;
+    f.backend.read = async (...args) => {
+      if (first) {
+        first = false;
+        entered.resolve();
+        await release.promise;
+      }
+      return read(...args);
+    };
+    const observing = f.agents.summaries();
+    await entered.promise;
+    const sending = sender.send('worker', 'implement ticket');
+    const outcome = permission ? assert.rejects(sending, /WORKER_INPUT_REQUIRED/) : sending;
+    if (permission)
+      f.text(
+        'Folder access\nTrust this folder?\n1. Trust and continue\n2. Back to Agent Command Center\nenter to continue',
+      );
+    setTimeout(() => release.resolve(), 75);
+    await observing;
+    await outcome;
+    assert.equal(f.inputs.length, permission ? 0 : 2);
+    if (!permission) assert.match(f.inputs[0], /implement ticket/);
+  });
+}
+
+test('ready send never follows a competing input automatically', async () => {
+  const f = fixture();
+  await f.agents.adopt({ name: 'worker', cli: 'codex', paneId: 7 });
+  const sender = new Agents(f.backend, f.storage);
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const submit = f.backend.sendText.bind(f.backend);
+  let first = true;
+  f.backend.sendText = async (...args) => {
+    if (first) {
+      first = false;
+      entered.resolve();
+      await release.promise;
+    }
+    return submit(...args);
+  };
+  const original = f.agents.send('worker', 'original');
+  await entered.promise;
+  const competing = assert.rejects(sender.send('worker', 'duplicate'), /WORKER_BUSY/);
+  setTimeout(() => release.resolve(), 25);
+  await original;
+  await competing;
+  assert.equal(f.inputs.length, 2);
+  assert.ok(!f.inputs.some((text) => text.includes('duplicate')));
+});
+
+test('ready send gives up after bounded lock acquisition retries without delivery', async () => {
+  const f = fixture();
+  const worker = await f.agents.adopt({ name: 'worker', cli: 'codex', paneId: 7 });
+  const release = Promise.withResolvers<void>();
+  const held = f.storage.exclusive(worker.agentId, () => release.promise);
+  f.agents.busyRetryMs = [1, 1];
+  try {
+    await assert.rejects(f.agents.send('worker', 'task'), /WORKER_BUSY/);
+    assert.equal(f.inputs.length, 0);
+  } finally {
+    release.resolve();
+    await held;
+  }
+});
+
+test('ready send does not retry errors after acquisition or uncertain terminal delivery', async () => {
+  const memory = new MemoryWorkerStorage();
+  let fail = false,
+    acquisitions = 0;
+  const storage: WorkerStorage = {
+    transaction: (write, fn) => {
+      if (fail && write) return Promise.reject(new Error('WORKER_STORAGE_BUSY: injected inside send'));
+      return memory.transaction(write, fn);
+    },
+    exclusive: (id, fn) => {
+      acquisitions++;
+      return memory.exclusive(id, fn);
+    },
+  };
+  const f = fixture(storage);
+  await f.agents.adopt({ name: 'worker', cli: 'codex', paneId: 7 });
+  acquisitions = 0;
+  fail = true;
+  await assert.rejects(f.agents.send('worker', 'task'), /WORKER_STORAGE_BUSY/);
+  assert.equal(acquisitions, 1);
+  assert.equal(f.inputs.length, 0);
+  fail = false;
+  let submissions = 0;
+  f.backend.sendText = async () => {
+    submissions++;
+    throw new Error('transport failed');
+  };
+  await assert.rejects(f.agents.send('worker', 'task'), /WORKER_DELIVERY_UNCERTAIN/);
+  assert.equal(submissions, 1);
+  await assert.rejects(f.agents.send('worker', 'task again'), /WORKER_DELIVERY_UNCERTAIN/);
+  assert.equal(submissions, 1);
+});
