@@ -2,7 +2,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { WezTermBackend } from '../src/backend.js';
 import { command, type DemoRun } from './runtime.js';
-import { basename, join } from 'node:path';
+import { basename, join, win32 } from 'node:path';
 
 export async function preflight(
   cwd: string,
@@ -20,7 +20,7 @@ export async function preflight(
   await run('codex', ['login', 'status'], cwd);
   const identity = await backend.instance();
   if (!identity) throw new Error('This demo requires verified WezTerm GUI identity (currently Windows/WSL).');
-  if (identity.endpoint !== env.WEZTERM_UNIX_SOCKET)
+  if (!sameSocket(identity.endpoint, env.WEZTERM_UNIX_SOCKET))
     throw new Error('Selected GUI does not match the invoking WezTerm socket. Open a fresh pane and retry.');
   if (!(await backend.list()).some((p) => p.pane_id === Number(env.WEZTERM_PANE)))
     throw new Error('The invoking pane is not in the selected WezTerm GUI.');
@@ -86,4 +86,11 @@ export function workerCommand(shell = process.env.TERM_DAD_LOCAL_SHELL || proces
   if (['sh', 'dash', 'bash', 'zsh', 'ksh'].includes(basename(shell)))
     return [shell, '-lic', 'exec "$@"', 'term-dad-demo-worker', ...cli];
   throw new Error('Set TERM_DAD_LOCAL_SHELL to a supported login shell for worker launch.');
+}
+
+// PowerShell canonicalizes Windows socket paths; WSL can inherit mixed or repeated separators.
+export function sameSocket(left: string, right: string) {
+  if (win32.isAbsolute(left) && win32.isAbsolute(right) && /^[a-z]:/i.test(left) && /^[a-z]:/i.test(right))
+    return win32.normalize(left).toLowerCase() === win32.normalize(right).toLowerCase();
+  return left === right;
 }

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { command, integrate, prepareRun, readEvidence, releaseReady, type DemoRun } from '../demo/runtime.js';
-import { demoEnvironment, preflight, supervisorArgs, workerCommand } from '../demo/launcher.js';
+import { demoEnvironment, preflight, supervisorArgs, workerCommand, sameSocket } from '../demo/launcher.js';
 import { collectStatus, ticketState } from '../demo/status.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -228,4 +228,19 @@ test('worker launch resolves Codex through a login shell with literal argv', () 
   ]);
   assert.deepEqual(workerCommand('/usr/bin/fish').slice(0, 4), ['/usr/bin/fish', '-lic', 'exec $argv', 'codex']);
   assert.throws(() => workerCommand('/bin/unknown'), /supported login shell/);
+});
+
+test('demo accepts Windows socket spelling differences but rejects another socket', async () => {
+  const inherited = String.raw`C:\\Users\\Zak\\.local/share/wezterm\\gui-sock-44588`;
+  const resolved = String.raw`C:\Users\Zak\.local\share\wezterm\gui-sock-44588`;
+  assert.equal(sameSocket(inherited, resolved), true);
+  assert.equal(sameSocket(inherited.toLowerCase(), resolved), true);
+  assert.equal(sameSocket(resolved, resolved.replace('44588', '44589')), false);
+  assert.equal(sameSocket('/tmp/Socket', '/tmp/socket'), false);
+  const identity = { endpoint: resolved, key: 'gui:44588:start' };
+  const found = await preflight('/tmp', { WEZTERM_PANE: '7', WEZTERM_UNIX_SOCKET: inherited }, async () => '', {
+    instance: async () => identity,
+    list: async () => [{ pane_id: 7 }],
+  });
+  assert.equal(found.endpoint, resolved);
 });
