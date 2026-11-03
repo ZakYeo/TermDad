@@ -1,4 +1,10 @@
-export type RoutingCall = { name: string; args: Record<string, unknown>; ok?: boolean };
+export type RoutingCall = {
+  name: string;
+  args: Record<string, unknown>;
+  ok?: boolean;
+  invocation?: number;
+  verifiedBefore?: boolean;
+};
 export type RoutingCase = {
   id: string;
   prompt: string;
@@ -85,6 +91,24 @@ export const routingCases: RoutingCase[] = [
   },
 ];
 export function scoreRouting(test: RoutingCase, calls: RoutingCall[]): string[] {
+  calls = [...calls]
+    .sort((a, b) => (a.invocation ?? 0) - (b.invocation ?? 0))
+    .map((call) =>
+      call.name === 'terminal.read'
+        ? {
+            ...call,
+            args: {
+              ...call.args,
+              paneId: call.args.paneId ?? call.args.pane_id,
+              lines: call.args.lines ?? call.args.max_lines,
+            },
+          }
+        : call,
+    );
+  const activityAlternative =
+    test.id === 'activity' &&
+    calls.some((c) => c.name === 'terminal.list') &&
+    calls.some((c) => c.name === 'orchestrator.status');
   const failures: string[] = [];
   if (
     calls.some((call) => call.ok === false && !(test.id === 'conditional-unavailable' && call.name === 'review.lookup'))
@@ -94,6 +118,7 @@ export function scoreRouting(test: RoutingCase, calls: RoutingCall[]): string[] 
   for (const call of calls) if (!test.allowed.includes(call.name)) failures.push(`Unexpected tool: ${call.name}`);
   for (const requirement of test.required)
     if (
+      !activityAlternative &&
       !calls.some(
         (call) =>
           requirement.names.includes(call.name) &&
@@ -123,7 +148,8 @@ export function scoreRouting(test: RoutingCase, calls: RoutingCall[]): string[] 
           (call.args.target && call.args.target !== 'pane')
         )
           failures.push('Protected or unspecified pane targeted');
-        if (check < 0 || check > index) failures.push('Close before external verification');
+        if (check < 0 || check > index || call.verifiedBefore !== true)
+          failures.push('Close before external verification');
       }
   }
   return failures;

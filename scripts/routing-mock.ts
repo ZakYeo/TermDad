@@ -40,15 +40,19 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
   })),
 }));
 let calls = 0;
+let verified = false;
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args = {} } = request.params;
+  const invocation = ++calls;
+  const verifiedBefore = verified;
   let result;
   try {
-    if (++calls > 6) throw new Error('Routing evaluation tool-call budget exhausted');
+    if (calls > 6) throw new Error('Routing evaluation tool-call budget exhausted');
     if (name === 'review.lookup') {
       if (process.argv[3] === 'conditional-unavailable')
         throw new Error('Mock external service unavailable; eligibility is unknown.');
       if (args.repository !== 'example/project' || args.number !== 42) throw new Error('Unknown mock review reference');
+      await new Promise((resolve) => setTimeout(resolve, 20));
       result = {
         content: [
           {
@@ -63,6 +67,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           },
         ],
       };
+      verified = process.argv[3] !== 'conditional-draft';
     } else {
       if (!allowed.has(name)) throw new Error('Tool outside routing fixture');
       result = await f.raw(name, args);
@@ -73,7 +78,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       content: [{ type: 'text' as const, text: error instanceof Error ? error.message : 'Mock tool failed' }],
     };
   }
-  await appendFile(log, JSON.stringify({ name, args, ok: result.isError !== true }) + '\n');
+  await appendFile(log, JSON.stringify({ name, args, invocation, verifiedBefore, ok: result.isError !== true }) + '\n');
   return result;
 });
 let closing = false;
