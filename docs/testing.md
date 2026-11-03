@@ -752,8 +752,8 @@ scores tool selection/arguments and ordering, not natural-language answer qualit
 
 ### v1.0 implementation evidence — 2026-11-03
 
-- Full build, formatting and automated suite passed: 383 tests, including final
-  routing-review regressions.
+- Full build, formatting and automated suite passed: 385 tests, including final
+  routing and Git-metadata review regressions.
 - Live recovery passed in explicitly targeted GUI 15444: MCP restart, stable
   worker identity, follow-up input, task retention, adoption and owned cleanup.
 - Live inventory passed: compact/raw reads, session/activity/workspace fields,
