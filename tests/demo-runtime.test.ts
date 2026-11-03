@@ -4,8 +4,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { command, integrate, prepareRun, readEvidence, releaseReady, type DemoRun } from '../demo/runtime.js';
-import { demoEnvironment, preflight, supervisorArgs } from '../demo/launcher.js';
-import { ticketState } from '../demo/status.js';
+import { demoEnvironment, preflight, supervisorArgs, workerCommand } from '../demo/launcher.js';
+import { collectStatus, ticketState } from '../demo/status.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const implementations: Record<string, string> = {
@@ -59,6 +59,31 @@ test('demo checks and merges all three actual commits before declaring release r
     assert.equal(await releaseReady(run), index === 2);
   }
   assert.equal(Object.keys(await readEvidence(run)).length, 3);
+  for (const ticket of run.tickets) ticket.taskId = ticket.id;
+  const actualReadyShape = {
+    agentId: 'worker',
+    status: 'READY_FOR_PROMPT',
+    awaitingInput: true,
+    inputRequired: false,
+    readyForPrompt: true,
+  };
+  const ready = await collectStatus(run, async (name) =>
+    name === 'task.list'
+      ? {
+          tasks: run.tickets.map((ticket) => ({
+            id: ticket.id,
+            status: 'done',
+            blockers: [],
+            assignedAgentId: 'worker',
+            verification: { status: 'passed' },
+            latestReport: { outcome: 'succeeded' },
+          })),
+        }
+      : [actualReadyShape],
+  );
+  assert.equal(ready.released, true, 'Finished workers at normal ready prompts must allow the visual reveal');
+  assert.ok(ready.tickets.every((ticket) => ticket.state === 'Merged'));
+
   await writeFile(join(run.repository, 'components/chart.js'), 'export default () => [];');
   assert.equal(await releaseReady(run), false, 'Dirty regression must revoke release readiness');
   await command('git', ['add', 'components/chart.js'], run.repository);
@@ -173,9 +198,13 @@ test('ticket states require actual merge plus passed verification and preserve a
   assert.equal(ticketState({ ...active, latestReport: { outcome: 'succeeded' } }, worker, false), 'Checking');
   assert.equal(ticketState(done, worker, false), 'Checking');
   assert.equal(ticketState(done, worker, true), 'Merged');
+  assert.equal(
+    ticketState(done, { ...worker, awaitingInput: true, inputRequired: false }, true),
+    'Merged',
+    'Ready prompt is not a permission or question',
+  );
   for (const changed of [
     { inputRequired: true },
-    { awaitingInput: true },
     { attachment: 'detached' },
     { deliveryPending: true },
     { error: 'unavailable' },
@@ -187,4 +216,16 @@ test('ticket states require actual merge plus passed verification and preserve a
   assert.equal(ticketState({ ...done, blockers: ['blocked'] }, worker, true), 'Needs attention');
   assert.equal(ticketState({ ...done, verification: { status: 'stale' } }, worker, true), 'Needs attention');
   assert.equal(ticketState({ ...done, latestReport: { outcome: 'failed' } }, worker, true), 'Needs attention');
+});
+
+test('worker launch resolves Codex through a login shell with literal argv', () => {
+  assert.deepEqual(workerCommand('/tmp/shell path/zsh').slice(0, 5), [
+    '/tmp/shell path/zsh',
+    '-lic',
+    'exec "$@"',
+    'term-dad-demo-worker',
+    'codex',
+  ]);
+  assert.deepEqual(workerCommand('/usr/bin/fish').slice(0, 4), ['/usr/bin/fish', '-lic', 'exec $argv', 'codex']);
+  assert.throws(() => workerCommand('/bin/unknown'), /supported login shell/);
 });

@@ -2,7 +2,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { WezTermBackend } from '../src/backend.js';
 import { command, type DemoRun } from './runtime.js';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 
 export async function preflight(
   cwd: string,
@@ -78,4 +78,12 @@ export async function connect(root: string, run: DemoRun) {
     return JSON.parse(text);
   };
   return { call, close: () => client.close() };
+}
+
+export function workerCommand(shell = process.env.TERM_DAD_LOCAL_SHELL || process.env.SHELL || '/bin/sh') {
+  const cli = ['codex', '--sandbox', 'workspace-write', '--ask-for-approval', 'on-request'];
+  if (basename(shell) === 'fish') return [shell, '-lic', 'exec $argv', ...cli];
+  if (['sh', 'dash', 'bash', 'zsh', 'ksh'].includes(basename(shell)))
+    return [shell, '-lic', 'exec "$@"', 'term-dad-demo-worker', ...cli];
+  throw new Error('Set TERM_DAD_LOCAL_SHELL to a supported login shell for worker launch.');
 }

@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import type { DemoRun } from './runtime.js';
+import { workerCommand } from './launcher.js';
 
 export function walkthrough(root: string, run: DemoRun, url: string) {
   const integrateArgv = [
@@ -18,7 +19,7 @@ Use terminal.list to verify selected.key=${JSON.stringify(run.instanceKey)} and 
 Tasks already exist on board sales-demo; IDs and worktrees:
 ${JSON.stringify(run.tickets, null, 2)}
 Read release/tickets.json for the exact component contracts. The scratch release is ${run.repository}.
-1. Create a right split (50%) of pane ${run.parentPane}, cwd first worktree, command ["codex","--sandbox","workspace-write","--ask-for-approval","on-request"]. Create two bottom splits of that right column (67% then 50%) for the other worktrees, giving three worker panes alongside Dad. Use each worktree's cwd. Record each returned pane ID immediately in run.json panes; do not overwrite other manifest fields. If any spawn has uncertain delivery, stop instead of retrying it.
+1. Create a right split (50%) of pane ${run.parentPane}, cwd first worktree, command ${JSON.stringify(workerCommand())}. Create two bottom splits of that right column (67% then 50%) for the other worktrees, giving three worker panes alongside Dad. Use each worktree's cwd. Record each returned pane ID immediately in run.json panes; do not overwrite other manifest fields. If any spawn has uncertain delivery, stop instead of retrying it.
 2. Adopt each pane with agent.adopt cli codex and unique name matching its ticket. Assign the existing task, start_attempt, and set in_progress using fresh returned task revisions. Send all three briefs before waiting for any completion. First agent.send initializes the worker skill; include attempt:{taskId,attemptId}.
 Worker brief: implement ONLY your assigned component file per tickets.json, use the provided data, run node check.mjs TICKET, commit that single file to your existing branch, then report the SHA and test result. Do not alter data, tests, package files, shared app, other components or Git branches; do not spawn workers. Keep scope small; no dependencies or installs.
 3. Monitor via orchestrator.status/attention and bounded agent.wait_for_outcome with the current turnId. Observe only workers that need inspection. Silence is not success. Never approve trust, authentication or permission screens automatically; tell the presenter which pane needs input. On timeout inspect once and report the blockage, do not poll indefinitely.

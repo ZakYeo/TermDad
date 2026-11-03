@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { command, prepareRun, saveRun } from '../demo/runtime.js';
-import { connect, demoEnvironment, preflight, supervisorArgs } from '../demo/launcher.js';
+import { connect, demoEnvironment, preflight, supervisorArgs, workerCommand } from '../demo/launcher.js';
 import { walkthrough } from '../demo/prompt.js';
 import { collectStatus } from '../demo/status.js';
 import { startPresentation } from '../demo/presentation.js';
@@ -16,6 +16,7 @@ try {
   if (args.some((arg) => arg !== '--check') || args.length > 1) throw new Error('Usage: npm run demo [-- --check]');
   if (!args.includes('--check') && (!process.stdin.isTTY || !process.stdout.isTTY))
     throw new Error('Launch the demo from an interactive WezTerm terminal.');
+  workerCommand(); // Validate the worker shell even for --check.
   const identity = await preflight(root);
   if (args.includes('--check')) {
     console.log('Ready: Node, Git, authenticated Codex and the invoking WezTerm pane verified. No demo launched.');

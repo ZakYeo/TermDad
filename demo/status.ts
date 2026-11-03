@@ -21,7 +21,6 @@ export function ticketState(task: TaskView | undefined, worker: WorkerView | und
     !task ||
     task.blockers.length ||
     worker?.inputRequired ||
-    worker?.awaitingInput ||
     worker?.error ||
     worker?.deliveryPending ||
     worker?.attachment === 'detached'
