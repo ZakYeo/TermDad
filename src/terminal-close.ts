@@ -18,17 +18,25 @@ export async function closePanes(
       'ARGUMENT_INVALID',
       'Batch close needs 1–100 unique pane IDs and expectedInstanceKey from terminal.list.',
     );
+  let stopped = false;
   const verify = async () => {
-    const identity = await backend.instance?.();
-    if (!identity || identity.key !== expectedInstanceKey)
+    let identity;
+    try {
+      identity = await backend.instance?.();
+    } catch (error) {
+      stopped = true;
+      throw error;
+    }
+    if (!identity || identity.key !== expectedInstanceKey) {
+      stopped = true;
       throw new CodedError(
         'TERMINAL_IDENTITY_MISMATCH',
         'Terminal identity differs or is unavailable; list again before closing.',
       );
+    }
   };
   await verify();
   const results: CloseOutcome[] = [];
-  let stopped = false;
   for (const paneId of paneIds) {
     if (stopped) {
       results.push({ paneId, outcome: 'skipped', note: 'Terminal identity could not be verified.' });

@@ -82,3 +82,25 @@ test('a failed close/list never invents disappearance and does not block indepen
   );
   assert.ok(f.alive.has(1));
 });
+
+test('a transient identity failure is latched even if a later recovery check succeeds', async () => {
+  for (const unavailable of [false, true]) {
+    const f = fixture();
+    let checks = 0;
+    Object.defineProperty(f.backend, 'instance', {
+      value: async () => {
+        checks++;
+        if (checks === 4) {
+          if (unavailable) throw new Error('identity unavailable');
+          return { endpoint: 'other', key: 'other' };
+        }
+        return { endpoint: 'one', key: 'one' };
+      },
+    });
+    f.backend.close = async () => {
+      throw new Error('close failed');
+    };
+    const result = await closePanes(f.backend, [1, 2], 'one', async () => {});
+    assert.equal(result.results[1].outcome, 'skipped');
+  }
+});
