@@ -138,3 +138,12 @@ go straight to approval/readiness and dispatch instead of narrating each setup
 mutation. Worker sessions still do not start before the browser button is clicked.
 Independent readiness observations are batched; shared task writes remain serial.
 Timing still depends on model/tool approval latency and is not guaranteed.
+
+## Check the presentation UI
+
+Run `npx playwright install chromium` once, then `npm run test:demo:ui`.
+The browser suite serves the real presentation with controlled progress and the
+fixture dashboard; it launches no workers and does not modify saved demo runs.
+It checks eight desktop, tablet and phone dimensions, ticket expansion, keyboard
+controls, reduced motion, polling persistence, Start and Before/After controls.
+Screenshots and failure traces are written to `/tmp/term-dad-demo-ui`.
