@@ -23,7 +23,8 @@ test('Git inspection reports worktree, main repository, detached/unborn state an
   );
   const result = await inspector.inspect(pane);
   assert.equal(result.status, 'available');
-  assert.equal(result.repositoryRoot, '/work/main');
+  assert.equal(result.repositoryRoot, undefined);
+  assert.equal(result.gitCommonDir, '/work/main/.git');
   assert.equal(result.worktreePath, '/work/project');
   assert.equal(result.branch, null);
   assert.equal(result.commit, 'abc123');
@@ -105,4 +106,39 @@ test('custom domains sharing the hostname are unavailable and separate git dirs 
   assert.equal(result.repositoryRoot, undefined);
   assert.equal(result.gitCommonDir, '/storage/git-metadata');
   assert.equal(result.worktreePath, '/work/project');
+});
+
+test('a separate Git directory named .git does not fabricate its parent as the repository root', async () => {
+  for (const common of ['/storage/.git', '/work/project/.git']) {
+    const inspector = new LocalWorkspaceInspector(
+      async (args) => {
+        if (args.includes('--show-toplevel')) return `/work/project\n${common}\n`;
+        return args.includes('symbolic-ref') ? 'main\n' : 'abc123\n';
+      },
+      'testhost',
+      '',
+    );
+    const result = await inspector.inspect(pane);
+    assert.equal(result.repositoryRoot, common === '/work/project/.git' ? '/work/project' : undefined);
+    assert.equal(result.gitCommonDir, common);
+  }
+});
+test('unsupported options, relative paths and newline-ambiguous paths remain unavailable', async () => {
+  for (const output of [
+    '--path-format=absolute\n/work/project\n/work/.git\n',
+    '/work/project\n.git\n',
+    '/work/new\nline\n/work/.git\n',
+  ]) {
+    let calls = 0;
+    const result = await new LocalWorkspaceInspector(
+      async () => {
+        calls++;
+        return output;
+      },
+      'testhost',
+      '',
+    ).inspect(pane);
+    assert.equal(result.status, 'unavailable');
+    assert.equal(calls, 1);
+  }
 });

@@ -6,7 +6,7 @@ Tool names use dots. All arguments are JSON objects. Omitted arguments below use
 |---|---|
 | terminal.list_instances | `{}` → up to 64 live Windows/WSL GUI identities (`key`, `endpoint`, `pid`, `title`), plus `selected`; unavailable selection is reported as `selectionError` |
 | terminal.select_instance | `key` → select an exact live identity returned above, for this server session; no terminal input |
-| terminal.list | `verbose?, includeDetached?, activity?: none|inspect, workspace?: none|inspect` → compact `{selected,panes,counts,detached,notes}`; verbose adds raw pane metadata |
+| terminal.list | `verbose?, includeDetached?, activity?: none\|inspect, workspace?: none\|inspect` → compact `{selected,panes,counts,detached,notes}`; verbose adds raw pane metadata |
 | terminal.spawn | `paneId?, windowId?, newWindow?, domain?, cwd?, command?: string[] \| string` → new pane ID in a tab/window. A string command is split like a shell would (quotes and backslashes honoured); no shell runs |
 | terminal.split | `paneId, direction?: right\|bottom, percent?: 1..99, cwd?, command?` → new split pane ID |
 | terminal.close | `target?: pane\|tab\|window, id` or just `paneId` → kills all selected panes |
@@ -848,3 +848,8 @@ and optional notes. Identity changes skip remaining targets; other failures are
 reported independently. This is not atomic: list/close are separate backend
 operations. A successful close with failed worker reconciliation stays `closed`
 with a note. Refresh the list after partial results. Single-target forms remain.
+
+Git context always distinguishes `gitCommonDir` from `worktreePath`.
+`repositoryRoot` is included only when the common Git directory is the observed
+worktree’s own `.git`; linked/separate metadata alone does not establish a main
+worktree location.

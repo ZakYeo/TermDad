@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { hostname } from 'node:os';
-import { dirname, basename } from 'node:path';
+import { resolve, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Pane } from './backend.js';
 import { boundedMap } from './bounded-map.js';
@@ -81,8 +81,10 @@ export class LocalWorkspaceInspector implements WorkspaceInspector {
           return { ...base, status: 'not_repository', note: 'Observed directory is not a Git worktree.' };
         throw error;
       }
-      const [worktreePath, common] = roots.trimEnd().split('\n');
-      if (!worktreePath || !common) return unavailable('Git returned incomplete workspace metadata.');
+      const paths = roots.replace(/\r?\n$/, '').split(/\r?\n/);
+      if (paths.length !== 2 || paths.some((path) => !isAbsolute(path) || path.includes('\0')))
+        return unavailable('Git returned unsupported or ambiguous workspace metadata.');
+      const [worktreePath, common] = paths;
       let branch: string | null = null,
         commit: string | null = null;
       try {
@@ -98,7 +100,8 @@ export class LocalWorkspaceInspector implements WorkspaceInspector {
       return {
         ...base,
         status: 'available',
-        ...(basename(common) === '.git' ? { repositoryRoot: dirname(common) } : {}),
+        // A directory called .git elsewhere does not establish its parent as a worktree.
+        ...(resolve(common) === resolve(worktreePath, '.git') ? { repositoryRoot: worktreePath } : {}),
         gitCommonDir: common,
         worktreePath,
         branch,
