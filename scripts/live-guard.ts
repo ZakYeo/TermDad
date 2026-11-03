@@ -5,7 +5,10 @@ export class LiveGuard {
   readonly panes = new Set<number>();
   readonly agents = new Set<string>();
   private identity?: TerminalInstance;
-  constructor(private readonly endpoint: string | undefined) {}
+  constructor(
+    private readonly endpoint: string | undefined,
+    private readonly parent?: number,
+  ) {}
   verify(instance: TerminalInstance | null) {
     if (
       !this.endpoint ||
@@ -21,10 +24,14 @@ export class LiveGuard {
     if (name === 'terminal.select_instance') throw new Error('Live tests cannot switch GUI instances');
     if (args.newWindow || args.windowId !== undefined)
       throw new Error('Live tests create tabs only in the pinned current window');
-    if (name === 'terminal.spawn' || name === 'agent.spawn') return;
+    if (name === 'terminal.spawn' || name === 'agent.spawn') {
+      if (typeof args.paneId !== 'number' || (args.paneId !== this.parent && !this.panes.has(args.paneId)))
+        throw new Error('Live spawn requires the configured parent or an owned pane');
+      return;
+    }
     if (name === 'terminal.list' || name === 'terminal.list_instances' || name === 'agent.list') return;
     if (name === 'terminal.snapshot' || name === 'agent.collect_results' || name === 'orchestrator.status') return;
-    if (name.startsWith('terminal.') || name === 'agent.adopt') {
+    if (name.startsWith('terminal.') || name === 'agent.adopt' || name === 'agent.reattach') {
       if (args.target !== undefined && args.target !== 'pane')
         throw new Error('Live tests may target only owned panes');
       const ids = Array.isArray(args.paneIds) ? args.paneIds : [args.paneId ?? args.pane_id ?? args.id];

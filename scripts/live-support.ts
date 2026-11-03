@@ -15,7 +15,10 @@ export class LiveSession {
     readonly directory: string,
     private readonly env: Record<string, string>,
   ) {
-    this.guard = new LiveGuard(env.WEZTERM_UNIX_SOCKET ?? process.env.WEZTERM_UNIX_SOCKET);
+    this.guard = new LiveGuard(
+      env.WEZTERM_UNIX_SOCKET ?? process.env.WEZTERM_UNIX_SOCKET,
+      Number(env.TERM_DAD_TEST_PANE ?? process.env.TERM_DAD_TEST_PANE ?? process.env.WEZTERM_PANE),
+    );
     this.owned = this.guard.panes;
   }
   static async create(env: Record<string, string> = {}) {
@@ -132,8 +135,8 @@ export class LiveSession {
 }
 
 export function parentPane(panes: { pane_id: number }[]) {
-  const requested = process.env.TERM_DAD_TEST_PANE;
-  const pane = requested === undefined ? panes[0]?.pane_id : Number(requested);
+  const requested = process.env.TERM_DAD_TEST_PANE ?? process.env.WEZTERM_PANE;
+  const pane = requested === undefined ? undefined : Number(requested);
   if (!Number.isSafeInteger(pane) || !panes.some((p) => p.pane_id === pane))
     throw new Error('Running WezTerm GUI and a valid TERM_DAD_TEST_PANE (if set) required');
   return pane!;

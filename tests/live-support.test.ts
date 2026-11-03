@@ -157,3 +157,30 @@ test('local spawn prompt rejection does not retain unused recovery state', async
   await session.dispose();
   await assert.rejects(access(session.directory));
 });
+
+test('actual live call wrapper rejects changed GUI before dispatch after restart', async () => {
+  const session = await LiveSession.create({ WEZTERM_UNIX_SOCKET: 'C:\\gui-sock-12', TERM_DAD_TEST_PANE: '1' });
+  let key = 'first';
+  const calls: string[] = [];
+  const inject = () => {
+    session.client.callTool = async (request: any) => {
+      calls.push(request.name);
+      const value =
+        request.name === 'terminal.list_instances' ? { selected: { endpoint: 'C:\\gui-sock-12', key } } : 42;
+      return { content: [{ type: 'text', text: JSON.stringify(value) }] };
+    };
+  };
+  try {
+    inject();
+    await session.spawnPane({ paneId: 1 });
+    await session.restart();
+    inject();
+    key = 'replacement';
+    await assert.rejects(session.closePane(42), /identity changed/);
+    assert.equal(calls.includes('terminal.close'), false);
+    assert.ok(session.owned.has(42));
+  } finally {
+    session.owned.clear();
+    await session.dispose();
+  }
+});

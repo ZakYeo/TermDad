@@ -23,8 +23,10 @@ test('only owned pane and worker operations are permitted', () => {
     ['terminal.close', { paneIds: [12, 13] }],
     ['terminal.split', { paneId: 13 }],
     ['agent.stop', { agentId: 'theirs' }],
+    ['agent.reattach', { agentId: 'ours', paneId: 13 }],
     ['terminal.select_instance', { key: 'other' }],
     ['terminal.spawn', { newWindow: true }],
+    ['terminal.spawn', { paneId: 13 }],
   ] as const)
     assert.throws(() => guard.authorize(name, args));
 });
