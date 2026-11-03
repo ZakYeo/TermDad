@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { LiveGuard } from '../scripts/live-guard.js';
+import { LiveGuard, explicitTestPane } from '../scripts/live-guard.js';
 
 test('live identity remains pinned across reconnect and rejects another GUI or reused PID', () => {
   const guard = new LiveGuard('C:\\gui-sock-12', 0, 'host:12:first');
@@ -29,4 +29,12 @@ test('only owned pane and worker operations are permitted', () => {
     ['terminal.spawn', { paneId: 13 }],
   ] as const)
     assert.throws(() => guard.authorize(name, args));
+});
+
+test('explicit parent rejects empty, whitespace and unsafe identifiers', () => {
+  for (const value of [undefined, '', ' ', '-1', '1.5', '9007199254740992'])
+    assert.equal(explicitTestPane(value), undefined);
+  assert.equal(explicitTestPane('0'), 0);
+  const guard = new LiveGuard('endpoint', 0, 'expected');
+  assert.throws(() => guard.verify({ endpoint: 'endpoint', key: 'wrong-first-key' }), /explicit/);
 });

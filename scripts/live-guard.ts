@@ -1,5 +1,11 @@
 import type { TerminalInstance } from '../src/worker-storage.js';
 
+export function explicitTestPane(value: string | undefined): number | undefined {
+  if (value === undefined || !/^[0-9]+$/.test(value)) return undefined;
+  const pane = Number(value);
+  return Number.isSafeInteger(pane) ? pane : undefined;
+}
+
 /** Test-only policy: never infer ownership from a pane list or worker registry. */
 export class LiveGuard {
   readonly panes = new Set<number>();

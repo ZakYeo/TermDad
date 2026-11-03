@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { LiveGuard } from './live-guard.js';
+import { LiveGuard, explicitTestPane } from './live-guard.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
@@ -17,7 +17,7 @@ export class LiveSession {
   ) {
     this.guard = new LiveGuard(
       env.TERM_DAD_TEST_ENDPOINT ?? process.env.TERM_DAD_TEST_ENDPOINT,
-      Number(env.TERM_DAD_TEST_PANE ?? process.env.TERM_DAD_TEST_PANE),
+      explicitTestPane(env.TERM_DAD_TEST_PANE ?? process.env.TERM_DAD_TEST_PANE),
       env.TERM_DAD_TEST_INSTANCE_KEY ?? process.env.TERM_DAD_TEST_INSTANCE_KEY,
     );
     this.owned = this.guard.panes;
@@ -145,7 +145,7 @@ export class LiveSession {
 
 export function parentPane(panes: { pane_id: number }[]) {
   const requested = process.env.TERM_DAD_TEST_PANE;
-  const pane = requested === undefined ? undefined : Number(requested);
+  const pane = explicitTestPane(requested);
   if (!Number.isSafeInteger(pane) || !panes.some((p) => p.pane_id === pane))
     throw new Error('Explicit TERM_DAD_TEST_PANE in the verified test GUI required');
   return pane!;
