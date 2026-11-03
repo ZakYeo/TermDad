@@ -66,6 +66,15 @@ for (const [width, height] of [
         .locator('html')
         .evaluate((el) => el.scrollWidth <= el.clientWidth),
     ).toBe(true);
+    const dashboard = page.frameLocator('#dashboard');
+    expect(
+      await dashboard
+        .locator('.kpi-label')
+        .evaluateAll((labels) => labels.every((label) => label.scrollWidth <= label.clientWidth)),
+    ).toBe(true);
+    const brand = await dashboard.locator('.brand').boundingBox();
+    const badge = await dashboard.locator('header .badge').boundingBox();
+    expect(brand!.x + brand!.width <= badge!.x || brand!.y + brand!.height <= badge!.y).toBe(true);
     await page.screenshot({ path: testInfo.outputPath('expanded.png'), fullPage: true });
     await toggles.first().click();
     await expect(page.locator('.ticket-details').first()).toHaveCSS('opacity', '0');
