@@ -398,6 +398,14 @@ export class Agents {
       ...(w.accountRef ? { accountRef: w.accountRef } : {}),
       attachment,
       recoveryReason,
+      recoveryCode:
+        recoveryReason === null
+          ? null
+          : recoveryReason === 'Worker belongs to another live terminal instance'
+            ? 'other_instance'
+            : recoveryReason === 'Spawn reservation needs explicit recovery'
+              ? 'recovery_needed'
+              : 'verification_unavailable',
       deliveryPending: w.deliveryPending,
       turnId: w.turn?.id ?? null,
       workerSkillInitialized: w.workerSkillSent,
@@ -414,18 +422,49 @@ export class Agents {
       throw new Error('Worker was reattached during observation; retry or recreate its watch');
   }
   private async listed(read: TerminalRead) {
-    const workers = await this.saved();
+    let workers = await this.saved();
     const entry = (worker: WorkerRecord, attachment: string, reason: string | null) => ({
       worker,
       view: this.view(worker, attachment, reason),
     });
     if (!workers.length) return [];
-    let instance: TerminalInstance | null;
+    let instance: TerminalInstance | null = null;
+    let identityAvailable = true;
     try {
       instance = await read.identity();
     } catch {
-      return workers.map((w) => entry(w, 'detached', 'Terminal identity unavailable'));
+      identityAvailable = false;
     }
+    const probes = new Map<string, 'alive' | 'exited' | 'unknown'>();
+    const retained: WorkerRecord[] = [];
+    for (const w of workers) {
+      if (w.instance && !this.attached(w, instance) && this.backend.probeInstance) {
+        const key = JSON.stringify(w.instance);
+        let state = probes.get(key);
+        if (!state) {
+          try {
+            state = await this.backend.probeInstance(w.instance);
+          } catch {
+            state = 'unknown';
+          }
+          probes.set(key, state);
+        }
+        if (state === 'exited') {
+          try {
+            await this.locked(w.agentId, async (current) => {
+              this.sameBinding(current, w);
+              await this.remove(w.agentId);
+            });
+            continue;
+          } catch {
+            /* Preserve records when a concurrent operation prevents verified cleanup. */
+          }
+        }
+      }
+      retained.push(w);
+    }
+    workers = retained;
+    if (!identityAvailable) return workers.map((w) => entry(w, 'detached', 'Terminal identity unavailable'));
     let panes;
     try {
       panes = await read.panes();
@@ -454,7 +493,9 @@ export class Agents {
             ? 'Spawn reservation needs explicit recovery'
             : this.attached(w, instance)
               ? null
-              : 'Terminal identity differs or is unverified',
+              : w.instance && probes.get(JSON.stringify(w.instance)) === 'alive'
+                ? 'Worker belongs to another live terminal instance'
+                : 'Terminal identity differs or is unverified',
         ),
       );
     }

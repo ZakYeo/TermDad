@@ -737,3 +737,28 @@ test('outcome timeout preserves its last sample when the post-observation journa
   assert.equal(outcome.reason, 'timeout');
   assert.equal(outcome.lastObservation?.turnId, sent.turnId);
 });
+
+test('confirmed exited GUI removes mapping without touching reused pane; unknown and alive are preserved', async () => {
+  const f = fixture();
+  const worker = await f.agents.adopt({ name: 'old', cli: 'shell', paneId: 7 });
+  f.identity({ endpoint: 'other', key: 'other-start' });
+  let state: 'alive' | 'exited' | 'unknown' = 'unknown';
+  Object.defineProperty(f.backend, 'probeInstance', {
+    value: async (saved: TerminalInstance) => {
+      assert.deepEqual(saved, original);
+      return state;
+    },
+  });
+  let views = await f.agents.list();
+  assert.equal(views[0].recoveryCode, 'verification_unavailable');
+  state = 'alive';
+  views = await f.agents.list();
+  assert.equal(views[0].recoveryCode, 'other_instance');
+  assert.equal(views[0].attachment, 'detached');
+  state = 'exited';
+  assert.deepEqual(await f.agents.list(), []);
+  assert.equal((await f.storage.transaction(false, (s) => ({ result: s.workers }))).length, 0);
+  assert.ok(!f.calls.includes('kill-pane'));
+  assert.ok(!f.calls.includes('get-text'));
+  assert.ok(worker.agentId);
+});

@@ -807,3 +807,12 @@ Spawned workers retain `accountRef` on their worker record; the configured
 failures in orchestration views report `usage.available: false` and an error while
 preserving the worker/task results. `usage.status.notificationError` reports
 optional desktop delivery failures separately from provider/monitor errors.
+
+### Worker reconciliation in v1
+
+Worker views include `recoveryCode`: `other_instance`, `verification_unavailable`,
+`recovery_needed`, or null when attached. Windows/WSL can probe the saved process
+start identity without selecting that GUI. Confirmed exited GUI mappings are
+removed, just like confirmed missing panes; tasks retain their worker IDs.
+Unverified identities, failed probes, live other GUIs and incomplete recovery
+remain saved. No age-based pruning or terminal closure occurs during listing.
