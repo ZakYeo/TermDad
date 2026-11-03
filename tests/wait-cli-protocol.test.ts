@@ -29,7 +29,7 @@ test('a detached waiter exits carrying the event that woke it, and never acknowl
     await queue.close();
     await rm(directory, { recursive: true, force: true });
   });
-  await queue.publish({
+  const baseline = await queue.publish({
     kind: 'ready',
     paneId: 7,
     watchId: 'w',
@@ -40,6 +40,10 @@ test('a detached waiter exits carrying the event that woke it, and never acknowl
     'wait-for-event',
     '--kinds',
     'attention_required',
+    // Use a deliberate cursor: subprocess startup may outlast the first publication.
+    // Fresh-baseline behavior is exercised deterministically in wait-cli.test.ts.
+    '--after-sequence',
+    String(baseline.sequence),
     '--timeout-seconds',
     '20',
     '--poll-ms',
