@@ -24,10 +24,12 @@ test('compact listing derives stable split labels, omits raw dimensions and sepa
     async () => ({ endpoint: 'socket', key }),
   );
   const agents = new Agents(backend);
-  await agents.adopt({ name: 'Saved worker', cli: 'shell', paneId: 1 });
+  await agents.adopt({ name: '  ', cli: 'shell', paneId: 1 });
   let result = compactInventory(await agents.inventory());
-  assert.equal(result.panes[1].label, 'Saved worker');
-  assert.equal(result.panes[0].tabLabel, 'Saved worker (2 panes)');
+  assert.equal(result.panes[1].label, 'Shell');
+  assert.equal(result.panes[1].labelSource, 'pane_title');
+  assert.equal(result.panes[1].worker?.name, '  ');
+  assert.equal(result.panes[0].tabLabel, 'Shell (2 panes)');
   assert.equal(result.panes[0].label, 'my-project');
   assert.equal('raw' in result.panes[0], false);
   key = 'replacement';

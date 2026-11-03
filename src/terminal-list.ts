@@ -22,8 +22,9 @@ export function compactInventory(inventory: Inventory, options: ListOptions = {}
     const worker = attached.get(pane.pane_id);
     const title = nonempty(pane.title),
       directory = directoryLabel(pane.cwd);
-    const label = worker?.name ?? title ?? directory ?? `Pane ${pane.pane_id}`;
-    const labelSource = worker ? 'worker' : title ? 'pane_title' : directory ? 'directory' : 'pane_id';
+    const workerName = nonempty(worker?.name);
+    const label = workerName ?? title ?? directory ?? `Pane ${pane.pane_id}`;
+    const labelSource = workerName ? 'worker' : title ? 'pane_title' : directory ? 'directory' : 'pane_id';
     return {
       pane_id: pane.pane_id,
       tab_id: pane.tab_id,
