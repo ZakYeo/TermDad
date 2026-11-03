@@ -6,14 +6,14 @@ Tool names use dots. All arguments are JSON objects. Omitted arguments below use
 |---|---|
 | terminal.list_instances | `{}` → up to 64 live Windows/WSL GUI identities (`key`, `endpoint`, `pid`, `title`), plus `selected`; unavailable selection is reported as `selectionError` |
 | terminal.select_instance | `key` → select an exact live identity returned above, for this server session; no terminal input |
-| terminal.list | `{}` → raw pane metadata including window/tab IDs, cwd, dimensions |
+| terminal.list | `verbose?, includeDetached?, activity?: none\|inspect, workspace?: none\|inspect` → compact `{selected,panes,counts,detached,notes}`; verbose adds raw pane metadata |
 | terminal.spawn | `paneId?, windowId?, newWindow?, domain?, cwd?, command?: string[] \| string` → new pane ID in a tab/window. A string command is split like a shell would (quotes and backslashes honoured); no shell runs |
 | terminal.split | `paneId, direction?: right\|bottom, percent?: 1..99, cwd?, command?` → new split pane ID |
 | terminal.close | `target?: pane\|tab\|window, id` or just `paneId` → kills all selected panes |
 | terminal.focus | `target?: pane\|tab\|window, id` or just `paneId` → activates matching pane |
 | terminal.resize | `paneId, direction: Left\|Right\|Up\|Down, amount?: 1..1000` |
 | terminal.move | `paneId, newWindow?, windowId?` → move to new tab |
-| terminal.read | `paneId, lines?: 1..5000` (default 100) → text tail |
+| terminal.read | `paneId, lines?: 1..5000, raw?` (default 100) → compact text tail; raw preserves padding |
 | terminal.send_text | `paneId, text` → paste without submitting |
 | terminal.send_key | `paneId, key` → one raw key |
 | terminal.send_keys | `paneId, keys: string[]` → ordered keys, entire sequence validated first |
@@ -807,3 +807,49 @@ Spawned workers retain `accountRef` on their worker record; the configured
 failures in orchestration views report `usage.available: false` and an error while
 preserving the worker/task results. `usage.status.notificationError` reports
 optional desktop delivery failures separately from provider/monitor errors.
+
+### Worker reconciliation in v1
+
+Worker views include `recoveryCode`: `other_instance`, `verification_unavailable`,
+`recovery_needed`, or null when attached. Windows/WSL can probe the saved process
+start identity without selecting that GUI. Confirmed exited GUI mappings are
+removed, just like confirmed missing panes; tasks retain their worker IDs.
+Unverified identities, failed probes, live other GUIs and incomplete recovery
+remain saved. No age-based pruning or terminal closure occurs during listing.
+
+In v1, terminal.list returns an envelope rather than the former array. Pane IDs,
+window/tab IDs, labels and working directories are compact by default; `verbose`
+adds each original backend pane under `raw`. `includeDetached` adds saved-worker
+details to the detached summary. Labels identify their source and never rename
+the terminal. Default listing performs no screen reads; activity inspection is opt-in. terminal.read defaults to trimmed
+line endings/padding and collapsed blank runs; `raw:true` retains the old text.
+
+`terminal.list` includes session type with evidence: a managed adapter is
+configured, a backend foreground executable is observed, and a recognizable
+title is only inferred. Unknown is explicit; no process polling is introduced.
+`activity:"inspect"` adds bounded, text-free managed-worker classification with
+observation time; unmanaged panes remain unknown. `workspace:"inspect"` adds
+optional local Git repository/worktree/branch/commit metadata, with no GitHub
+access. Both default to `"none"`. Git runs only for verified host file URIs and
+supported domains; WSL requires matching domain metadata, otherwise returns a
+note. Missing tools, unsupported domains, non-repositories and inspection errors
+never prevent live pane listing. Git metadata describes the directory at read
+time, not a declared session assignment. Inspections use four concurrent jobs,
+five-second Git subprocess deadlines and 64 KiB output limits.
+
+### Batch close
+
+`terminal.close({paneIds:[1,2], expectedInstanceKey:"<selected.key>"})` closes
+1–100 unique explicit panes in order. Batch IDs cannot be mixed with `target`,
+`id` or `paneId`. Validate eligibility outside TermDad. The entire request is
+validated before closing; terminal identity is checked before each operation.
+Results contain `paneId`, `outcome` (`closed`, `already_gone`, `failed`, `skipped`)
+and optional notes. Identity changes skip remaining targets; other failures are
+reported independently. This is not atomic: list/close are separate backend
+operations. A successful close with failed worker reconciliation stays `closed`
+with a note. Refresh the list after partial results. Single-target forms remain.
+
+Git context always distinguishes `gitCommonDir` from `worktreePath`.
+`repositoryRoot` is included only when the common Git directory is the observed
+worktree’s own `.git`; linked/separate metadata alone does not establish a main
+worktree location.

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { LiveSession, parentPane } from './live-support.js';
 const session = await LiveSession.create();
 try {
-  const panes = await session.call('terminal.list');
+  const panes = (await session.call('terminal.list')).panes;
   assert.ok(panes.length, 'Running WezTerm GUI required');
   const parent = parentPane(panes);
   const worker = await session.spawnAgent({
@@ -86,7 +86,7 @@ try {
   await session.call('agent.send', { agentId: adopted.agentId, text: "printf '\\nTERM_DAD_%s\\n' ADOPTED" });
   await session.call('agent.wait_for_text', { agentId: adopted.agentId, text: 'TERM_DAD_ADOPTED', timeoutMs: 15000 });
   await session.call('agent.forget', { agentId: adopted.agentId });
-  assert.ok((await session.call('terminal.list')).some((p: { pane_id: number }) => p.pane_id === paneId));
+  assert.ok((await session.call('terminal.list')).panes.some((p: { pane_id: number }) => p.pane_id === paneId));
   await session.closePane(paneId);
   await session.call('agent.stop', { agentId: worker.agentId });
   session.owned.delete(worker.paneId);

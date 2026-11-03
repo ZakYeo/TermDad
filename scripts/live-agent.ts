@@ -9,7 +9,7 @@ try {
   const a = await session.spawnAgent({
     name: `term-dad-${cli}-e2e`,
     cli,
-    paneId: parentPane(await call('terminal.list')),
+    paneId: parentPane((await call('terminal.list')).panes),
     cwd: process.cwd(),
   });
   const agentId = a.agentId;

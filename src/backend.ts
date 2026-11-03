@@ -155,6 +155,7 @@ export function execute(
 export interface TerminalBackend {
   instance?(): Promise<TerminalInstance | null>;
   listInstances?(): Promise<GuiInstance[]>;
+  probeInstance?(instance: TerminalInstance): Promise<'alive' | 'exited' | 'unknown'>;
   selectInstance?(key: string): Promise<TerminalInstance>;
   list(): Promise<Pane[]>;
   spawn(o: SpawnOptions): Promise<number>;
@@ -186,6 +187,7 @@ export class WezTermBackend implements TerminalBackend {
   readonly run: Runner;
   readonly instance: () => Promise<TerminalInstance | null>;
   readonly listInstances?: () => Promise<GuiInstance[]>;
+  readonly probeInstance?: (instance: TerminalInstance) => Promise<'alive' | 'exited' | 'unknown'>;
   readonly selectInstance?: (key: string) => Promise<TerminalInstance>;
   constructor(run?: Runner, identity?: () => Promise<TerminalInstance | null>) {
     const binary = defaultBinary();
@@ -193,6 +195,7 @@ export class WezTermBackend implements TerminalBackend {
     this.instance = identity ?? resolver ?? (async () => null);
     if (resolver) {
       this.listInstances = () => resolver.list();
+      this.probeInstance = (instance) => resolver.probe(instance);
       this.selectInstance = (key) => resolver.select(key);
     }
     this.run =

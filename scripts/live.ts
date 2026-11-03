@@ -3,7 +3,7 @@ import { LiveSession, parentPane } from './live-support.js';
 const session = await LiveSession.create(),
   call = session.call;
 try {
-  const before = await call('terminal.list');
+  const before = (await call('terminal.list')).panes;
   assert.ok(before.length > 0, 'A live WezTerm GUI is required');
   const a = await session.spawnAgent({
     name: 'term-dad-live-shell',
@@ -88,27 +88,20 @@ try {
   assert.ok((await call('terminal.snapshot')).panes.length >= 3);
   await call('agent.stop', { agentId: secondId });
   session.owned.delete(second.paneId);
-  const newWindowPane = await session.spawnPane({
-    paneId: a.paneId,
-    newWindow: true,
-    command: ['bash', '--noprofile', '--norc', '-i'],
-  });
-  const window = (await call('terminal.list')).find((p: any) => p.pane_id === newWindowPane);
-  await call('terminal.focus', { target: 'window', id: window.window_id });
-  await session.closePane(newWindowPane);
+
   await call('agent.send', { agentId, text: 'sleep 30' });
   await call('agent.interrupt', { agentId });
   await call('agent.wait_until_idle', { agentId, timeoutMs: 15000 });
   await call('agent.stop', { agentId });
   session.owned.delete(a.paneId);
-  const after = await call('terminal.list');
+  const after = (await call('terminal.list')).panes;
   for (const pane of before)
     assert.ok(
       after.some((p: any) => p.pane_id === pane.pane_id),
       'Pre-existing panes must survive',
     );
   console.log(
-    'PASS: live MCP spawn, shell readiness, initial/follow-up input, output, split, resize, focus, move, broadcast, snapshots, task attention/verification/change cursors, new window, interrupt and cleanup',
+    'PASS: live MCP spawn, shell readiness, initial/follow-up input, output, split, resize, focus, move, broadcast, snapshots, task attention/verification/change cursors, interrupt and cleanup',
   );
 } finally {
   await session.dispose();

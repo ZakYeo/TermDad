@@ -12,7 +12,7 @@ import { WezTermBackend } from '../src/backend.js';
 import { MemoryWorkerStorage } from '../src/worker-storage.js';
 import { MemoryTaskStorage } from '../src/task-storage.js';
 
-async function fixture(t: any) {
+async function fixture(t: any, screen = '$ ') {
   const calls: { args: string[]; input?: string }[] = [];
   const backend = new WezTermBackend(
     async (args, input) => {
@@ -22,7 +22,7 @@ async function fixture(t: any) {
           { pane_id: 7, tab_id: 1, window_id: 1, title: 'shell', cwd: '/', size: { rows: 24, cols: 80 } },
         ]);
       if (args[0] === 'spawn') return '9';
-      if (args[0] === 'get-text') return '$ ';
+      if (args[0] === 'get-text') return screen;
       return '';
     },
     async () => null,
@@ -185,4 +185,33 @@ test('wait aliases convert seconds before validation and defaults', async (t) =>
     await f.fails(tool, { ...args, timeoutSeconds: 121 }, /120/);
     await f.fails(tool, { ...args, timeoutSeconds: 0.0001 }, /int|integer/);
   }
+});
+
+test('compact list and read defaults preserve opt-in diagnostic details', async (t) => {
+  const f = await fixture(t, 'first   \n\n\n  second  \n$ ');
+  const listing = await f.call('terminal.list');
+  assert.equal(listing.panes[0].pane_id, 7);
+  assert.equal(listing.panes[0].raw, undefined);
+  assert.equal(
+    f.calls.some((c) => c.args[0] === 'get-text'),
+    false,
+  );
+  assert.equal((await f.call('terminal.list', { verbose: true })).panes[0].raw.size.cols, 80);
+  assert.equal(await f.call('terminal.read', { paneId: 7 }), 'first\n\n  second\n$');
+  assert.equal(await f.call('terminal.read', { paneId: 7, raw: true }), 'first   \n\n\n  second  \n$');
+});
+
+test('batch close rejects mixed targets and missing identities before backend mutation', async (t) => {
+  const f = await fixture(t);
+  for (const args of [
+    { paneIds: [7], paneId: 7, expectedInstanceKey: 'x' },
+    { paneIds: [7], target: 'pane', expectedInstanceKey: 'x' },
+    { paneIds: [7] },
+    { paneIds: [7, 7], expectedInstanceKey: 'x' },
+  ])
+    await f.fails('terminal.close', args, /ARGUMENT_/);
+  assert.equal(
+    f.calls.some((c) => c.args[0] === 'kill-pane'),
+    false,
+  );
 });

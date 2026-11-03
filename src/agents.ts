@@ -1,3 +1,5 @@
+import { boundedMap } from './bounded-map.js';
+import type { ActivityContext } from './terminal-list.js';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
@@ -398,6 +400,14 @@ export class Agents {
       ...(w.accountRef ? { accountRef: w.accountRef } : {}),
       attachment,
       recoveryReason,
+      recoveryCode:
+        recoveryReason === null
+          ? null
+          : recoveryReason === 'Worker belongs to another live terminal instance'
+            ? 'other_instance'
+            : recoveryReason === 'Spawn reservation needs explicit recovery'
+              ? 'recovery_needed'
+              : 'verification_unavailable',
       deliveryPending: w.deliveryPending,
       turnId: w.turn?.id ?? null,
       workerSkillInitialized: w.workerSkillSent,
@@ -409,23 +419,111 @@ export class Agents {
       TerminalRead.run(this.backend, async (read) => (await this.listed(read)).map((entry) => entry.view)),
     );
   }
+  inventory(inspectActivity = false) {
+    return this.run(() =>
+      TerminalRead.run(this.backend, async (read) => {
+        const panes = await read.panes();
+        const selected = await read.identity().catch(() => null);
+        const notes: string[] = [];
+        if (!selected)
+          notes.push('Terminal identity is unavailable; pane IDs alone cannot establish worker association.');
+        const entries = await this.listed(read).catch(() => {
+          notes.push('Saved worker metadata unavailable; live panes remain listed.');
+          return [];
+        });
+        const activities: Record<number, ActivityContext> = {};
+        if (inspectActivity)
+          await boundedMap(
+            entries.filter((e) => e.view.attachment === 'attached'),
+            4,
+            async ({ worker }) => {
+              if (worker.paneId === null) return;
+              try {
+                const observation = await this.retrying(() =>
+                  this.locked(worker.agentId, async (current) => {
+                    this.sameBinding(current, worker);
+                    return (await this.sample(current, false, read)).observation;
+                  }),
+                );
+                activities[worker.paneId] = {
+                  status: observation.status,
+                  source: 'screen_classifier',
+                  observedAt: observation.observedAt,
+                  inputRequired: observation.inputRequired,
+                };
+              } catch {
+                activities[worker.paneId] = {
+                  status: 'UNKNOWN',
+                  source: 'unavailable',
+                  note: 'Activity inspection failed; retry a targeted observation.',
+                };
+              }
+            },
+          );
+        return { selected, panes, workers: entries.map((entry) => entry.view), notes, activities };
+      }),
+    );
+  }
   private sameBinding(current: WorkerRecord, expected: WorkerRecord) {
     if (current.revision !== expected.revision || current.paneId !== expected.paneId)
       throw new Error('Worker was reattached during observation; retry or recreate its watch');
   }
+  private instanceProbeOffset = 0;
   private async listed(read: TerminalRead) {
-    const workers = await this.saved();
+    let workers = await this.saved();
     const entry = (worker: WorkerRecord, attachment: string, reason: string | null) => ({
       worker,
       view: this.view(worker, attachment, reason),
     });
     if (!workers.length) return [];
-    let instance: TerminalInstance | null;
+    let instance: TerminalInstance | null = null;
+    let identityAvailable = true;
     try {
       instance = await read.identity();
     } catch {
-      return workers.map((w) => entry(w, 'detached', 'Terminal identity unavailable'));
+      identityAvailable = false;
     }
+    const probes = new Map<string, 'alive' | 'exited' | 'unknown'>();
+    const candidates = [
+      ...new Map(
+        workers
+          .filter((w) => w.instance && !this.attached(w, instance))
+          .map((w) => [JSON.stringify(w.instance), w.instance!]),
+      ).entries(),
+    ];
+    // At most two distinct foreign identities per sweep; rotate so unknown records cannot starve others.
+    if (this.backend.probeInstance && candidates.length) {
+      for (let i = 0; i < Math.min(2, candidates.length); i++) {
+        const [key, saved] = candidates[(this.instanceProbeOffset + i) % candidates.length];
+        try {
+          probes.set(key, await this.backend.probeInstance(saved));
+        } catch {
+          probes.set(key, 'unknown');
+        }
+      }
+      this.instanceProbeOffset = (this.instanceProbeOffset + 2) % candidates.length;
+    }
+    const retained: WorkerRecord[] = [];
+    for (const w of workers) {
+      if (w.instance && !this.attached(w, instance) && this.backend.probeInstance) {
+        const key = JSON.stringify(w.instance);
+        const state = probes.get(key) ?? 'unknown';
+        if (state === 'exited') {
+          try {
+            await this.locked(w.agentId, async (current) => {
+              this.sameBinding(current, w);
+              await this.remove(w.agentId);
+            });
+            continue;
+          } catch {
+            /* Preserve records when a concurrent operation prevents verified cleanup. */
+          }
+        }
+      }
+      retained.push(w);
+    }
+    workers = retained;
+    if (!identityAvailable) return workers.map((w) => entry(w, 'detached', 'Terminal identity unavailable'));
     let panes;
     try {
       panes = await read.panes();
@@ -454,7 +552,9 @@ export class Agents {
             ? 'Spawn reservation needs explicit recovery'
             : this.attached(w, instance)
               ? null
-              : 'Terminal identity differs or is unverified',
+              : w.instance && probes.get(JSON.stringify(w.instance)) === 'alive'
+                ? 'Worker belongs to another live terminal instance'
+                : 'Terminal identity differs or is unverified',
         ),
       );
     }

@@ -202,3 +202,53 @@ test('a dead inherited socket falls back to discovery before anything is pinned,
     else process.env.WEZTERM_UNIX_SOCKET = old;
   }
 });
+
+test('strict instance mode never discovers another GUI after an inherited endpoint dies', async () => {
+  const oldSocket = process.env.WEZTERM_UNIX_SOCKET;
+  const oldStrict = process.env.TERM_DAD_STRICT_INSTANCE;
+  process.env.WEZTERM_UNIX_SOCKET = 'C:\\gui-sock-12';
+  process.env.TERM_DAD_STRICT_INSTANCE = '1';
+  let requests = 0;
+  try {
+    const resolver = windowsInstance(binary, async (file) => {
+      if (file === 'wslpath') return 'C:\\helper';
+      requests++;
+      throw new Error('endpoint is not alive');
+    });
+    await assert.rejects(resolver(), /not alive/);
+    assert.equal(requests, 1);
+  } finally {
+    if (oldSocket === undefined) delete process.env.WEZTERM_UNIX_SOCKET;
+    else process.env.WEZTERM_UNIX_SOCKET = oldSocket;
+    if (oldStrict === undefined) delete process.env.TERM_DAD_STRICT_INSTANCE;
+    else process.env.TERM_DAD_STRICT_INSTANCE = oldStrict;
+  }
+});
+
+test('saved instance probes are independent of selection and fail to unknown', async () => {
+  let result = 'alive';
+  const requests: any[] = [];
+  const resolver = windowsInstance(binary, async (file, _args, input) => {
+    if (file === 'wslpath') return 'C:\\helper';
+    const request = JSON.parse(input!);
+    requests.push(request);
+    if (request.action === 'probe') {
+      if (result === 'failure') throw new Error('permission denied');
+      return JSON.stringify(result);
+    }
+    return JSON.stringify({ endpoint: 'C:\\gui-sock-12', key: 'current' });
+  });
+  const saved = { endpoint: 'C:\\gui-sock-99', key: 'saved' };
+  for (const state of ['alive', 'exited', 'unknown'] as const) {
+    result = state;
+    assert.equal(await resolver.probe(saved), state);
+  }
+  result = 'failure';
+  assert.equal(await resolver.probe(saved), 'unknown');
+  assert.equal((await resolver())?.key, 'current');
+  assert.deepEqual(requests[0].target, saved);
+  assert.equal(
+    requests.some((r) => r.action === 'select'),
+    false,
+  );
+});

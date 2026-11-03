@@ -1,9 +1,12 @@
+import { closePanes } from './terminal-close.js';
+import { workspaceContexts } from './workspace-context.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { EventQueue } from './events.js';
 import { registerEventTools } from './event-tools.js';
 import { WezTermBackend, type TerminalBackend, id, spawnSchema, sendKeys, submit, keyDescription } from './backend.js';
-import { Agents, adoptionSchema, reattachSchema } from './agents.js';
+import { compactInventory } from './terminal-list.js';
+import { Agents, adoptionSchema, reattachSchema, normalizeScreen } from './agents.js';
 import { FileWorkerStorage, type WorkerStorage } from './worker-storage.js';
 import { CommandScreenshotProvider, type ScreenshotProvider } from './screenshots.js';
 import { WatchManager, type WatchOptions } from './watches.js';
@@ -42,7 +45,7 @@ export function createServer(
   telemetryOptions: TelemetryOptions = {},
   usageService?: UsageService,
 ) {
-  const server = new McpServer({ name: 'term-dad', version: '0.1.0' }),
+  const server = new McpServer({ name: 'term-dad', version: '1.0.0' }),
     tasks = new TaskBoard(taskStorage);
   const telemetry =
     telemetryOptions.telemetry ??
@@ -115,7 +118,26 @@ export function createServer(
       .describe('Alias for text; provide text or message, with matching values if both are present.'),
   };
   const body = (a: { text?: string; message?: string }) => oneOf<string>(a, ['text', 'message']);
-  register('terminal.list', 'List live WezTerm windows, tabs and panes.', {}, () => backend.list());
+  register(
+    'terminal.list',
+    'Start here to see which terminal windows, tabs, panes or sessions are open. Compact metadata by default; verbose adds raw terminal details, includeDetached explains saved workers. Activity inspection is opt-in and reads managed screens; default listing reads no screen text.',
+    {
+      verbose: z.boolean().default(false),
+      includeDetached: z.boolean().default(false),
+      activity: z.enum(['none', 'inspect']).default('none'),
+      workspace: z
+        .enum(['none', 'inspect'])
+        .default('none')
+        .describe('Optional local Git context; unavailable domains or missing Git return notes, never require GitHub.'),
+    },
+    async (a) => {
+      const inventory = await agents.inventory(a.activity === 'inspect');
+      const result = compactInventory(inventory, a);
+      if (a.workspace !== 'inspect') return result;
+      const contexts = await workspaceContexts(inventory.panes);
+      return { ...result, panes: result.panes.map((pane) => ({ ...pane, workspace: contexts[pane.pane_id] })) };
+    },
+  );
   register(
     'terminal.list_instances',
     'List verified running WezTerm GUIs and the selected identity (Windows/WSL).',
@@ -168,9 +190,13 @@ export function createServer(
       paneId: id.optional().describe('Pane ID (alias pane_id).'),
       pane_id: id.optional().describe('Alias for paneId.'),
       lines: z.number().int().min(1).max(5000).optional().describe('Tail lines, default 100 (alias max_lines).'),
+      raw: z.boolean().default(false).describe('Preserve terminal padding; default is compact readable text.'),
       max_lines: z.number().int().min(1).max(5000).optional().describe('Alias for lines.'),
     },
-    (a) => backend.read(oneOf(a, ['paneId', 'pane_id']), oneOf(a, ['lines', 'max_lines'], 100)),
+    async (a) => {
+      const text = await backend.read(oneOf(a, ['paneId', 'pane_id']), oneOf(a, ['lines', 'max_lines'], 100));
+      return a.raw ? text : normalizeScreen(text.replace(/\r\n?/g, '\n'));
+    },
   );
   register('terminal.send_text', 'Paste text into an interactive PTY without Enter.', { ...pane, ...text }, (a) =>
     backend.sendText(a.paneId, a.text),
@@ -217,10 +243,27 @@ export function createServer(
   };
   register(
     'terminal.close',
-    'Kill all processes in the selected pane, tab or window (id with target, or paneId).',
-    target,
+    'Close explicit pane IDs in one batch with expectedInstanceKey from terminal.list; returns per-pane outcomes. Alternatively close one pane/tab/window. Kills their processes; never infers completion or selects candidates.',
+    {
+      ...target,
+      target: z.enum(['pane', 'tab', 'window']).optional(),
+      paneIds: z.array(id).min(1).max(100).optional(),
+      expectedInstanceKey: z.string().min(1).max(1024).optional(),
+    },
     async (a) => {
-      const panes = await selected(a);
+      if (a.paneIds !== undefined) {
+        if (a.id !== undefined || a.paneId !== undefined || a.target !== undefined)
+          throw new CodedError(
+            'ARGUMENT_CONFLICT',
+            'paneIds cannot be combined with single pane/tab/window targeting.',
+          );
+        if (!a.expectedInstanceKey)
+          throw new CodedError('ARGUMENT_INVALID', 'Batch close requires expectedInstanceKey from terminal.list.');
+        return closePanes(backend, a.paneIds, a.expectedInstanceKey, (paneId) => agents.reconcileClosed(paneId));
+      }
+      if (a.expectedInstanceKey !== undefined && (await backend.instance?.())?.key !== a.expectedInstanceKey)
+        throw new CodedError('TERMINAL_IDENTITY_MISMATCH', 'Terminal identity differs or is unavailable.');
+      const panes = await selected({ ...a, target: a.target ?? 'pane' });
       if (!panes.length) throw new Error('Target not found');
       for (const p of panes) {
         await backend.close(p.pane_id);

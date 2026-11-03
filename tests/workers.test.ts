@@ -737,3 +737,86 @@ test('outcome timeout preserves its last sample when the post-observation journa
   assert.equal(outcome.reason, 'timeout');
   assert.equal(outcome.lastObservation?.turnId, sent.turnId);
 });
+
+test('confirmed exited GUI removes mapping without touching reused pane; unknown and alive are preserved', async () => {
+  const f = fixture();
+  const worker = await f.agents.adopt({ name: 'old', cli: 'shell', paneId: 7 });
+  f.identity({ endpoint: 'other', key: 'other-start' });
+  let state: 'alive' | 'exited' | 'unknown' = 'unknown';
+  Object.defineProperty(f.backend, 'probeInstance', {
+    value: async (saved: TerminalInstance) => {
+      assert.deepEqual(saved, original);
+      return state;
+    },
+  });
+  let views = await f.agents.list();
+  assert.equal(views[0].recoveryCode, 'verification_unavailable');
+  state = 'alive';
+  views = await f.agents.list();
+  assert.equal(views[0].recoveryCode, 'other_instance');
+  assert.equal(views[0].attachment, 'detached');
+  state = 'exited';
+  assert.deepEqual(await f.agents.list(), []);
+  assert.equal((await f.storage.transaction(false, (s) => ({ result: s.workers }))).length, 0);
+  assert.ok(!f.calls.includes('kill-pane'));
+  assert.ok(!f.calls.includes('get-text'));
+  assert.ok(worker.agentId);
+});
+
+test('foreign instance probes are deduplicated, capped and rotated across lists', async () => {
+  const f = fixture();
+  const w = await f.agents.adopt({ name: 'seed', cli: 'shell', paneId: 7 });
+  const { randomUUID } = await import('node:crypto');
+  await f.storage.transaction(true, (s) => ({
+    state: {
+      ...s,
+      workers: Array.from({ length: 6 }, (_, i) => ({
+        ...s.workers[0],
+        agentId: i === 0 ? w.agentId : randomUUID(),
+        name: `worker-${i}`,
+        paneId: i,
+        instance: { endpoint: `socket-${Math.floor(i / 2)}`, key: `instance-${Math.floor(i / 2)}` },
+      })),
+    },
+    result: undefined,
+  }));
+  const probes: string[] = [];
+  Object.defineProperty(f.backend, 'probeInstance', {
+    value: async (saved: TerminalInstance) => {
+      probes.push(saved.key);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return 'unknown';
+    },
+  });
+  assert.equal((await f.agents.list()).length, 6);
+  assert.equal(probes.length, 2);
+  assert.equal(new Set(probes).size, 2);
+  await f.agents.list();
+  assert.equal(probes.length, 4);
+  assert.equal(new Set(probes).size, 3);
+});
+
+test('reattachment while an exited-instance probe is pending prevents stale deletion', async () => {
+  const f = fixture();
+  const w = await f.agents.adopt({ name: 'worker', cli: 'shell', paneId: 7 });
+  f.identity({ endpoint: 'new', key: 'new' });
+  let release!: (state: 'exited') => void;
+  let entered!: () => void;
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  Object.defineProperty(f.backend, 'probeInstance', {
+    value: async () => {
+      entered();
+      return new Promise<'exited'>((resolve) => {
+        release = resolve;
+      });
+    },
+  });
+  const listing = f.agents.list();
+  await started;
+  await f.agents.reattach({ agentId: w.agentId, paneId: 7 });
+  release('exited');
+  await listing;
+  assert.equal((await f.agents.list())[0].attachment, 'attached');
+});

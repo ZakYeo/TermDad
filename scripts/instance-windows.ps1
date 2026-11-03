@@ -4,6 +4,31 @@ try {
   $request = [Console]::In.ReadToEnd() | ConvertFrom-Json
   $binary = (Get-Item -LiteralPath $request.binary).FullName
   $guiPath = Join-Path (Split-Path $binary) 'wezterm-gui.exe'
+  # Probe one exact saved process identity without selecting it or consulting a truncated GUI list.
+  if ($request.action -eq 'probe') {
+    $target = $request.target
+    $parts = ([string]$target.key).Split(':', 3)
+    if ($parts.Count -ne 3 -or $parts[0] -cne $env:COMPUTERNAME -or
+        $parts[1] -notmatch '^[1-9][0-9]{0,9}$' -or
+        $parts[2] -notmatch '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{7}Z$' -or
+        (Split-Path $target.endpoint -Leaf) -cne ('gui-sock-' + $parts[1])) {
+      ConvertTo-Json -InputObject 'unknown'; exit 0
+    }
+    $parsedStart = [datetime]::MinValue
+    if (-not [datetime]::TryParseExact($parts[2], 'o', [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind, [ref]$parsedStart) -or
+        [long]$parts[1] -gt [int]::MaxValue) { ConvertTo-Json -InputObject 'unknown'; exit 0 }
+    try { $saved = Get-Process -Id ([int]$parts[1]) -ErrorAction Stop }
+    catch {
+      if ($_.FullyQualifiedErrorId -like 'NoProcessFoundForGivenId*') {
+        ConvertTo-Json -InputObject 'exited'; exit 0
+      }
+      throw
+    }
+    $start = $saved.StartTime.ToUniversalTime().ToString('o')
+    if ($start -cne $parts[2]) { ConvertTo-Json -InputObject 'exited'; exit 0 }
+    if (-not $saved.Path -or $saved.Path -ine $guiPath) { ConvertTo-Json -InputObject 'unknown'; exit 0 }
+    ConvertTo-Json -InputObject 'alive'; exit 0
+  }
   $processes = @(Get-Process -Name wezterm-gui -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $guiPath })
   function Get-GuiIdentity($gui, $socket) {
     if (-not (Test-Path -LiteralPath $socket) -or $gui.HasExited) { return $null }

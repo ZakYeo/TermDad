@@ -6,7 +6,7 @@ const session = await LiveSession.create({
 });
 try {
   const paneId = await session.spawnPane({
-    paneId: parentPane(await session.call('terminal.list')),
+    paneId: parentPane((await session.call('terminal.list')).panes),
     command: ['bash', '--noprofile', '--norc', '-i'],
   });
   const result = await session.client.callTool({ name: 'terminal.screenshot', arguments: { paneId } });

@@ -713,3 +713,71 @@ Stop hooks. Existing timer, retry, and collector regressions also passed.
 input, broadcast, task attention/verification, pane operations, interruption, and
 cleanup. No inference was requested and no personal hook configuration changed.
 These checks do not establish live assistant idle wake or model-directed resumption.
+
+### v1 live-test isolation
+
+Live test sessions require the explicit test target described below to identify the intended GUI.
+They set `TERM_DAD_STRICT_INSTANCE=1`, refuse discovery fallback, and verify the
+same process/start identity before terminal operations, including cleanup after
+restart. Pane and worker mutations are restricted to explicitly created/adopted
+test resources; tests cannot select another GUI, create windows, or close tabs.
+Failed identity verification retains cleanup metadata instead of guessing.
+
+Live tests now require an explicit three-part target: `TERM_DAD_TEST_ENDPOINT`,
+`TERM_DAD_TEST_INSTANCE_KEY` (the exact process/start key from read-only GUI
+identity discovery), and `TERM_DAD_TEST_PANE` (the intended parent in that GUI).
+Inherited `WEZTERM_UNIX_SOCKET` and `WEZTERM_PANE` are **not** accepted as test
+authorization: a long-lived client may inherit another still-live GUI's values.
+Discover identities and identify the intended GUI before setting these variables.
+The test endpoint overrides the inherited endpoint for the test server only.
+
+### Prompt routing evaluations
+
+`npm run eval:routing -- inventory,workspace,conditional-close` runs Codex against
+real tool descriptions/schemas and an injected fake terminal, with a mock external
+review service for the conditional-cleanup example. No real terminal or GitHub
+operations are available. It ignores user configuration, uses a temporary working
+directory, disables shell/apps/plugins/browser/computer-use/subagents, and uses a
+read-only sandbox. Authentication uses the installed Codex account; no API key is
+required by this harness. Configuration follows the [official Codex reference](https://learn.chatgpt.com/docs/config-file/config-reference).
+
+The default selects six discovery cases; explicit selections are capped at six.
+Each gets one attempt, 90 seconds and six tool calls. The runner records available
+usage and stops starting cases after 6,000 output tokens; this is not a hard model
+input-token cap. Quota/authentication failures stop the run. Reports default to
+`/tmp/termdad-routing-report.json`; an optional second argument changes the path.
+`TERM_DAD_EVAL_MODEL` optionally selects a model; otherwise Codex chooses its default.
+Deterministic routing-contract tests are part of `npm run check`. Model evaluation
+scores tool selection/arguments and ordering, not natural-language answer quality.
+
+### v1.0 implementation evidence — 2026-11-03
+
+- Full build, formatting and automated suite passed: 385 tests, including final
+  routing and Git-metadata review regressions.
+- Live recovery passed in explicitly targeted GUI 15444: MCP restart, stable
+  worker identity, follow-up input, task retention, adoption and owned cleanup.
+- Live inventory passed: compact/raw reads, session/activity/workspace fields,
+  batch closing newly created panes 3 and 4, and preservation of the baseline pane.
+- The Codex interactive smoke passed: readiness, two marker responses, interrupt
+  and owned cleanup. No Claude or Copilot sessions were launched.
+- Full live shell orchestration passed: spawn, split, resize, focus, move,
+  broadcast, snapshots, task attention/verification, interrupt and cleanup.
+- Read-only Windows probes returned alive for the intended GUI, unknown for an
+  unsupported identity format and exited for a nonexistent PID.
+- Local Git inspector returned this checkout's repository/worktree/branch/commit
+  in a direct host-side check. WSL panes without verified domain metadata remain
+  unavailable by design; this does not establish cross-domain Git support.
+- One model-driven inventory case passed with exactly one `terminal.list` call
+  and no enrichment: 114 output tokens reported. Five earlier evaluation attempts
+  were blocked before mock dispatch by the child client's approval policy; they
+  are not routing successes. The mock registration was corrected and no further
+  paid routing cases were run. Draft/unavailable review outcomes and concurrent
+  close-before-verification are covered by deterministic tests.
+
+The first recovery run mistakenly targeted a different still-live GUI through
+inherited environment values. Its owned test panes were cleaned up. The harness
+was corrected to require explicit endpoint/process-start key/parent selection;
+all subsequent live checks used GUI 15444. Final metadata verification preserved
+its original pane 0 and found no remaining test panes. No pre-existing pane was
+closed. These machine-specific GUI identifiers are evidence, not configuration
+values to copy on another run.

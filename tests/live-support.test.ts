@@ -75,7 +75,7 @@ test('live cleanup accepts a disappeared owned pane only after a successful list
   session.call = async (name) => {
     calls.push(name);
     if (name === 'terminal.close') throw new Error('Target not found');
-    if (name === 'terminal.list') return [{ pane_id: 99 }];
+    if (name === 'terminal.list') return { panes: [{ pane_id: 99 }] };
     throw new Error(`Unexpected call: ${name}`);
   };
   await session.dispose();
@@ -90,14 +90,15 @@ test('live agent shutdown tolerates interrupt exit and stop races but preserves 
     session.owned.add(42);
     session.call = async (name) => {
       assert.equal(name, 'terminal.list');
-      return [{ pane_id: 99 }];
+      return { panes: [{ pane_id: 99 }] };
     };
     await session.stopAgent('exited-worker', 42);
     assert.equal(session.owned.size, 0);
     session.owned.add(43);
     let listings = 0;
     session.call = async (name) => {
-      if (name === 'terminal.list') return ++listings === 1 ? [{ pane_id: 43 }, { pane_id: 99 }] : [{ pane_id: 99 }];
+      if (name === 'terminal.list')
+        return { panes: ++listings === 1 ? [{ pane_id: 43 }, { pane_id: 99 }] : [{ pane_id: 99 }] };
       assert.equal(name, 'agent.stop');
       throw new Error('Worker pane exited');
     };
@@ -106,7 +107,7 @@ test('live agent shutdown tolerates interrupt exit and stop races but preserves 
     assert.equal(session.owned.size, 0);
     session.owned.add(44);
     session.call = async (name) => {
-      if (name === 'terminal.list') return [{ pane_id: 44 }];
+      if (name === 'terminal.list') return { panes: [{ pane_id: 44 }] };
       throw new Error('Permission denied');
     };
     await assert.rejects(session.stopAgent('live-worker', 44), /Permission denied/);
@@ -156,4 +157,54 @@ test('local spawn prompt rejection does not retain unused recovery state', async
   await assert.rejects(session.spawnAgent({ prompt: 'Rejected before dispatch' }), /recording pane ownership/);
   await session.dispose();
   await assert.rejects(access(session.directory));
+});
+
+test('actual live call wrapper rejects changed GUI before dispatch after restart', async () => {
+  const session = await LiveSession.create({
+    TERM_DAD_TEST_ENDPOINT: 'C:\\gui-sock-12',
+    TERM_DAD_TEST_INSTANCE_KEY: 'first',
+    TERM_DAD_TEST_PANE: '1',
+  });
+  let key = 'first';
+  const calls: string[] = [];
+  const inject = () => {
+    session.client.callTool = async (request: any) => {
+      calls.push(request.name);
+      const value =
+        request.name === 'terminal.list_instances' ? { selected: { endpoint: 'C:\\gui-sock-12', key } } : 42;
+      return { content: [{ type: 'text', text: JSON.stringify(value) }] };
+    };
+  };
+  try {
+    inject();
+    await session.spawnPane({ paneId: 1 });
+    await session.restart();
+    inject();
+    key = 'replacement';
+    await assert.rejects(session.closePane(42), /identity changed/);
+    assert.equal(calls.includes('terminal.close'), false);
+    assert.ok(session.owned.has(42));
+  } finally {
+    session.owned.clear();
+    await session.dispose();
+  }
+});
+
+test('inherited terminal variables cannot authorize any live call', async () => {
+  const session = await LiveSession.create({
+    WEZTERM_UNIX_SOCKET: 'C:\\wrong-gui',
+    TERM_DAD_TEST_ENDPOINT: '',
+    TERM_DAD_TEST_INSTANCE_KEY: '',
+  });
+  let dispatched = false;
+  session.client.callTool = async () => {
+    dispatched = true;
+    throw new Error('Must not dispatch');
+  };
+  try {
+    await assert.rejects(session.call('terminal.spawn', { paneId: 0 }), /explicit TERM_DAD_TEST/);
+    assert.equal(dispatched, false);
+  } finally {
+    await session.dispose();
+  }
 });

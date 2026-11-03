@@ -522,3 +522,30 @@ explicit existing-worker bindings remain in account configuration. Optional usag
 projection failures leave worker/task status available with explicit unavailable
 usage metadata. Event publication and bounded desktop retries run independently;
 an idle timer performs no durable write when no reset deadline is due.
+
+Saved GUI reconciliation probes at most two distinct foreign identities per read
+sweep, rotating the starting position to avoid starvation. Windows probes and
+path conversions have one-second subprocess deadlines. Invalid or unsupported
+identity formats and all probe failures remain unknown. A confirmed exit is
+removed only under the worker lock after checking the binding revision again.
+
+## Compact terminal context (v1)
+
+`Agents.inventory` shares identity, pane listing and worker reconciliation in one
+`TerminalRead` scope. `terminal-list.ts` projects compact metadata and derived
+labels without screen reads. Optional activity samples preserve worker locks,
+binding checks and stale-prompt guards, with four concurrent reads and no retained
+observation baselines. Session type carries configured/observed/inferred evidence.
+
+`WorkspaceInspector` is a separate read-only capability. The local implementation
+requires a matching-host file URI and rejects unverified domain names; WSL also
+requires an exact distro domain match. Git commands use literal argv, bounded
+subprocesses and sanitized Git environment overrides. Inspection failures are
+per-pane metadata, never failures of basic inventory. No external review-service
+policy, persistent branch assignment or background monitoring is introduced.
+
+Batch close validates all explicit IDs before mutation, requires a verified GUI
+key and rechecks identity around listing and before close. Any identity failure
+latches a stop for the remaining batch. The existing server selection gate
+prevents explicit GUI selection during a batch, but backend list/close remain
+separate operations. Per-pane outcomes preserve partial success.
