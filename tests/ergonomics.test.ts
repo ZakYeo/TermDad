@@ -76,7 +76,7 @@ test('agent.send and agent.broadcast accept message as an alias of text', async 
   assert.equal(result.sent, true);
   assert.equal(f.sent()[0].input, 'hello');
   await f.fails('agent.send', { agentId }, /text/);
-  const outcomes = await f.call('agent.broadcast', { agentIds: [agentId], message: 'again' });
+  const outcomes = await f.call('agent.broadcast', { agentIds: [agentId], message: 'again', requireReady: false });
   assert.equal(outcomes[0].sent, true);
 });
 test('terminal.submit without text presses Enter only', async (t) => {

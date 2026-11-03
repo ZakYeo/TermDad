@@ -45,7 +45,7 @@ Windows WezTerm can be controlled from WSL using its `.exe`; it spawns Linux pro
 
 Observation first checks pane existence and metadata, reads the recent tail, normalizes it (per-line trailing whitespace stripped, blank runs collapsed to one), hashes the normalized text with SHA-256, updates output timestamps on change, and classifies text. Silence does not cause an IDLE transition. Permission/question patterns take precedence over prompt markers. After input, a short timing guard and comparison with the pre-input output hash prevent an unchanged old prompt from becoming ready merely because time passes. RUNNING_EXTERNAL_COMMAND and IDLE are reserved states; the current CLI/text evidence does not reliably distinguish them. Process information is passed through only when WezTerm supplies it.
 
-Observations return IDs, status, activity, timestamps, output hash, cwd, process, input flags, and the last 20 lines of normalized text (`lines` raises the cap to 150; `linesOmitted` reports the rest). With `since`, identical output is omitted; a grown current line or a scrolled screen whose head matches the previous tail uses append with only the new part; screen rewrites use replace. `wait_for_outcome` pins the `since` text before polling so its final delta survives history eviction. `orchestrator.status` returns the same observations without text. Standalone reads retry through a bounded back-off when a worker or journal lock is held; writes fail fast. Worker waits retry contention throughout one timeout budget starting before initial lookup; outcome waits return timeout rather than a busy error at the deadline, while legacy idle/text waits retain timeout errors. Polling delays respect cancellation and shutdown. Expired/unknown observation IDs return a full replacement with `deltaReset`. Each worker retains at most 16 observations of 24,000 characters (board polls through `orchestrator.status` and watch samples do not record one, so they cannot evict a `since` baseline); the registry is capped at 64. Agent observations are on demand; explicitly created watches also poll through the same guarded observation path. Missing panes remove registry entries; transport failures preserve them. Waits are bounded, return diagnostic last state, and never approve a prompt.
+Observations return IDs, status, activity, timestamps, output hash, cwd, process, input flags, and the last 20 lines of normalized text (`lines` raises the cap to 150; `linesOmitted` reports the rest). With `since`, identical output is omitted; a grown current line or a scrolled screen whose head matches the previous tail uses append with only the new part; screen rewrites use replace. `wait_for_outcome` pins the `since` text before polling so its final delta survives history eviction. `orchestrator.status` returns the same observations without text. Standalone reads retry through a bounded back-off when a worker or journal lock is held. Readiness-checked sends also retry lock acquisition for at most five delays (1.55 seconds total), before running any delivery code. They pin durable worker metadata and reject if another input or lifecycle change intervenes; once acquired, errors are never retried. Other writes, including explicit non-ready sends, fail fast. Worker waits retry contention throughout one timeout budget starting before initial lookup; outcome waits return timeout rather than a busy error at the deadline, while legacy idle/text waits retain timeout errors. Polling delays respect cancellation and shutdown. Expired/unknown observation IDs return a full replacement with `deltaReset`. Each worker retains at most 16 observations of 24,000 characters (board polls through `orchestrator.status` and watch samples do not record one, so they cannot evict a `since` baseline); the registry is capped at 64. Agent observations are on demand; explicitly created watches also poll through the same guarded observation path. Missing panes remove registry entries; transport failures preserve them. Waits are bounded, return diagnostic last state, and never approve a prompt.
 
 ## Screenshots
 
@@ -550,6 +550,25 @@ latches a stop for the remaining batch. The existing server selection gate
 prevents explicit GUI selection during a batch, but backend list/close remain
 separate operations. Per-pane outcomes preserve partial success.
 
+## Dispatch readiness
+
+Managed task submission now samples readiness under the existing worker input
+lock before recording a turn, initializing the worker skill, or sending text.
+The default rejects unresolved input and unready screens without terminal input.
+Explicit `requireReady:false` remains available for intentional responses.
+The bounded readiness wait returns early on input requests instead of waiting
+for an idle timeout. Observations remain heuristic and permissions take precedence.
+No core tool approves requests automatically: supervisors ask the user by default
+and may act on explicit, scoped user authorization. The internal demo supplies
+that authorization for its fresh scratch project; it does not pre-trust folders
+or change global approval settings.
+
+Codex startup classification treats its versioned startup banner as a new frame
+boundary within the bounded terminal tail. Folder-access menus retained above
+that banner are historical; permission, authentication and question text inside
+the current frame still takes precedence over a composer prompt. A banner alone
+does not establish readiness. Captured trust-to-ready output exercises both the
+classifier and guarded dispatch without clearing or restarting worker sessions.
 
 ## Task evidence safeguards
 

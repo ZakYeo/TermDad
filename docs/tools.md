@@ -25,7 +25,7 @@ Tool names use dots. All arguments are JSON objects. Omitted arguments below use
 | agent.adopt | `name, paneId, cli, workerSkillInitialized?` → register an existing pane; no input sent |
 | agent.reattach | `agentId, paneId, acknowledgeUncertainDelivery?, workerSkillInitialized?` → explicitly bind a saved worker; no input sent |
 | agent.forget | `agentId` → remove mapping without closing pane |
-| agent.send | `agentId, text` (alias `message`) → submit task; includes the worker skill on the first Codex task if deferred at spawn |
+| agent.send | `agentId, text` (alias `message`), `requireReady?` (default true) → submit task; includes the worker skill on the first Codex task if deferred at spawn |
 | agent.observe | `agentId, since?: observationId, lines?: 1..150` (default 20) → compact state and the tail of normalized output; with `since`, only the change since that observation. `linesOmitted` counts what the cap dropped |
 | agent.status | Same as observe |
 | agent.interrupt | `agentId` → Ctrl+C |
@@ -35,8 +35,9 @@ Tool names use dots. All arguments are JSON objects. Omitted arguments below use
 | agent.screenshot | `agentId` → provider image |
 | agent.wait_for_text | `agentId, text, timeoutMs?` → wait for literal substring in recent output |
 | agent.wait_for_outcome | `agentId, turnId, timeoutMs?, quietMs?, since?, lines?` → input required, heuristic turn finished, optional quiet output, disappearance, or timeout; `lastObservation` is the change since `since`, capped to `lines` |
+| agent.wait_until_ready | `agentId, timeoutMs?` → `ready`, `input_required`, `error`, `worker_disappeared`, or `timeout`, with `lastObservation`; never submits or approves input |
 | agent.wait_until_idle | `agentId, timeoutMs?` → recognized ready/idle state; no silence heuristic |
-| agent.broadcast | `agentIds: string[], text` (alias `message`) → per-worker send success/error |
+| agent.broadcast | `agentIds: string[], text` (alias `message`), `requireReady?` (default true) → per-worker send success/error |
 | agent.collect_results | `{}` → current observations, no inferred task success |
 | orchestrator.status | `{}` → per-worker status, activity, hash and task summary with no screen text; metadata for detached workers; bound accounts add a compact `usage` field |
 | orchestrator.attention | Task-focused decisions, eligibility, verification, and cursor-based changes; see below |
@@ -120,8 +121,10 @@ occupied targets. It invalidates observation history; recreate existing watches
 following reattachment. On a changed binding, old input hashes are cleared.
 Skill state is preserved unless `workerSkillInitialized` is supplied.
 
-Managed input/lifecycle operations use exclusive per-worker locks. A concurrent
-write returns `WORKER_BUSY`; retry after the active operation finishes. Standalone reads (`agent.observe`, `agent.status`) retry through a bounded
+Managed input/lifecycle operations use exclusive per-worker locks. Readiness-checked
+sends briefly wait for acquisition and reject intervening worker changes; other
+concurrent writes return `WORKER_BUSY` immediately. Retry only after the active
+operation finishes. Standalone reads (`agent.observe`, `agent.status`) retry through a bounded
 back-off of about 1.5 seconds. All worker waits absorb worker/journal contention
 through their original deadline, including initial lookup. Outcome waits return
 `reason:timeout` with the last observation or null; idle/text waits report a
@@ -872,6 +875,38 @@ Git context always distinguishes `gitCommonDir` from `worktreePath`.
 worktree’s own `.git`; linked/separate metadata alone does not establish a main
 worktree location.
 
+### Readiness before task dispatch
+
+`agent.send` and `agent.broadcast` now require a ready prompt by default. The
+worker is freshly sampled under its input lock immediately before submission.
+`WORKER_INPUT_REQUIRED` means a permission, question, or authentication screen;
+`WORKER_NOT_READY` means the worker is busy or readiness is unknown. Neither
+failure sends text/Enter, initializes the worker skill, or creates a new turn.
+Readiness is heuristic, and external terminal changes can still race a sample.
+
+Use `agent.wait_until_ready` before starting a task attempt. It returns early for
+input requests and worker errors, rather than silently waiting through a trust
+screen. Its bounded waits support cancellation and retry lock contention within
+the same deadline. Missing panes are confirmed against the original terminal
+identity; transport failure remains an error.
+
+Surface permission requests to the supervising user unless that user explicitly
+authorized the approval. The tool never approves them itself. After inspecting a
+request, `requireReady:false` permits intentional text replies or explicit input
+while a worker is busy. Such replies are sent literally: if the Codex worker
+skill has not been initialized, initialization remains deferred until the next
+ready task (`requireReady:true`). The override does not bypass uncertain-delivery protection. Use
+explicit terminal keys for menus. Existing clients that intentionally submitted
+text to non-ready workers must now opt out explicitly. A normal ready prompt's
+legacy `awaitingInput:true` is not an approval request; use `inputRequired`.
+
+Readiness-checked sends briefly retry worker/journal lock acquisition (up to 1.55
+seconds of back-off), allowing a background status observation to finish. The
+worker's durable metadata must remain unchanged during that wait; competing
+input or lifecycle changes return `WORKER_BUSY` without sending. Readiness and
+permission checks run after acquiring the lock. No delivery code is retried, and
+`requireReady:false` retains fail-fast locking. If contention persists, inspect
+the worker and serialize operations before retrying; never bypass the lock.
 
 ### Shell overrides and push diagnosis
 

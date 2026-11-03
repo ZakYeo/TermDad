@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TermDad • One epic, one team</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header>
+      <a class="brand" href="/">Term<span>Dad</span><i>●</i></a
+      ><span class="demo-label">LOCAL DEMO · FICTIONAL BUSINESS DATA</span>
+      <div class="team">ONE SUPERVISOR <b>→</b> THREE WORKERS</div>
+    </header>
+    <main>
+      <section class="intro">
+        <div>
+          <p class="eyebrow">SALES / EPIC 100</p>
+          <h1>Ready for the<br /><em>board meeting.</em></h1>
+          <p class="summary">
+            One business request. Three parallel tasks.<br />A finished dashboard, brought together by Dad.
+          </p>
+        </div>
+        <aside>
+          <span class="large-number" id="completed">0<span>/3</span></span>
+          <p>tickets merged</p>
+          <div class="progress"><div id="progress-fill"></div></div>
+        </aside>
+      </section>
+      <section class="launch" id="launch" hidden aria-live="polite">
+        <div>
+          <h2 id="launch-title">Your team is ready to begin.</h2>
+          <p id="launch-copy">
+            Start when you are ready to present. Dad will launch three workers and automatically approve permission
+            prompts scoped to this demo.
+          </p>
+        </div>
+        <button id="start-demo" disabled>Start demo <span aria-hidden="true">→</span></button>
+      </section>
+      <section class="workspace">
+        <div class="board">
+          <div class="section-heading">
+            <h2>The team’s work</h2>
+            <span id="connection" role="status">Connecting</span>
+          </div>
+          <div id="tickets"></div>
+        </div>
+        <div class="preview">
+          <div class="section-heading">
+            <div>
+              <span class="eyebrow">THE BUSINESS RESULT</span>
+              <h2 id="preview-title">Before the team gets to work</h2>
+            </div>
+            <div class="toggle">
+              <button id="before" class="selected" aria-pressed="true">Before</button
+              ><button id="after" disabled aria-pressed="false">After</button>
+            </div>
+          </div>
+          <iframe
+            id="dashboard"
+            title="Sales dashboard preview"
+            src="/before/"
+            sandbox="allow-scripts allow-same-origin"
+          ></iframe>
+          <div class="preview-caption" id="caption">
+            The starting point. The finished dashboard appears once the changes are checked and merged.
+          </div>
+        </div>
+      </section>
+    </main>
+    <footer>
+      Real Codex sessions. Real changes. <strong>One place to manage them.</strong
+      ><span>TermDad internal walkthrough</span>
+    </footer>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

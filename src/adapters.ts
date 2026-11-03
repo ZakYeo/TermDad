@@ -48,7 +48,16 @@ export class ClaudeCodeAdapter implements InteractiveAgentAdapter {
 export class CodexAdapter implements InteractiveAgentAdapter {
   cli = 'codex';
   classify(text: string): Status {
-    const t = text.split('\n').slice(-25).join('\n');
+    const lines = text.split('\n').slice(-25);
+    // Codex prints its startup banner after folder trust is resolved. WezTerm
+    // can retain the earlier trust menu above it, especially after pane splits.
+    // Ignore only text before that explicit frame boundary, never permission
+    // text within the current frame or merely before an arbitrary prompt marker.
+    let banner = -1;
+    for (let index = 0; index < lines.length; index++) {
+      if (/^\s*(?:│\s*)?>_ OpenAI Codex \(v\d+\.\d+\.\d+[^)]*\)/.test(lines[index])) banner = index;
+    }
+    const t = lines.slice(banner < 0 ? 0 : banner).join('\n');
     return (
       common(t) ??
       (/(?:esc to interrupt|Working \(|Thinking)/i.test(t)

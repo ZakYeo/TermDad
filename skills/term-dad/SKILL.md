@@ -108,7 +108,21 @@ Enter; omit `text` to press Enter only. Navigation uses raw keys, for example
 case-insensitive; `Escape`, `ArrowDown`, `DownArrow`, and `Ctrl+C` work.
 The key tools advertise the full list. An unsupported name rejects the whole
 sequence before input: use the returned choices to correct it once. Never
-paste escape sequences to navigate or automatically approve a prompt.
+paste escape sequences to navigate. By default, surface permission prompts in the supervising session and ask the user before approving. If the user explicitly authorizes automatic approval for a stated scope, inspect each current request and approve only within that scope; authentication and out-of-scope requests still need the user.
+
+## Ready before dispatch
+
+After spawning or adopting, call `agent.wait_until_ready` before starting a task
+attempt. It returns early for ready, input required, errors, disappearance, or
+timeout. Assignment can precede readiness; task execution cannot. Surface input
+requests in this supervising session and follow the approval policy above.
+
+`agent.send` checks readiness under its input lock by default. On
+`WORKER_INPUT_REQUIRED` or `WORKER_NOT_READY`, inspect the worker and resolve the
+condition before retrying; no task input was sent. `requireReady:false` is for
+an intentional response to an observed question, never a workaround for startup.
+Use key tools for authorized menu choices, then recheck readiness. Do not infer
+successful approval from pressing Enter, silence, or an unchanged prompt.
 
 ## Lock contention
 
@@ -161,8 +175,7 @@ means a person is needed: a permission, login or menu prompt, or a worker
 sitting at a ready prompt with unchanged output for `attentionMs` (default two
 minutes), which is how a prose question or a plan awaiting approval reaches you.
 It is never auto-acknowledged, so remove the watch of a worker whose result you
-accepted. Inspect prompts and follow the user's authorization; never approve one
-automatically.
+accepted. Inspect prompts and follow the user's authorization. Ask in the supervising session by default; only auto-approve when the user explicitly authorized that scope.
 
 ## Push
 

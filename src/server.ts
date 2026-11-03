@@ -340,12 +340,13 @@ export function createServer(
   register('agent.forget', 'Remove a saved mapping without closing its pane.', agent, (a) => agents.forget(a.agentId));
   register(
     'agent.send',
-    'Submit text (alias message) to agentId (alias to); sent means terminal submission, not worker consumption (unknown). Initializes the Codex worker skill on its first task.',
+    'Submit text (alias message) to agentId (alias to) only at a ready prompt by default. sent means terminal submission, not worker consumption (unknown). Required input must be surfaced to the user unless explicitly authorized. requireReady:false sends literal replies after inspection without initializing the worker skill. First ready task initializes the Codex worker skill.',
     {
       agentId: agent.agentId.optional().describe('Worker ID or name (alias to).'),
       to: agent.agentId.optional().describe('Alias for agentId.'),
       ...textOrMessage,
       attempt: attemptReferenceSchema.optional(),
+      requireReady: z.boolean().default(true),
     },
     async (a) => {
       const task = body(a);
@@ -354,7 +355,7 @@ export function createServer(
         const worker = await agents.resolve(agentId);
         await tasks.validateAttempt(a.attempt.taskId, a.attempt.attemptId, worker.agentId);
       }
-      return agents.send(agentId, task, a.attempt);
+      return agents.send(agentId, task, a.attempt, a.requireReady);
     },
   );
   for (const name of ['observe', 'status'])
@@ -388,6 +389,16 @@ export function createServer(
         }),
       ),
   );
+  server.registerTool(
+    'agent.wait_until_ready',
+    {
+      description:
+        'Wait for a ready prompt, returning early for required input, worker error or disappearance. Silence is not readiness. Surface permission requests to the user unless approval was explicitly authorized; never approves itself.',
+      inputSchema: { ...agent, ...wait },
+    },
+    (a, extra) =>
+      toolCall('agent.wait_until_ready', () => agents.waitUntilReady(a.agentId, waitTimeout(a), extra.signal)),
+  );
   for (const kind of ['text', 'idle'] as const) {
     server.registerTool(
       kind === 'text' ? 'agent.wait_for_text' : 'agent.wait_until_idle',
@@ -414,13 +425,13 @@ export function createServer(
   register(
     'agent.broadcast',
     'Submit a message (text, alias message) to explicit workers; returns per-agent outcomes.',
-    { agentIds: z.array(z.string()).min(1).max(64), ...textOrMessage },
+    { agentIds: z.array(z.string()).min(1).max(64), ...textOrMessage, requireReady: z.boolean().default(true) },
     async (a) => {
       const task = body(a);
       return Promise.all(
         a.agentIds.map(async (agentId: string) => {
           try {
-            return await agents.send(agentId, task);
+            return await agents.send(agentId, task, undefined, a.requireReady);
           } catch (e) {
             return { agentId, error: String(e) };
           }

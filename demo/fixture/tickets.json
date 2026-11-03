@@ -1,0 +1,20 @@
+[
+  {
+    "id": "SALES-101",
+    "title": "Add executive KPIs",
+    "file": "components/kpis.js",
+    "brief": "Implement the default function kpis(data). Return exactly three objects in this order: {label:'Revenue',value:<sum of data.months revenues>,format:'currency'}, {label:'Customers',value:<data.accounts.length>,format:'number'}, {label:'Growth',value:<percentage revenue increase from data.previousRevenue, rounded to one decimal>,format:'percent'}. Use the supplied data, not hard-coded answers. The shared renderer already provides the visual card layout. Modify only components/kpis.js, run node check.mjs SALES-101, and commit only that file. Report commit SHA and actual check result. Do not alter checks or delegate."
+  },
+  {
+    "id": "SALES-102",
+    "title": "Show monthly sales performance",
+    "file": "components/chart.js",
+    "brief": "Implement the default function chart(data). Return one {month,revenue} object per entry of data.months, preserving its order and numeric revenue. The shared renderer provides labelled chart bars, currency values and scaling. Use input data without mutating it. Modify only components/chart.js, run node check.mjs SALES-102, and commit only that file. Report commit SHA and actual check result. Do not alter checks or delegate."
+  },
+  {
+    "id": "SALES-103",
+    "title": "Highlight accounts needing attention",
+    "file": "components/accounts.js",
+    "brief": "Implement the default function accounts(data). Return every account as {name,revenue,risk}; risk is 'High' for daysSinceContact >=45, 'Medium' for >=30, otherwise 'Low'. Sort High then Medium then Low, and alphabetically by name within each risk. Do not mutate data. The shared renderer provides the table and coloured labels. Modify only components/accounts.js, run node check.mjs SALES-103, and commit only that file. Report commit SHA and actual check result. Do not alter checks or delegate."
+  }
+]

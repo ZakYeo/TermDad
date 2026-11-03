@@ -54,6 +54,9 @@ run them when relevant to the change and report prerequisites or sandbox limits
 that prevent verification. Record new evidence in `docs/testing.md` only for
 checks actually performed.
 
+The internal business demo lives in `demo/`; see [demo/README.md](demo/README.md) for usage and cleanup.
+From an interactive Windows/WSL WezTerm pane, run `npm run demo -- --check`, then `npm run demo` and click **Start demo** (uses authenticated Codex sessions).
+
 ## Behavioral invariants
 
 - Keep stdout exclusively for MCP protocol messages; diagnostics go to stderr.

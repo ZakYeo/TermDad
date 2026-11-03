@@ -55,7 +55,7 @@ test('separate MCP processes recover, share conflicts and input guards, and expo
   assert.match(await readFile(join(dir, 'input.log'), 'utf8'), /first task/);
   assert.equal((await third.raw('agent.send', { agentId: 'worker', text: 'interleaving task' })).isError, true);
   await sending;
-  await third.call('agent.send', { agentId: 'worker', text: 'follow-up' });
+  await third.call('agent.send', { agentId: 'worker', text: 'follow-up', requireReady: false });
   const input = (await readFile(join(dir, 'input.log'), 'utf8'))
     .trim()
     .split('\n')

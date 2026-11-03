@@ -111,6 +111,12 @@ Copilot quota collection is not yet available.
 - [Browse all Term Dad hooks](docs/hooks.md#inventory): usage, worker lifecycle,
   and desktop notifications.
 
+## Internal presentation demo
+
+Run `npm run demo` from this checkout in WezTerm for a fictional business epic,
+three visible Codex workers, and a browser presentation. See the
+[repository-only demo guide](demo/README.md) for prerequisites and cleanup.
+
 ## Licensing
 
 MIT, as declared in [package.json](package.json).
