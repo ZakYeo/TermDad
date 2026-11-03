@@ -61,13 +61,6 @@ test('demo checks and merges all three actual commits before declaring release r
   }
   assert.equal(Object.keys(await readEvidence(run)).length, 3);
   for (const ticket of run.tickets) ticket.taskId = ticket.id;
-  const actualReadyShape = {
-    agentId: 'worker',
-    status: 'READY_FOR_PROMPT',
-    awaitingInput: true,
-    inputRequired: false,
-    readyForPrompt: true,
-  };
   const ready = await collectStatus(run, async (name) =>
     name === 'task.list'
       ? {
@@ -80,7 +73,7 @@ test('demo checks and merges all three actual commits before declaring release r
             latestReport: { outcome: 'succeeded' },
           })),
         }
-      : [actualReadyShape],
+      : Promise.reject(new Error('Completed release must not require live worker observations')),
   );
   assert.equal(ready.released, true, 'Finished workers at normal ready prompts must allow the visual reveal');
   assert.ok(ready.tickets.every((ticket) => ticket.state === 'Merged'));
@@ -191,7 +184,7 @@ test('demo launch argv preserves literal paths and normal approval handling with
   assert.equal(process.env.TERM_DAD_STATE_DIR, original);
 });
 
-test('ticket states require actual merge plus passed verification and preserve attention precedence', () => {
+test('verified task completion survives worker state changes while unfinished tasks retain attention', () => {
   const queued = { id: 'task', status: 'todo', blockers: [], assignedAgentId: null };
   const active = { ...queued, status: 'in_progress', assignedAgentId: 'worker' };
   const worker = { agentId: 'worker', attachment: 'attached' };
@@ -217,8 +210,14 @@ test('ticket states require actual merge plus passed verification and preserve a
     { deliveryPending: true },
     { error: 'unavailable' },
   ]) {
-    assert.equal(ticketState(done, { ...worker, ...changed }, true), 'Needs attention');
+    assert.equal(ticketState(done, { ...worker, ...changed }, true), 'Merged');
+    assert.equal(ticketState(active, { ...worker, ...changed }, false), 'Needs attention');
   }
+  assert.equal(ticketState(done, undefined, true), 'Merged');
+  assert.equal(
+    ticketState(done, { ...worker, inputRequired: true, inputRequest: { kind: 'permission' } }, true),
+    'Merged',
+  );
   assert.equal(ticketState(undefined, worker, false), 'Needs attention');
   assert.equal(ticketState(active, undefined, false), 'Needs attention');
   assert.equal(ticketState({ ...done, blockers: ['blocked'] }, worker, true), 'Needs attention');

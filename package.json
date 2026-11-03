@@ -35,7 +35,8 @@
     "test:inventory": "node --import tsx scripts/live-inventory.ts",
     "eval:routing": "node --import tsx scripts/routing-eval.ts",
     "demo": "node --import tsx scripts/demo.ts",
-    "typecheck:demo": "tsc -p demo/tsconfig.json"
+    "typecheck:demo": "tsc -p demo/tsconfig.json",
+    "demo:view": "node --import tsx demo/view.ts"
   },
   "engines": {
     "node": ">=22"

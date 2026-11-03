@@ -10,7 +10,7 @@ export function demoOptions(args: string[]) {
   throw new Error('Usage: npm run demo [-- --check | --prepare | --prepared <directory>]');
 }
 
-export async function loadPrepared(directory: string): Promise<DemoRun> {
+export async function loadPrepared(directory: string, allowUsed = false): Promise<DemoRun> {
   const path = await realpath(directory);
   const run: DemoRun = JSON.parse(await readFile(join(path, 'run.json'), 'utf8'));
   if (
@@ -20,7 +20,7 @@ export async function loadPrepared(directory: string): Promise<DemoRun> {
     run.state !== join(path, 'state') ||
     !/^[a-f0-9]{40}$/.test(run.base) ||
     !Array.isArray(run.panes) ||
-    run.panes.length ||
+    (!allowUsed && run.panes.length > 0) ||
     !Array.isArray(run.tickets) ||
     run.tickets.length !== ticketDefinitions.length
   )
@@ -31,7 +31,7 @@ export async function loadPrepared(directory: string): Promise<DemoRun> {
       ticket.id !== expected.id ||
       ticket.file !== expected.file ||
       ticket.title !== expected.title ||
-      ticket.taskId ||
+      (!allowUsed && !!ticket.taskId) ||
       ticket.worktree !== join(path, expected.id)
     )
       throw new Error('Invalid or already used demo tickets; prepare a fresh run.');

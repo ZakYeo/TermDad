@@ -19,13 +19,14 @@ type WorkerView = {
   deliveryPending?: boolean;
 };
 export function ticketState(task: TaskView | undefined, worker: WorkerView | undefined, merged: boolean) {
-  if (!task || task.blockers.length || worker?.error || worker?.deliveryPending || worker?.attachment === 'detached')
-    return 'Needs attention';
-  if (worker?.inputRequired) return worker.inputRequest?.kind === 'permission' ? 'Needs approval' : 'Needs attention';
-  if (task.assignedAgentId && !worker) return 'Needs attention';
+  if (!task || task.blockers.length) return 'Needs attention';
   if (task.latestReport && task.latestReport.outcome !== 'succeeded') return 'Needs attention';
   if (['failed', 'inconclusive', 'stale'].includes(task.verification?.status ?? '')) return 'Needs attention';
+  // Completion belongs to this task/version, not the worker's next interactive screen.
   if (merged && task.status === 'done' && task.verification?.status === 'passed') return 'Merged';
+  if (worker?.error || worker?.deliveryPending || worker?.attachment === 'detached') return 'Needs attention';
+  if (worker?.inputRequired) return worker.inputRequest?.kind === 'permission' ? 'Needs approval' : 'Needs attention';
+  if (task.assignedAgentId && !worker) return 'Needs attention';
   if (task.latestReport || merged) return 'Checking';
   if (task.status === 'in_progress') return 'Working';
   if (task.assignedAgentId) return worker?.readyForPrompt ? 'Ready' : 'Starting';
@@ -36,7 +37,12 @@ export async function collectStatus(
   call: (name: string, args?: Record<string, unknown>) => Promise<any>,
 ): Promise<DemoStatus> {
   const page = await call('task.list', { boardId: 'sales-demo' });
-  const workers: WorkerView[] = await call('orchestrator.status');
+  const allDone = run.tickets.every((ticket) =>
+    page.tasks.some(
+      (task: TaskView) => task.id === ticket.taskId && task.status === 'done' && task.verification?.status === 'passed',
+    ),
+  );
+  const workers: WorkerView[] = allDone ? [] : await call('orchestrator.status');
   const evidence = await readEvidence(run);
   const tickets = [];
   for (const ticket of run.tickets) {
