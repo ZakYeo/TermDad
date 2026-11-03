@@ -3,7 +3,7 @@ import { LiveSession, parentPane } from './live-support.js';
 const session = await LiveSession.create(),
   call = session.call;
 try {
-  const before = await call('terminal.list');
+  const before = (await call('terminal.list')).panes;
   assert.ok(before.length > 0, 'A live WezTerm GUI is required');
   const a = await session.spawnAgent({
     name: 'term-dad-live-shell',
@@ -94,7 +94,7 @@ try {
   await call('agent.wait_until_idle', { agentId, timeoutMs: 15000 });
   await call('agent.stop', { agentId });
   session.owned.delete(a.paneId);
-  const after = await call('terminal.list');
+  const after = (await call('terminal.list')).panes;
   for (const pane of before)
     assert.ok(
       after.some((p: any) => p.pane_id === pane.pane_id),

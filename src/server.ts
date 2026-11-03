@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { EventQueue } from './events.js';
 import { registerEventTools } from './event-tools.js';
 import { WezTermBackend, type TerminalBackend, id, spawnSchema, sendKeys, submit, keyDescription } from './backend.js';
-import { Agents, adoptionSchema, reattachSchema } from './agents.js';
+import { compactInventory } from './terminal-list.js';
+import { Agents, adoptionSchema, reattachSchema, normalizeScreen } from './agents.js';
 import { FileWorkerStorage, type WorkerStorage } from './worker-storage.js';
 import { CommandScreenshotProvider, type ScreenshotProvider } from './screenshots.js';
 import { WatchManager, type WatchOptions } from './watches.js';
@@ -115,7 +116,12 @@ export function createServer(
       .describe('Alias for text; provide text or message, with matching values if both are present.'),
   };
   const body = (a: { text?: string; message?: string }) => oneOf<string>(a, ['text', 'message']);
-  register('terminal.list', 'List live WezTerm windows, tabs and panes.', {}, () => backend.list());
+  register(
+    'terminal.list',
+    'Start here to see which terminal windows, tabs, panes or sessions are open. Compact metadata by default; verbose adds raw terminal details, includeDetached explains saved workers. No screen reads.',
+    { verbose: z.boolean().default(false), includeDetached: z.boolean().default(false) },
+    async (a) => compactInventory(await agents.inventory(), a),
+  );
   register(
     'terminal.list_instances',
     'List verified running WezTerm GUIs and the selected identity (Windows/WSL).',
@@ -168,9 +174,13 @@ export function createServer(
       paneId: id.optional().describe('Pane ID (alias pane_id).'),
       pane_id: id.optional().describe('Alias for paneId.'),
       lines: z.number().int().min(1).max(5000).optional().describe('Tail lines, default 100 (alias max_lines).'),
+      raw: z.boolean().default(false).describe('Preserve terminal padding; default is compact readable text.'),
       max_lines: z.number().int().min(1).max(5000).optional().describe('Alias for lines.'),
     },
-    (a) => backend.read(oneOf(a, ['paneId', 'pane_id']), oneOf(a, ['lines', 'max_lines'], 100)),
+    async (a) => {
+      const text = await backend.read(oneOf(a, ['paneId', 'pane_id']), oneOf(a, ['lines', 'max_lines'], 100));
+      return a.raw ? text : normalizeScreen(text.replace(/\r\n?/g, '\n'));
+    },
   );
   register('terminal.send_text', 'Paste text into an interactive PTY without Enter.', { ...pane, ...text }, (a) =>
     backend.sendText(a.paneId, a.text),

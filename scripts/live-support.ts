@@ -114,7 +114,7 @@ export class LiveSession {
   }
   private async paneAbsent(paneId: number) {
     // A failed listing cannot establish disappearance.
-    const panes = await this.call('terminal.list');
+    const panes = (await this.call('terminal.list')).panes;
     return !panes.some((pane: { pane_id: number }) => pane.pane_id === paneId);
   }
   async stopAgent(agentId: string, paneId: number) {

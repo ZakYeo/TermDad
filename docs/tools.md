@@ -6,14 +6,14 @@ Tool names use dots. All arguments are JSON objects. Omitted arguments below use
 |---|---|
 | terminal.list_instances | `{}` → up to 64 live Windows/WSL GUI identities (`key`, `endpoint`, `pid`, `title`), plus `selected`; unavailable selection is reported as `selectionError` |
 | terminal.select_instance | `key` → select an exact live identity returned above, for this server session; no terminal input |
-| terminal.list | `{}` → raw pane metadata including window/tab IDs, cwd, dimensions |
+| terminal.list | `verbose?, includeDetached?` → compact `{selected,panes,counts,detached,notes}`; verbose adds raw pane metadata |
 | terminal.spawn | `paneId?, windowId?, newWindow?, domain?, cwd?, command?: string[] \| string` → new pane ID in a tab/window. A string command is split like a shell would (quotes and backslashes honoured); no shell runs |
 | terminal.split | `paneId, direction?: right\|bottom, percent?: 1..99, cwd?, command?` → new split pane ID |
 | terminal.close | `target?: pane\|tab\|window, id` or just `paneId` → kills all selected panes |
 | terminal.focus | `target?: pane\|tab\|window, id` or just `paneId` → activates matching pane |
 | terminal.resize | `paneId, direction: Left\|Right\|Up\|Down, amount?: 1..1000` |
 | terminal.move | `paneId, newWindow?, windowId?` → move to new tab |
-| terminal.read | `paneId, lines?: 1..5000` (default 100) → text tail |
+| terminal.read | `paneId, lines?: 1..5000, raw?` (default 100) → compact text tail; raw preserves padding |
 | terminal.send_text | `paneId, text` → paste without submitting |
 | terminal.send_key | `paneId, key` → one raw key |
 | terminal.send_keys | `paneId, keys: string[]` → ordered keys, entire sequence validated first |
@@ -816,3 +816,10 @@ start identity without selecting that GUI. Confirmed exited GUI mappings are
 removed, just like confirmed missing panes; tasks retain their worker IDs.
 Unverified identities, failed probes, live other GUIs and incomplete recovery
 remain saved. No age-based pruning or terminal closure occurs during listing.
+
+In v1, terminal.list returns an envelope rather than the former array. Pane IDs,
+window/tab IDs, labels and working directories are compact by default; `verbose`
+adds each original backend pane under `raw`. `includeDetached` adds saved-worker
+details to the detached summary. Labels identify their source and never rename
+the terminal. Listing performs no screen reads. terminal.read defaults to trimmed
+line endings/padding and collapsed blank runs; `raw:true` retains the old text.

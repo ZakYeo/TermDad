@@ -75,7 +75,7 @@ test('live cleanup accepts a disappeared owned pane only after a successful list
   session.call = async (name) => {
     calls.push(name);
     if (name === 'terminal.close') throw new Error('Target not found');
-    if (name === 'terminal.list') return [{ pane_id: 99 }];
+    if (name === 'terminal.list') return { panes: [{ pane_id: 99 }] };
     throw new Error(`Unexpected call: ${name}`);
   };
   await session.dispose();
@@ -90,14 +90,15 @@ test('live agent shutdown tolerates interrupt exit and stop races but preserves 
     session.owned.add(42);
     session.call = async (name) => {
       assert.equal(name, 'terminal.list');
-      return [{ pane_id: 99 }];
+      return { panes: [{ pane_id: 99 }] };
     };
     await session.stopAgent('exited-worker', 42);
     assert.equal(session.owned.size, 0);
     session.owned.add(43);
     let listings = 0;
     session.call = async (name) => {
-      if (name === 'terminal.list') return ++listings === 1 ? [{ pane_id: 43 }, { pane_id: 99 }] : [{ pane_id: 99 }];
+      if (name === 'terminal.list')
+        return { panes: ++listings === 1 ? [{ pane_id: 43 }, { pane_id: 99 }] : [{ pane_id: 99 }] };
       assert.equal(name, 'agent.stop');
       throw new Error('Worker pane exited');
     };
@@ -106,7 +107,7 @@ test('live agent shutdown tolerates interrupt exit and stop races but preserves 
     assert.equal(session.owned.size, 0);
     session.owned.add(44);
     session.call = async (name) => {
-      if (name === 'terminal.list') return [{ pane_id: 44 }];
+      if (name === 'terminal.list') return { panes: [{ pane_id: 44 }] };
       throw new Error('Permission denied');
     };
     await assert.rejects(session.stopAgent('live-worker', 44), /Permission denied/);

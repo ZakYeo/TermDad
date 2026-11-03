@@ -186,3 +186,17 @@ test('wait aliases convert seconds before validation and defaults', async (t) =>
     await f.fails(tool, { ...args, timeoutSeconds: 0.0001 }, /int|integer/);
   }
 });
+
+test('compact list and read defaults preserve opt-in diagnostic details', async (t) => {
+  const f = await fixture(t);
+  const listing = await f.call('terminal.list');
+  assert.equal(listing.panes[0].pane_id, 7);
+  assert.equal(listing.panes[0].raw, undefined);
+  assert.equal(
+    f.calls.some((c) => c.args[0] === 'get-text'),
+    false,
+  );
+  assert.equal((await f.call('terminal.list', { verbose: true })).panes[0].raw.size.cols, 80);
+  assert.equal(await f.call('terminal.read', { paneId: 7 }), '$');
+  assert.equal(await f.call('terminal.read', { paneId: 7, raw: true }), '$ ');
+});

@@ -18,7 +18,7 @@ try {
   session = await LiveSession.create({ TERM_DAD_TELEMETRY: '1' });
   const live = session,
     call = live.call;
-  const panes = await call('terminal.list');
+  const panes = (await call('terminal.list')).panes;
   const worker = await clocked('spawn.shell', () =>
     live.spawnAgent({
       name: 'benchmark-shell',

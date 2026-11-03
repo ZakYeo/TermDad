@@ -417,6 +417,24 @@ export class Agents {
       TerminalRead.run(this.backend, async (read) => (await this.listed(read)).map((entry) => entry.view)),
     );
   }
+  inventory() {
+    return this.run(() =>
+      TerminalRead.run(this.backend, async (read) => {
+        const panes = await read.panes();
+        const selected = await read.identity().catch(() => null);
+        const notes: string[] = [];
+        if (!selected)
+          notes.push('Terminal identity is unavailable; pane IDs alone cannot establish worker association.');
+        const workers = await this.listed(read)
+          .then((entries) => entries.map((entry) => entry.view))
+          .catch(() => {
+            notes.push('Saved worker metadata unavailable; live panes remain listed.');
+            return [];
+          });
+        return { selected, panes, workers, notes };
+      }),
+    );
+  }
   private sameBinding(current: WorkerRecord, expected: WorkerRecord) {
     if (current.revision !== expected.revision || current.paneId !== expected.paneId)
       throw new Error('Worker was reattached during observation; retry or recreate its watch');
