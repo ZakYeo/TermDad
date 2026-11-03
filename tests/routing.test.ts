@@ -33,3 +33,19 @@ test('routing scoring detects padded discovery, absent options and unsafe cleanu
     [],
   );
 });
+
+test('draft or unavailable external verification never permits cleanup', () => {
+  for (const id of ['conditional-draft', 'conditional-unavailable']) {
+    const scenario = routingCases.find((c) => c.id === id)!;
+    const calls = [
+      { name: 'terminal.list', args: {} },
+      {
+        name: 'review.lookup',
+        args: { repository: 'example/project', number: 42 },
+        ok: id !== 'conditional-unavailable',
+      },
+    ];
+    assert.deepEqual(scoreRouting(scenario, calls), []);
+    assert.ok(scoreRouting(scenario, [...calls, { name: 'terminal.close', args: { paneIds: [8] } }]).length);
+  }
+});

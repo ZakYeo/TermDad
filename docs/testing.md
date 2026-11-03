@@ -730,3 +730,22 @@ Inherited `WEZTERM_UNIX_SOCKET` and `WEZTERM_PANE` are **not** accepted as test
 authorization: a long-lived client may inherit another still-live GUI's values.
 Discover identities and identify the intended GUI before setting these variables.
 The test endpoint overrides the inherited endpoint for the test server only.
+
+### Prompt routing evaluations
+
+`npm run eval:routing -- inventory,workspace,conditional-close` runs Codex against
+real tool descriptions/schemas and an injected fake terminal, with a mock external
+review service for the conditional-cleanup example. No real terminal or GitHub
+operations are available. It ignores user configuration, uses a temporary working
+directory, disables shell/apps/plugins/browser/computer-use/subagents, and uses a
+read-only sandbox. Authentication uses the installed Codex account; no API key is
+required by this harness. Configuration follows the [official Codex reference](https://learn.chatgpt.com/docs/config-file/config-reference).
+
+The default selects six discovery cases; explicit selections are capped at six.
+Each gets one attempt, 90 seconds and six tool calls. The runner records available
+usage and stops starting cases after 6,000 output tokens; this is not a hard model
+input-token cap. Quota/authentication failures stop the run. Reports default to
+`/tmp/termdad-routing-report.json`; an optional second argument changes the path.
+`TERM_DAD_EVAL_MODEL` optionally selects a model; otherwise Codex chooses its default.
+Deterministic routing-contract tests are part of `npm run check`. Model evaluation
+scores tool selection/arguments and ordering, not natural-language answer quality.

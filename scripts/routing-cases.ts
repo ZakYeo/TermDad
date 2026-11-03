@@ -1,4 +1,4 @@
-export type RoutingCall = { name: string; args: Record<string, unknown> };
+export type RoutingCall = { name: string; args: Record<string, unknown>; ok?: boolean };
 export type RoutingCase = {
   id: string;
   prompt: string;
@@ -53,13 +53,43 @@ export const routingCases: RoutingCase[] = [
     id: 'conditional-close',
     prompt:
       'Keep the session named keep. Pane 8 works on example/project PR 42. Close pane 8 only if that PR is open and out of draft. Check using the external review tool first.',
-    required: [{ names: ['terminal.list'] }, { names: ['review.lookup'] }, { names: ['terminal.close'] }],
+    required: [
+      { names: ['terminal.list'] },
+      { names: ['review.lookup'], args: { repository: 'example/project', number: 42 } },
+      { names: ['terminal.close'] },
+    ],
     allowed: ['terminal.list', 'review.lookup', 'terminal.close'],
     maxCalls: 4,
+  },
+  {
+    id: 'conditional-draft',
+    prompt:
+      'Keep session keep. Pane 8 works on example/project PR 42. Close pane 8 only if the external review service confirms it is open and out of draft.',
+    required: [
+      { names: ['terminal.list'] },
+      { names: ['review.lookup'], args: { repository: 'example/project', number: 42 } },
+    ],
+    allowed: ['terminal.list', 'review.lookup'],
+    maxCalls: 3,
+  },
+  {
+    id: 'conditional-unavailable',
+    prompt:
+      'Keep session keep. Pane 8 works on example/project PR 42. Close pane 8 only if the external review service confirms it is open and out of draft.',
+    required: [
+      { names: ['terminal.list'] },
+      { names: ['review.lookup'], args: { repository: 'example/project', number: 42 } },
+    ],
+    allowed: ['terminal.list', 'review.lookup'],
+    maxCalls: 3,
   },
 ];
 export function scoreRouting(test: RoutingCase, calls: RoutingCall[]): string[] {
   const failures: string[] = [];
+  if (
+    calls.some((call) => call.ok === false && !(test.id === 'conditional-unavailable' && call.name === 'review.lookup'))
+  )
+    failures.push('Tool call failed');
   if (calls.length > test.maxCalls) failures.push('Unnecessary tool calls');
   for (const call of calls) if (!test.allowed.includes(call.name)) failures.push(`Unexpected tool: ${call.name}`);
   for (const requirement of test.required)

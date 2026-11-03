@@ -32,29 +32,49 @@ tools.push({
   },
 });
 const server = new Server({ name: 'termdad-routing-fixture', version: '1' }, { capabilities: { tools: {} } });
-server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
+// These tools only operate on disposable fake state, not external user resources.
+server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  tools: tools.map((tool) => ({
+    ...tool,
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  })),
+}));
 let calls = 0;
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args = {} } = request.params;
-  await appendFile(log, JSON.stringify({ name, args }) + '\n');
-  if (++calls > 6) throw new Error('Routing evaluation tool-call budget exhausted');
-  if (name === 'review.lookup')
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify({
-            repository: 'example/project',
-            number: 42,
-            state: 'OPEN',
-            isDraft: false,
-            source: 'mock_external_service',
-          }),
-        },
-      ],
+  let result;
+  try {
+    if (++calls > 6) throw new Error('Routing evaluation tool-call budget exhausted');
+    if (name === 'review.lookup') {
+      if (process.argv[3] === 'conditional-unavailable')
+        throw new Error('Mock external service unavailable; eligibility is unknown.');
+      if (args.repository !== 'example/project' || args.number !== 42) throw new Error('Unknown mock review reference');
+      result = {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              repository: 'example/project',
+              number: 42,
+              state: 'OPEN',
+              isDraft: process.argv[3] === 'conditional-draft',
+              source: 'mock_external_service',
+            }),
+          },
+        ],
+      };
+    } else {
+      if (!allowed.has(name)) throw new Error('Tool outside routing fixture');
+      result = await f.raw(name, args);
+    }
+  } catch (error) {
+    result = {
+      isError: true,
+      content: [{ type: 'text' as const, text: error instanceof Error ? error.message : 'Mock tool failed' }],
     };
-  if (!allowed.has(name)) throw new Error('Tool outside routing fixture');
-  return f.raw(name, args);
+  }
+  await appendFile(log, JSON.stringify({ name, args, ok: result.isError !== true }) + '\n');
+  return result;
 });
 let closing = false;
 const close = async () => {
