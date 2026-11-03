@@ -5,6 +5,82 @@ const defaults = [
   { id: 'SALES-103', title: 'Accounts needing attention', state: 'Queued' },
 ];
 const icons = ['◈', '▥', '◎'];
+const cards = new Map();
+let nextDescriptionId = 0;
+function updateTickets(tickets) {
+  const active = new Set(tickets.map((ticket) => ticket.id));
+  for (const [id, item] of cards) {
+    if (!active.has(id)) {
+      item.card.remove();
+      cards.delete(id);
+    }
+  }
+  tickets.forEach((ticket, index) => {
+    let item = cards.get(ticket.id);
+    if (!item) {
+      const card = document.createElement('article');
+      card.className = 'ticket';
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'ticket-toggle';
+      button.setAttribute('aria-expanded', 'false');
+      const icon = document.createElement('span');
+      icon.className = 'ticket-icon';
+      icon.setAttribute('aria-hidden', 'true');
+      icon.textContent = icons[index] ?? '◈';
+      const summary = document.createElement('span');
+      summary.className = 'ticket-summary';
+      const id = document.createElement('span');
+      id.className = 'ticket-id';
+      const title = document.createElement('span');
+      title.className = 'ticket-title';
+      const state = document.createElement('span');
+      state.setAttribute('role', 'status');
+      const chevron = document.createElement('span');
+      chevron.className = 'ticket-chevron';
+      chevron.setAttribute('aria-hidden', 'true');
+      chevron.textContent = '⌄';
+      summary.append(id, title, state);
+      button.append(icon, summary, chevron);
+      const panel = document.createElement('div');
+      panel.className = 'ticket-details';
+      panel.id = `ticket-description-${++nextDescriptionId}`;
+      panel.inert = true;
+      panel.setAttribute('aria-hidden', 'true');
+      button.setAttribute('aria-controls', panel.id);
+      const inner = document.createElement('div');
+      const description = document.createElement('p');
+      inner.append(description);
+      panel.append(inner);
+      card.append(button, panel);
+      item = { card, button, id, title, state, panel, description };
+      button.addEventListener('click', () => {
+        const expanded = button.getAttribute('aria-expanded') !== 'true';
+        button.setAttribute('aria-expanded', String(expanded));
+        button.setAttribute(
+          'aria-label',
+          `${expanded ? 'Minimise' : 'Expand'} ${item.id.textContent}: ${item.title.textContent}`,
+        );
+        panel.setAttribute('aria-hidden', String(!expanded));
+        panel.inert = !expanded;
+        card.classList.toggle('expanded', expanded);
+      });
+      cards.set(ticket.id, item);
+    }
+    item.id.textContent = ticket.id;
+    item.title.textContent = ticket.title;
+    item.state.textContent = ticket.state;
+    item.state.className = `state ${ticket.state === 'Merged' ? 'done' : ['Needs attention', 'Needs approval'].includes(ticket.state) ? 'attention' : ''}`;
+    item.description.textContent = ticket.description || 'Description will appear when the demo connects.';
+    item.button.setAttribute(
+      'aria-label',
+      `${item.button.getAttribute('aria-expanded') === 'true' ? 'Minimise' : 'Expand'} ${ticket.id}: ${ticket.title}`,
+    );
+    // Preserve DOM identity and focus on normal status polls.
+    const current = byId('tickets').children[index];
+    if (current !== item.card) byId('tickets').insertBefore(item.card, current ?? null);
+  });
+}
 let revealed = false;
 let released = false;
 let mode = 'before';
@@ -83,27 +159,7 @@ function render(status) {
   byId('connection').title = status.updatedAt
     ? `Last observation ${new Date(status.updatedAt).toLocaleTimeString()}`
     : 'Waiting for the first observation';
-  byId('tickets').replaceChildren(
-    ...tickets.map((ticket, index) => {
-      const card = document.createElement('article');
-      card.className = 'ticket';
-      const icon = document.createElement('div');
-      icon.className = 'ticket-icon';
-      icon.textContent = icons[index] ?? '◈';
-      const text = document.createElement('div');
-      const id = document.createElement('span');
-      id.className = 'ticket-id';
-      id.textContent = ticket.id;
-      const title = document.createElement('h3');
-      title.textContent = ticket.title;
-      const state = document.createElement('span');
-      state.className = `state ${ticket.state === 'Merged' ? 'done' : ['Needs attention', 'Needs approval'].includes(ticket.state) ? 'attention' : ''}`;
-      state.textContent = ticket.state;
-      text.append(id, title, state);
-      card.append(icon, text);
-      return card;
-    }),
-  );
+  updateTickets(tickets);
   released = status.available && status.released;
   byId('after').disabled = !released;
   if (!released && mode === 'after') show('before');

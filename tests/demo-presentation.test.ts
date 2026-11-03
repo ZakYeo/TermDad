@@ -14,6 +14,17 @@ const initial: DemoStatus = {
   message: 'Team working',
 };
 
+const presentedInitial = {
+  ...initial,
+  tickets: [
+    {
+      ...initial.tickets[0],
+      description:
+        'Give leadership a quick view of total revenue, customer count, and growth compared with the previous period.',
+    },
+  ],
+};
+
 async function fixture(t: any, readStatus: () => Promise<DemoStatus>, onStart?: () => void | Promise<void>) {
   const directory = await mkdtemp(join(tmpdir(), 'demo-presentation-'));
   const beforeDirectory = join(directory, 'before'),
@@ -46,7 +57,7 @@ test('presentation serves the before view and gates unreleased output', async (t
   assert.match(await (await fetch(server.url)).text(), /TermDad/);
   assert.equal(await (await fetch(`${server.url}before/`)).text(), 'BEFORE');
   assert.equal((await fetch(`${server.url}after/`)).status, 404);
-  assert.deepEqual(await (await fetch(`${server.url}status`)).json(), initial);
+  assert.deepEqual(await (await fetch(`${server.url}status`)).json(), presentedInitial);
   assert.equal(await raw(server.url, '/', { Host: 'attacker.example' }), 403);
   assert.equal(await raw(server.url, '/status', {}, 'POST'), 405);
 });
@@ -83,7 +94,7 @@ test('failed refresh preserves last observation but marks it unavailable and hid
   await new Promise((resolve) => setTimeout(resolve, 2150));
   const status = (await (await fetch(`${server.url}status`)).json()) as DemoStatus;
   assert.equal(status.available, false);
-  assert.deepEqual(status.tickets, initial.tickets);
+  assert.deepEqual(status.tickets, presentedInitial.tickets);
   assert.equal(status.updatedAt, initial.updatedAt);
   assert.doesNotMatch(JSON.stringify(status), /Sensitive/);
   assert.equal((await fetch(`${server.url}after/`)).status, 404);

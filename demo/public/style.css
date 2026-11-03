@@ -146,9 +146,7 @@ h1 em {
 .ticket {
   background: #1a2030;
   border: 1px solid #ffffff0a;
-  display: flex;
-  gap: 16px;
-  padding: 19px 17px;
+  overflow: hidden;
   border-radius: 12px;
   margin-bottom: 10px;
 }
@@ -168,7 +166,8 @@ h1 em {
   color: #8f9db2;
   letter-spacing: 1px;
 }
-.ticket h3 {
+.ticket-title {
+  display: block;
   font-size: 13px;
   font-weight: 550;
   margin: 5px 0 10px;
@@ -276,7 +275,7 @@ footer > span {
     grid-template-columns: repeat(3, 1fr);
     gap: 10px;
   }
-  .ticket {
+  .ticket-toggle {
     padding: 12px;
     gap: 8px;
   }
@@ -386,5 +385,80 @@ footer > span {
   }
   .preview .section-heading {
     align-items: flex-start;
+  }
+}
+
+.ticket-toggle {
+  display: flex;
+  align-items: flex-start;
+  width: 100%;
+  padding: 19px 17px;
+  gap: 12px;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ticket-toggle:hover {
+  background: #ffffff04;
+}
+.ticket-toggle:focus-visible {
+  outline: 2px solid #83e7c6;
+  outline-offset: -3px;
+  border-radius: 10px;
+}
+.ticket-summary {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.ticket-chevron {
+  font-size: 20px;
+  line-height: 1;
+  transition: transform 200ms ease;
+}
+.expanded .ticket-chevron {
+  transform: rotate(180deg);
+}
+.ticket-details {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows 200ms ease,
+    opacity 200ms ease;
+}
+.ticket-details > div {
+  min-height: 0;
+  overflow: hidden;
+}
+.ticket-details p {
+  margin: 0;
+  padding: 0 17px 18px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: #b6c1d2;
+  overflow-wrap: anywhere;
+}
+.expanded .ticket-details {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+.board #tickets {
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .ticket-toggle {
+    padding: 14px 12px;
+    gap: 8px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ticket-details,
+  .ticket-chevron,
+  .progress div {
+    transition: none;
   }
 }

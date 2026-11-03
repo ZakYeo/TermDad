@@ -3,11 +3,12 @@ import { randomBytes } from 'node:crypto';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import { extname, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ticketDefinitions } from './runtime.js';
 
 export interface DemoStatus {
   available: boolean;
   updatedAt: string | null;
-  tickets: Array<{ id: string; title: string; state: string }>;
+  tickets: Array<{ id: string; title: string; state: string; description?: string }>;
   released: boolean;
   message: string;
 }
@@ -72,7 +73,17 @@ export async function startPresentation(options: {
     }, 10000);
     try {
       const current = await options.readStatus();
-      if (!stopped) status = current;
+      if (!stopped)
+        status = {
+          ...current,
+          tickets: current.tickets.map((ticket) => ({
+            ...ticket,
+            description:
+              ticket.description ??
+              ticketDefinitions.find((definition) => definition.id === ticket.id)?.description ??
+              '',
+          })),
+        };
     } catch {
       if (!stopped) status = { ...status, available: false, message: 'Progress unavailable — last observation shown.' };
     } finally {

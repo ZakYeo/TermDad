@@ -10,9 +10,26 @@ export async function command(file: string, args: string[], cwd: string) {
   return result.stdout.trim();
 }
 export const ticketDefinitions = [
-  { id: 'SALES-101', title: 'Executive KPI cards', file: 'components/kpis.js' },
-  { id: 'SALES-102', title: 'Monthly sales chart', file: 'components/chart.js' },
-  { id: 'SALES-103', title: 'Accounts needing attention', file: 'components/accounts.js' },
+  {
+    id: 'SALES-101',
+    title: 'Executive KPI cards',
+    file: 'components/kpis.js',
+    description:
+      'Give leadership a quick view of total revenue, customer count, and growth compared with the previous period.',
+  },
+  {
+    id: 'SALES-102',
+    title: 'Monthly sales chart',
+    file: 'components/chart.js',
+    description: 'Show how sales change month by month so the board can spot momentum and changes in performance.',
+  },
+  {
+    id: 'SALES-103',
+    title: 'Accounts needing attention',
+    file: 'components/accounts.js',
+    description:
+      'Highlight customers who need follow-up, with clear priority labels so the team knows where to act first.',
+  },
 ];
 export interface DemoRun {
   directory: string;
