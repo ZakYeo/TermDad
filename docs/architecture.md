@@ -562,3 +562,10 @@ No core tool approves requests automatically: supervisors ask the user by defaul
 and may act on explicit, scoped user authorization. The internal demo supplies
 that authorization for its fresh scratch project; it does not pre-trust folders
 or change global approval settings.
+
+Codex startup classification treats its versioned startup banner as a new frame
+boundary within the bounded terminal tail. Folder-access menus retained above
+that banner are historical; permission, authentication and question text inside
+the current frame still takes precedence over a composer prompt. A banner alone
+does not establish readiness. Captured trust-to-ready output exercises both the
+classifier and guarded dispatch without clearing or restarting worker sessions.

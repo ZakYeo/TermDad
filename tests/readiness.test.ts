@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import { Agents } from '../src/agents.js';
 import { WezTermBackend } from '../src/backend.js';
 
@@ -129,4 +130,25 @@ test('MCP readiness and send defaults block permission input and broadcast witho
   } finally {
     await f.close();
   }
+});
+
+test('observed folder trust resolves into guarded dispatch despite captured old menu text', async (t) => {
+  const f = await fixture(t, 'Folder access\nTrust this folder?\n› 1. Trust and continue');
+  assert.equal((await f.agents.waitUntilReady('worker', 100)).reason, 'input_required');
+  await assert.rejects(f.agents.send('worker', 'Implement task'), /WORKER_INPUT_REQUIRED/);
+  assert.deepEqual(f.input, []);
+  f.setText(readFileSync(new URL('./fixtures/codex-trust-resolved-scrollback.txt', import.meta.url), 'utf8'));
+  const ready = await f.agents.waitUntilReady('worker', 100);
+  assert.equal(ready.reason, 'ready');
+  assert.equal(ready.lastObservation?.inputRequest, null);
+  await f.agents.send('worker', 'Implement task');
+  assert.equal(f.input.length, 2);
+  assert.ok(f.input[0].endsWith('Assignment:\nImplement task'));
+  await assert.rejects(f.agents.send('worker', 'Do not replay'), /WORKER_NOT_READY/);
+  await f.agents.storage.transaction(true, (state) => {
+    state.workers[0].lastInputAt = Date.now() - 1000;
+    return { state, result: undefined };
+  });
+  await assert.rejects(f.agents.send('worker', 'Still do not replay'), /WORKER_NOT_READY/);
+  assert.equal(f.input.length, 2, 'Unchanged pre-input prompt must never authorize another task');
 });
