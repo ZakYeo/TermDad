@@ -9,13 +9,16 @@ mock Jira board. It does not connect to Jira or publish code.
 From an interactive **Windows/WSL WezTerm pane**, with a large terminal window:
 
 ```sh
-cd /tmp/term-dad-demo-development
+cd /home/zak/personal/term-dad
+npm ci
 npm run demo -- --check
 npm run demo
 ```
 
-A checkout elsewhere works too: run the same npm commands there. Install
-dependencies with `npm ci` if needed. The launcher builds TermDad before launch.
+Use your own checkout path if different. Run `npm ci` after first checkout or
+when dependencies change. The demo lives in `demo/`, with its entry point at
+`scripts/demo.ts`; it runs from the repository checkout, not the published npm
+package. The launcher builds TermDad before launch.
 Requirements: Node.js 22+, Git, Codex on the terminal PATH and authenticated,
 and a running WezTerm GUI. The current pane must expose `WEZTERM_PANE` and
 `WEZTERM_UNIX_SOCKET`. Verified GUI identity is currently Windows/WSL-specific;
@@ -37,6 +40,25 @@ Dad observes any remaining demo permission prompt, selects its approval option,
 and checks readiness again before sending tasks. Authentication, unrelated
 permissions, and substantive questions still need your input in Dad’s session. One supervisor and three workers use your configured
 Codex account and consume model usage.
+
+## Command reference
+
+Run these commands from the repository root. Replace the example run directory
+with the exact path printed by the launcher.
+
+| Command | Purpose |
+| --- | --- |
+| `npm run demo -- --check` | Check the invoking WezTerm pane and prerequisites without launching a demo. |
+| `npm run demo` | Prepare a fresh run, open the presentation, and wait for **Start demo**. |
+| `npm run demo -- --prepare` | Prepare fresh scratch files without opening the presentation or starting sessions. |
+| `npm run demo -- --prepared /tmp/term-dad-demo-XXXXXX` | Open a previously prepared, unused run and wait for **Start demo**. |
+| `npm run demo:view -- /tmp/term-dad-demo-XXXXXX` | Reopen recorded results without starting Codex or requiring WezTerm. |
+| `npm run test:demo:ui` | Check the presentation in Chromium after installing the browser as described below. |
+
+Both `--prepare` and `--prepared` perform the same WezTerm and authenticated
+Codex prerequisite checks as a normal launch. A prepared run is claimed when its
+presentation opens, so cancelling before Start still requires a fresh run next
+time. Keep the printed run path to inspect failures or reopen the result later.
 
 ## What to show
 
