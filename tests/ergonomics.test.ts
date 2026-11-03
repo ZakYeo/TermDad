@@ -200,3 +200,18 @@ test('compact list and read defaults preserve opt-in diagnostic details', async 
   assert.equal(await f.call('terminal.read', { paneId: 7 }), 'first\n\n  second\n$');
   assert.equal(await f.call('terminal.read', { paneId: 7, raw: true }), 'first   \n\n\n  second  \n$');
 });
+
+test('batch close rejects mixed targets and missing identities before backend mutation', async (t) => {
+  const f = await fixture(t);
+  for (const args of [
+    { paneIds: [7], paneId: 7, expectedInstanceKey: 'x' },
+    { paneIds: [7], target: 'pane', expectedInstanceKey: 'x' },
+    { paneIds: [7] },
+    { paneIds: [7, 7], expectedInstanceKey: 'x' },
+  ])
+    await f.fails('terminal.close', args, /ARGUMENT_/);
+  assert.equal(
+    f.calls.some((c) => c.args[0] === 'kill-pane'),
+    false,
+  );
+});

@@ -836,3 +836,15 @@ note. Missing tools, unsupported domains, non-repositories and inspection errors
 never prevent live pane listing. Git metadata describes the directory at read
 time, not a declared session assignment. Inspections use four concurrent jobs,
 five-second Git subprocess deadlines and 64 KiB output limits.
+
+### Batch close
+
+`terminal.close({paneIds:[1,2], expectedInstanceKey:"<selected.key>"})` closes
+1–100 unique explicit panes in order. Batch IDs cannot be mixed with `target`,
+`id` or `paneId`. Validate eligibility outside TermDad. The entire request is
+validated before closing; terminal identity is checked before each operation.
+Results contain `paneId`, `outcome` (`closed`, `already_gone`, `failed`, `skipped`)
+and optional notes. Identity changes skip remaining targets; other failures are
+reported independently. This is not atomic: list/close are separate backend
+operations. A successful close with failed worker reconciliation stays `closed`
+with a note. Refresh the list after partial results. Single-target forms remain.

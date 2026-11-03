@@ -31,7 +31,8 @@
     "telemetry:report": "node --import tsx scripts/telemetry-report.ts",
     "bench": "node --import tsx scripts/benchmark.ts",
     "bench:live": "node --import tsx scripts/benchmark-live.ts",
-    "monitoring:report": "node --import tsx scripts/monitoring-report.ts"
+    "monitoring:report": "node --import tsx scripts/monitoring-report.ts",
+    "test:inventory": "node --import tsx scripts/live-inventory.ts"
   },
   "engines": {
     "node": ">=22"
