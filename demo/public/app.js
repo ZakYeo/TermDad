@@ -10,6 +10,8 @@ const previous = new Map();
 let revealed = false;
 let released = false;
 let mode = 'before';
+let startToken;
+let startPending = false;
 function show(which) {
   if (which === 'after' && !released) return;
   mode = which;
@@ -27,7 +29,50 @@ function show(which) {
 }
 byId('before').onclick = () => show('before');
 byId('after').onclick = () => show('after');
+function renderExecution(status) {
+  byId('launch').hidden = !status.execution;
+  if (!status.execution) return;
+  startToken = status.startToken;
+  const waiting = status.execution === 'waiting';
+  byId('start-demo').disabled = !waiting || startPending || !startToken;
+  byId('start-demo').textContent = waiting
+    ? startPending
+      ? 'Starting…'
+      : 'Start demo →'
+    : status.execution === 'failed'
+      ? 'Start failed'
+      : status.execution === 'starting'
+        ? 'Starting…'
+        : 'Demo running';
+  byId('launch-title').textContent = waiting
+    ? 'Your team is ready to begin.'
+    : status.execution === 'failed'
+      ? 'The demo could not start.'
+      : 'Dad is taking it from here.';
+  byId('launch-copy').textContent =
+    status.execution === 'failed'
+      ? 'Check the launcher terminal. Restart the launcher to try again.'
+      : waiting
+        ? 'Start when you are ready to present. Dad will launch three workers and automatically approve permission prompts scoped to this demo.'
+        : 'Follow the workers in WezTerm and watch the results come together here.';
+}
+byId('start-demo').onclick = async () => {
+  if (startPending || !startToken) return;
+  startPending = true;
+  byId('start-demo').disabled = true;
+  byId('start-demo').textContent = 'Starting…';
+  try {
+    const response = await fetch('/start', { method: 'POST', headers: { 'X-Demo-Start-Token': startToken } });
+    if (!response.ok && response.status !== 409) throw new Error('Start unavailable');
+  } catch {
+    byId('launch-title').textContent = 'Start could not be confirmed.';
+    byId('launch-copy').textContent = 'Check the launcher terminal. Progress will update if the request reached Dad.';
+  } finally {
+    startPending = false;
+  }
+};
 function render(status) {
+  renderExecution(status);
   const tickets = status.tickets.length ? status.tickets : defaults;
   const merged = tickets.filter((ticket) => ticket.state === 'Merged').length;
   byId('completed').replaceChildren(
@@ -58,7 +103,7 @@ function render(status) {
       const title = document.createElement('h3');
       title.textContent = ticket.title;
       const state = document.createElement('span');
-      state.className = `state ${ticket.state === 'Merged' ? 'done' : ticket.state === 'Needs attention' ? 'attention' : ''}`;
+      state.className = `state ${ticket.state === 'Merged' ? 'done' : ['Needs attention', 'Needs approval'].includes(ticket.state) ? 'attention' : ''}`;
       state.textContent = ticket.state;
       text.append(id, title, state);
       card.append(icon, text);
@@ -89,6 +134,7 @@ async function poll() {
     byId('message').textContent = 'Preview server unavailable. Last observed progress remains visible.';
     released = false;
     byId('after').disabled = true;
+    byId('start-demo').disabled = true;
   } finally {
     setTimeout(poll, 2000);
   }

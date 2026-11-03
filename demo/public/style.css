@@ -339,3 +339,50 @@ footer > span {
     display: none;
   }
 }
+
+.launch[hidden] {
+  display: none;
+}
+.launch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 26px;
+  padding: 22px 26px;
+  border: 1px solid #3c806c;
+  border-radius: 12px;
+  background: linear-gradient(110deg, #18342e, #182436);
+}
+.launch h2 {
+  margin: 0 0 7px;
+  font-size: 18px;
+}
+.launch p {
+  margin: 0;
+  max-width: 700px;
+  color: #b6c8c7;
+  font-size: 13px;
+  line-height: 1.6;
+}
+#start-demo {
+  flex-shrink: 0;
+  padding: 14px 25px;
+  border: 0;
+  border-radius: 8px;
+  background: #93e6be;
+  color: #113529;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+#start-demo:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+@media (max-width: 550px) {
+  .launch {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

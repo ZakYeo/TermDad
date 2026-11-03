@@ -14,7 +14,7 @@ const initial: DemoStatus = {
   message: 'Team working',
 };
 
-async function fixture(t: any, readStatus: () => Promise<DemoStatus>) {
+async function fixture(t: any, readStatus: () => Promise<DemoStatus>, onStart?: () => void | Promise<void>) {
   const directory = await mkdtemp(join(tmpdir(), 'demo-presentation-'));
   const beforeDirectory = join(directory, 'before'),
     afterDirectory = join(directory, 'after');
@@ -22,7 +22,7 @@ async function fixture(t: any, readStatus: () => Promise<DemoStatus>) {
   await mkdir(afterDirectory);
   await writeFile(join(beforeDirectory, 'index.html'), 'BEFORE');
   await writeFile(join(afterDirectory, 'index.html'), 'AFTER');
-  const server = await startPresentation({ beforeDirectory, afterDirectory, readStatus });
+  const server = await startPresentation({ beforeDirectory, afterDirectory, readStatus, onStart });
   t.after(async () => {
     await server.close();
     await rm(directory, { recursive: true, force: true });
@@ -95,6 +95,89 @@ test('closing presentation does not wait for an unavailable status source', asyn
     afterDirectory: tmpdir(),
     readStatus: () => new Promise(() => {}),
   });
+  await server.close();
+  await assert.rejects(fetch(server.url));
+});
+
+test('presentation waits for an authenticated same-origin click and starts exactly once', async (t) => {
+  let calls = 0;
+  let finish!: () => void;
+  const server = await fixture(
+    t,
+    async () => initial,
+    () => {
+      calls++;
+      return new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+    },
+  );
+  const state = (await (await fetch(`${server.url}status`)).json()) as DemoStatus & {
+    execution: string;
+    startToken: string;
+  };
+  assert.equal(state.execution, 'waiting');
+  assert.match(state.startToken, /^[a-f0-9]{64}$/);
+  assert.equal(calls, 0, 'Reading the board must not start a worker');
+  const headers = { Origin: new URL(server.url).origin, 'X-Demo-Start-Token': state.startToken };
+  assert.equal(await raw(server.url, '/start', headers), 405);
+  assert.equal(await raw(server.url, '/start', {}, 'POST'), 403);
+  assert.equal(await raw(server.url, '/start', { ...headers, Origin: 'http://attacker.example' }, 'POST'), 403);
+  assert.equal(await raw(server.url, '/start', { ...headers, 'X-Demo-Start-Token': 'wrong' }, 'POST'), 403);
+  assert.equal(await raw(server.url, '/start', { ...headers, Host: 'attacker.example' }, 'POST'), 403);
+  assert.equal(calls, 0);
+  assert.deepEqual(
+    (
+      await Promise.all([raw(server.url, '/start', headers, 'POST'), raw(server.url, '/start', headers, 'POST')])
+    ).sort(),
+    [202, 409],
+  );
+  assert.equal(calls, 1);
+  assert.equal(((await (await fetch(`${server.url}status`)).json()) as { execution: string }).execution, 'starting');
+  finish();
+  assert.equal(((await (await fetch(`${server.url}status`)).json()) as { execution: string }).execution, 'running');
+  assert.equal(await raw(server.url, '/start', headers, 'POST'), 409);
+  assert.equal(calls, 1);
+});
+
+test('failed start is visible, redacted, and never retried automatically', async (t) => {
+  let calls = 0;
+  const server = await fixture(
+    t,
+    async () => initial,
+    () => {
+      calls++;
+      throw new Error('secret process details');
+    },
+  );
+  const status = (await (await fetch(`${server.url}status`)).json()) as { startToken: string };
+  const headers = { Origin: new URL(server.url).origin, 'X-Demo-Start-Token': status.startToken };
+  assert.equal(await raw(server.url, '/start', headers, 'POST'), 202);
+  const failed = (await (await fetch(`${server.url}status`)).json()) as { execution: string; message: string };
+  assert.equal(failed.execution, 'failed');
+  assert.match(failed.message, /Could not start/);
+  assert.doesNotMatch(JSON.stringify(failed), /secret/);
+  assert.equal(await raw(server.url, '/start', headers, 'POST'), 409);
+  assert.equal(calls, 1);
+});
+
+test('closing presentation does not wait for a pending start callback', async () => {
+  const server = await startPresentation({
+    beforeDirectory: tmpdir(),
+    afterDirectory: tmpdir(),
+    readStatus: async () => initial,
+    onStart: () => new Promise(() => {}),
+  });
+  const status = (await (await fetch(`${server.url}status`)).json()) as { startToken: string };
+  assert.equal(
+    await raw(
+      server.url,
+      '/start',
+      { Origin: new URL(server.url).origin, 'X-Demo-Start-Token': status.startToken },
+      'POST',
+    ),
+    202,
+  );
   await server.close();
   await assert.rejects(fetch(server.url));
 });
