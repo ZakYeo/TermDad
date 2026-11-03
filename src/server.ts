@@ -1,3 +1,4 @@
+import { workspaceContexts } from './workspace-context.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { EventQueue } from './events.js';
@@ -123,8 +124,18 @@ export function createServer(
       verbose: z.boolean().default(false),
       includeDetached: z.boolean().default(false),
       activity: z.enum(['none', 'inspect']).default('none'),
+      workspace: z
+        .enum(['none', 'inspect'])
+        .default('none')
+        .describe('Optional local Git context; unavailable domains or missing Git return notes, never require GitHub.'),
     },
-    async (a) => compactInventory(await agents.inventory(a.activity === 'inspect'), a),
+    async (a) => {
+      const inventory = await agents.inventory(a.activity === 'inspect');
+      const result = compactInventory(inventory, a);
+      if (a.workspace !== 'inspect') return result;
+      const contexts = await workspaceContexts(inventory.panes);
+      return { ...result, panes: result.panes.map((pane) => ({ ...pane, workspace: contexts[pane.pane_id] })) };
+    },
   );
   register(
     'terminal.list_instances',

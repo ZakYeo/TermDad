@@ -823,3 +823,16 @@ adds each original backend pane under `raw`. `includeDetached` adds saved-worker
 details to the detached summary. Labels identify their source and never rename
 the terminal. Listing performs no screen reads. terminal.read defaults to trimmed
 line endings/padding and collapsed blank runs; `raw:true` retains the old text.
+
+`terminal.list` includes session type with evidence: a managed adapter is
+configured, a backend foreground executable is observed, and a recognizable
+title is only inferred. Unknown is explicit; no process polling is introduced.
+`activity:"inspect"` adds bounded, text-free managed-worker classification with
+observation time; unmanaged panes remain unknown. `workspace:"inspect"` adds
+optional local Git repository/worktree/branch/commit metadata, with no GitHub
+access. Both default to `"none"`. Git runs only for verified host file URIs and
+supported domains; WSL requires matching domain metadata, otherwise returns a
+note. Missing tools, unsupported domains, non-repositories and inspection errors
+never prevent live pane listing. Git metadata describes the directory at read
+time, not a declared session assignment. Inspections use four concurrent jobs,
+five-second Git subprocess deadlines and 64 KiB output limits.
