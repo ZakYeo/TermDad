@@ -1,0 +1,8 @@
+{
+  "name": "northstar-board-dashboard",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node check.mjs"
+  }
+}
