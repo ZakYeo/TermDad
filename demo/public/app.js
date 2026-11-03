@@ -5,8 +5,6 @@ const defaults = [
   { id: 'SALES-103', title: 'Accounts needing attention', state: 'Queued' },
 ];
 const icons = ['◈', '▥', '◎'];
-const activity = [];
-const previous = new Map();
 let revealed = false;
 let released = false;
 let mode = 'before';
@@ -82,15 +80,11 @@ function render(status) {
   byId('progress-fill').style.width = `${Math.min(100, (merged / 3) * 100)}%`;
   byId('connection').textContent = status.available ? '● Live observations' : '○ Observation unavailable';
   byId('connection').className = status.available ? 'connected' : 'unavailable';
-  byId('message').textContent = status.message;
-  byId('observed').textContent = status.updatedAt
+  byId('connection').title = status.updatedAt
     ? `Last observation ${new Date(status.updatedAt).toLocaleTimeString()}`
     : 'Waiting for the first observation';
   byId('tickets').replaceChildren(
     ...tickets.map((ticket, index) => {
-      const prior = previous.get(ticket.id);
-      if (prior && prior !== ticket.state) activity.unshift(`${ticket.id} · ${ticket.state}`);
-      previous.set(ticket.id, ticket.state);
       const card = document.createElement('article');
       card.className = 'ticket';
       const icon = document.createElement('div');
@@ -110,10 +104,6 @@ function render(status) {
       return card;
     }),
   );
-  activity.splice(6);
-  byId('activity').replaceChildren(
-    ...activity.map((entry) => Object.assign(document.createElement('li'), { textContent: entry })),
-  );
   released = status.available && status.released;
   byId('after').disabled = !released;
   if (!released && mode === 'after') show('before');
@@ -131,7 +121,7 @@ async function poll() {
   } catch {
     byId('connection').textContent = '○ Connection lost';
     byId('connection').className = 'unavailable';
-    byId('message').textContent = 'Preview server unavailable. Last observed progress remains visible.';
+    byId('connection').title = 'Preview server unavailable. Last observed progress remains visible.';
     released = false;
     byId('after').disabled = true;
     byId('start-demo').disabled = true;
