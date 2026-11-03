@@ -114,3 +114,12 @@ Copilot quota collection is not yet available.
 ## Licensing
 
 MIT, as declared in [package.json](package.json).
+
+## Version 1 migration
+
+`terminal.list` now returns a compact envelope: use `result.panes`, with
+`verbose:true` for raw terminal details. `terminal.read` defaults to compact
+text; request `raw:true` for the earlier behavior. Session type is included;
+activity and Git workspace inspection are opt-in. See the
+[v1.0 release and migration notes](docs/release-v1.0.0.md) and
+[tool reference](docs/tools.md) for batch closing and recovery details.

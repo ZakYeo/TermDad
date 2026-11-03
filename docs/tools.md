@@ -6,7 +6,7 @@ Tool names use dots. All arguments are JSON objects. Omitted arguments below use
 |---|---|
 | terminal.list_instances | `{}` → up to 64 live Windows/WSL GUI identities (`key`, `endpoint`, `pid`, `title`), plus `selected`; unavailable selection is reported as `selectionError` |
 | terminal.select_instance | `key` → select an exact live identity returned above, for this server session; no terminal input |
-| terminal.list | `verbose?, includeDetached?` → compact `{selected,panes,counts,detached,notes}`; verbose adds raw pane metadata |
+| terminal.list | `verbose?, includeDetached?, activity?: none|inspect, workspace?: none|inspect` → compact `{selected,panes,counts,detached,notes}`; verbose adds raw pane metadata |
 | terminal.spawn | `paneId?, windowId?, newWindow?, domain?, cwd?, command?: string[] \| string` → new pane ID in a tab/window. A string command is split like a shell would (quotes and backslashes honoured); no shell runs |
 | terminal.split | `paneId, direction?: right\|bottom, percent?: 1..99, cwd?, command?` → new split pane ID |
 | terminal.close | `target?: pane\|tab\|window, id` or just `paneId` → kills all selected panes |
@@ -821,7 +821,7 @@ In v1, terminal.list returns an envelope rather than the former array. Pane IDs,
 window/tab IDs, labels and working directories are compact by default; `verbose`
 adds each original backend pane under `raw`. `includeDetached` adds saved-worker
 details to the detached summary. Labels identify their source and never rename
-the terminal. Listing performs no screen reads. terminal.read defaults to trimmed
+the terminal. Default listing performs no screen reads; activity inspection is opt-in. terminal.read defaults to trimmed
 line endings/padding and collapsed blank runs; `raw:true` retains the old text.
 
 `terminal.list` includes session type with evidence: a managed adapter is

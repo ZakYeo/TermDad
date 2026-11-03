@@ -61,7 +61,7 @@ export async function readCodexQuota(config: UsageConfig): Promise<{ account: un
       child.stdin.write(JSON.stringify({ id, method, ...(params ? { params } : {}) }) + '\n');
     });
   try {
-    await request('initialize', { clientInfo: { name: 'term_dad_usage', version: '0.1.0' } });
+    await request('initialize', { clientInfo: { name: 'term_dad_usage', version: '1.0.0' } });
     child.stdin.write('{"method":"initialized"}\n');
     const account = await request('account/read', { refreshToken: false });
     const limits = await request('account/rateLimits/read');

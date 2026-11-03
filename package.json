@@ -1,6 +1,6 @@
 {
   "name": "term-dad",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Local MCP control plane for visible WezTerm agents",
   "type": "module",
   "bin": {
@@ -32,7 +32,8 @@
     "bench": "node --import tsx scripts/benchmark.ts",
     "bench:live": "node --import tsx scripts/benchmark-live.ts",
     "monitoring:report": "node --import tsx scripts/monitoring-report.ts",
-    "test:inventory": "node --import tsx scripts/live-inventory.ts"
+    "test:inventory": "node --import tsx scripts/live-inventory.ts",
+    "eval:routing": "node --import tsx scripts/routing-eval.ts"
   },
   "engines": {
     "node": ">=22"

@@ -45,7 +45,7 @@ export function createServer(
   telemetryOptions: TelemetryOptions = {},
   usageService?: UsageService,
 ) {
-  const server = new McpServer({ name: 'term-dad', version: '0.1.0' }),
+  const server = new McpServer({ name: 'term-dad', version: '1.0.0' }),
     tasks = new TaskBoard(taskStorage);
   const telemetry =
     telemetryOptions.telemetry ??
