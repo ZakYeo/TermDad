@@ -246,7 +246,7 @@ pushed; summaries are server-authored and `attention_required` is derived from
 pane samples alone. An accepted push publishes and then calls
 `WatchManager.confirm`, which samples the pane, so the recorded status is the
 terminal's. Watches select `pushPollMs` only while the worker's push is
-*deliverable*, so an enabled registration on a server that failed to bind never
+*deliverable and proven*, so an enabled registration without a successful hook delivery never
 leaves a pane neither pushed nor polled at its normal rate.
 
 ## Background watches and desktop delivery
@@ -371,9 +371,9 @@ Task-change event delivery and automatic dispatch are outside this implementatio
 
 ## Reported results and verification
 
-Task state version 2 keeps bounded attempts, reports and verification decisions
+Task state version 3 keeps bounded attempts, reports and verification decisions
 in the existing atomic task journal. An attempt snapshots requirements and worker
-assignment. Only its latest report can be verified; verification references the
+assignment (null for explicit supervisor work). Only its latest report can be verified; verification references the
 same work version and requires explicit evidence for each criterion. Both completion
 APIs enforce the same graph and verification invariants. Failed checks prevent a
 passing decision. Old done records migrate as legacy completions, without evidence.
@@ -549,3 +549,24 @@ key and rechecks identity around listing and before close. Any identity failure
 latches a stop for the remaining batch. The existing server selection gate
 prevents explicit GUI selection during a batch, but backend list/close remain
 separate operations. Per-pane outcomes preserve partial success.
+
+
+## Task evidence safeguards
+
+Task journal version 3 adds unassigned supervisor attempts (`agentId:null`) using
+the existing report and verification records. Their evidence provenance must be
+`supervisor_recorded`. Versions 1 and 2 migrate on read without writing until a
+successful mutation. Restart clients together before writing the new journal.
+
+Requirement edits reject rather than silently detach current evidence, unless
+`invalidateAttempt:true` or an explicit reopening/cancellation authorizes that
+transition. Criterion evidence and blocker metadata retain the current attempt;
+validation still forbids passing verification with unresolved blockers or dependencies.
+Starting attempts and validating tracked dispatch check the same unresolved graph.
+These checks do not make task mutation and terminal submission one transaction.
+
+Terminal submission returns consumption as unknown: a PTY write is not an
+application acknowledgment. Question classification recognizes standalone question
+or selection cues rather than phrases embedded in report prose; it remains
+heuristic and permission checks retain precedence. Existing `ready` events and
+`turn_finished` outcomes describe readiness, never verified task success.

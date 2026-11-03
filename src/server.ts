@@ -340,7 +340,7 @@ export function createServer(
   register('agent.forget', 'Remove a saved mapping without closing its pane.', agent, (a) => agents.forget(a.agentId));
   register(
     'agent.send',
-    'Submit text (alias message) to agentId (alias to); initializes the Codex worker skill if no task has been sent yet.',
+    'Submit text (alias message) to agentId (alias to); sent means terminal submission, not worker consumption (unknown). Initializes the Codex worker skill on its first task.',
     {
       agentId: agent.agentId.optional().describe('Worker ID or name (alias to).'),
       to: agent.agentId.optional().describe('Alias for agentId.'),

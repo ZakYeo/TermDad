@@ -189,9 +189,9 @@ export class WatchManager {
   private active(w: Watch) {
     return !this.disposed && this.records.get(w.watchId) === w;
   }
-  /** A pane whose worker can really deliver its own events only needs a slow liveness backstop. */
+  /** Only observed delivery justifies slowing the polling backstop; wiring alone is insufficient. */
   private pushed(w: Watch) {
-    return this.options.pushDeliverable?.(w.agentId) === true;
+    return this.options.pushDeliverable?.(w.agentId) === true && this.options.pushProven?.(w.agentId) === true;
   }
   private interval(w: Watch) {
     return this.pushed(w) ? w.pushPollMs : w.pollMs;

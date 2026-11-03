@@ -1,5 +1,5 @@
 import { PushIngress } from './ingress.js';
-import { pushHookArgv, type PushHookOptions } from './worker-hooks.js';
+import { pushHookArgv, forwardsHookArguments, type PushHookOptions } from './worker-hooks.js';
 import { PushCredentialStore, credentialPath } from './push-credentials.js';
 
 export type WorkerCli = 'claude' | 'codex' | 'shell';
@@ -38,6 +38,7 @@ export class WorkerPushRegistry implements WorkerPush {
   private clis = new Map<string, WorkerCli>();
   private socketState: { listening: boolean; bindError?: string } = { listening: false };
   private resolve?: WorkerResolver;
+  private hookErrors = new Map<string, string>();
   private credentialErrors = new Map<string, string>();
   private store: PushCredentialStore;
   private stateDir: string;
@@ -74,6 +75,13 @@ export class WorkerPushRegistry implements WorkerPush {
   async launch(agentId: string, cli: WorkerCli, command: string[] | undefined) {
     this.clis.set(agentId, cli);
     if (cli === 'shell' || !command) return { command };
+    if (!forwardsHookArguments(command)) {
+      this.hookErrors.set(
+        agentId,
+        'Shell command does not forward hook flags. Omit command to use the configured launcher, or supply CLI argv directly; keep polling this worker.',
+      );
+      return { command };
+    }
     const surface = this.surface(agentId)!;
     const path = credentialPath(this.stateDir, agentId);
     // Registering inside the try as well: a registration limit must degrade this worker to
@@ -116,11 +124,12 @@ export class WorkerPushRegistry implements WorkerPush {
   }
   // The token is minted before the pane exists; the pane it reports for is fixed here.
   bind(agentId: string, paneId: number) {
-    if (this.clis.get(agentId) !== 'shell') this.ingress.rebind(agentId, paneId);
+    if (!this.ingress.revoked(agentId)) this.ingress.rebind(agentId, paneId);
   }
   async release(agentId: string) {
     this.clis.delete(agentId);
     this.credentialErrors.delete(agentId);
+    this.hookErrors.delete(agentId);
     this.ingress.revoke(agentId);
     await this.store.remove(agentId);
   }
@@ -170,6 +179,7 @@ export class WorkerPushRegistry implements WorkerPush {
         );
       await worker.rekey();
     }
+    if (this.hookErrors.has(agentId)) throw new Error(`PUSH_NOT_WIRED: ${this.hookErrors.get(agentId)}`);
     if (!this.surface(agentId))
       throw new Error(
         `PUSH_NOT_WIRED: worker ${agentId} has no hook surface in this server, so a hook can never reach it; an adopted pane must be respawned with agent.spawn to push, or watch its pane instead`,
@@ -188,7 +198,7 @@ export class WorkerPushRegistry implements WorkerPush {
     // A hook surface means this pane was actually launched with injected argv: the durable
     // binding, or a launch in this process. Never merely the CLI, or an adopted claude pane
     // would report as wired when nothing can ever reach it.
-    const surface = worker?.push?.surface ?? this.surface(agentId);
+    const surface = this.hookErrors.has(agentId) ? null : (worker?.push?.surface ?? this.surface(agentId));
     if (this.ingress.revoked(agentId)) {
       if (worker === undefined && !this.clis.has(agentId))
         throw new Error(
@@ -213,7 +223,7 @@ export class WorkerPushRegistry implements WorkerPush {
         proven: false,
         socket: this.socket(),
         deliverable: false,
-        reason,
+        reason: this.hookErrors.get(agentId) ?? reason,
       };
     }
     const view = this.ingress.status(agentId);

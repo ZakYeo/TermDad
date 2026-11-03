@@ -26,7 +26,8 @@ function common(text: string): Status | undefined {
     )
   )
     return 'WAITING_FOR_AUTHENTICATION';
-  if (/(?:select an option|choose an option|Enter to select|Which .+\?)/i.test(text)) return 'WAITING_FOR_QUESTION';
+  if (/(?:^\s*(?:select an option|choose an option|Which [^\n?]+\?)\s*$|Enter to select)/im.test(text))
+    return 'WAITING_FOR_QUESTION';
   if (/(?:not logged in|authentication failed|failed to connect|command not found|API Error:)/i.test(text))
     return 'ERROR';
 }

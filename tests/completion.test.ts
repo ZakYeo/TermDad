@@ -193,35 +193,19 @@ test('reopening and requirements changes invalidate verification; completion can
   );
 });
 
-test('passing verification requires resolved dependencies and blockers even without completion', async () => {
-  const { board, task } = await fixture({ blockers: ['Review needed'] });
-  let current = await board.startAttempt({ taskId: task.id, expectedRevision: 1 });
-  current = await board.reportResult({
+test('blockers added after dispatch preserve evidence but prevent verification and further dispatch', async () => {
+  const { board, task, decision } = await reportFixture();
+  const current = await board.update({
     taskId: task.id,
-    expectedRevision: 2,
-    attemptId: current.currentAttemptId,
-    ...resultReport,
+    expectedRevision: task.revision,
+    patch: { blockers: ['Review needed'] },
   });
-  await assert.rejects(
-    board.verify({
-      taskId: task.id,
-      expectedRevision: 3,
-      attemptId: current.currentAttemptId,
-      reportId: current.latestReport!.id,
-      workVersion: resultReport.workVersion,
-      result: 'passed',
-      rationale: 'Checked',
-      criteria: [{ criterionId: 'test', result: 'passed', evidence: ['review'] }],
-    }),
-    /COMPLETION_BLOCKED/,
-  );
-  const dependency = await board.create({ boardId: 'repo', title: 'Dependency', goal: 'Ready' });
-  current = await board.update({
-    taskId: task.id,
-    expectedRevision: 3,
-    patch: { blockers: [], dependencies: [dependency.id] },
-  });
-  await assert.rejects(completeTask(board, task.id), /COMPLETION_BLOCKED/);
+  assert.equal(current.currentAttemptId, task.currentAttemptId);
+  assert.deepEqual(current.latestReport, task.latestReport);
+  await assert.rejects(board.verify({ ...decision, expectedRevision: current.revision }), /COMPLETION_BLOCKED/);
+  await assert.rejects(board.validateAttempt(task.id, task.currentAttemptId!, task.assignedAgentId!), /START_BLOCKED/);
+  const cleared = await board.update({ taskId: task.id, expectedRevision: current.revision, patch: { blockers: [] } });
+  assert.equal((await board.verify({ ...decision, expectedRevision: cleared.revision })).status, 'done');
 });
 
 test('history limits and conflicting result writes preserve committed records', async () => {
@@ -254,7 +238,7 @@ test('legacy migration is read-only until a successful write; reopened legacy ta
   assert.equal(read.verification.status, 'legacy_unverified');
   assert.equal(await readFile(path, 'utf8'), old);
   const reopened = await migrated.update({ taskId: task.id, expectedRevision: 1, patch: { status: 'todo' } });
-  assert.equal(JSON.parse(await readFile(path, 'utf8')).version, 2);
+  assert.equal(JSON.parse(await readFile(path, 'utf8')).version, 3);
   assert.equal(reopened.verification.status, 'unverified');
   await assert.rejects(
     migrated.update({ taskId: task.id, expectedRevision: 2, patch: { status: 'done' } }),
@@ -313,4 +297,125 @@ test('verification limit rolls back; worker summaries expose outcome and verific
   });
   assert.equal(reopened.verification.status, 'stale');
   assert.equal(reopened.currentAttemptId, null);
+});
+
+test('requirement edits explicitly invalidate attempts; metadata and evidence edits preserve reports', async () => {
+  const { board, task } = await reportFixture();
+  for (const patch of [
+    { goal: 'Different requirement' },
+    { acceptanceCriteria: [{ id: 'test', description: 'Different test' }] },
+    { goal: 'Different requirement', status: 'in_progress' },
+  ]) {
+    await assert.rejects(
+      board.update({ taskId: task.id, expectedRevision: task.revision, patch }),
+      /ATTEMPT_INVALIDATION_REQUIRED/,
+    );
+    assert.deepEqual(await board.get(task.id), task);
+  }
+  const edited = await board.update({
+    taskId: task.id,
+    expectedRevision: task.revision,
+    patch: {
+      title: 'Better title',
+      acceptanceCriteria: [{ ...task.acceptanceCriteria[0], satisfied: true, evidence: 'full log' }],
+    },
+  });
+  assert.equal(edited.currentAttemptId, task.currentAttemptId);
+  assert.deepEqual(edited.latestReport, task.latestReport);
+  const dependency = await board.create({ boardId: 'repo', title: 'Dependency', goal: 'Prerequisite' });
+  await assert.rejects(
+    board.update({ taskId: task.id, expectedRevision: edited.revision, patch: { dependencies: [dependency.id] } }),
+    /ATTEMPT_INVALIDATION_REQUIRED/,
+  );
+  const invalidated = await board.update({
+    taskId: task.id,
+    expectedRevision: edited.revision,
+    invalidateAttempt: true,
+    patch: { dependencies: [dependency.id] },
+  });
+  assert.equal(invalidated.currentAttemptId, null);
+  assert.equal((await board.history({ taskId: task.id })).attempts[0].reports[0].id, task.latestReport!.id);
+});
+
+test('worker and supervisor starts reject unresolved dependencies and blockers atomically', async () => {
+  for (const executor of ['worker', 'supervisor']) {
+    const { board, task } = await fixture({ assignedAgentId: executor === 'worker' ? randomUUID() : null });
+    const dependency = await board.create({ boardId: 'repo', title: 'Dependency', goal: 'Prerequisite' });
+    let current = await board.update({
+      taskId: task.id,
+      expectedRevision: task.revision,
+      patch: { dependencies: [dependency.id] },
+    });
+    await assert.rejects(
+      board.startAttempt({ taskId: task.id, expectedRevision: current.revision, executor }),
+      /START_BLOCKED/,
+    );
+    assert.deepEqual(await board.get(task.id), current);
+    await completeTask(board, dependency.id);
+    current = await board.update({
+      taskId: task.id,
+      expectedRevision: current.revision,
+      patch: { blockers: ['review'] },
+    });
+    await assert.rejects(
+      board.startAttempt({ taskId: task.id, expectedRevision: current.revision, executor }),
+      /START_BLOCKED/,
+    );
+    current = await board.update({ taskId: task.id, expectedRevision: current.revision, patch: { blockers: [] } });
+    assert.equal(
+      (await board.startAttempt({ taskId: task.id, expectedRevision: current.revision, executor })).status,
+      'in_progress',
+    );
+  }
+});
+
+test('supervisor completion persists evidence without inventing a worker and cannot bypass verification', async () => {
+  const { board, task } = await fixture({ assignedAgentId: null });
+  await assert.rejects(board.startAttempt({ taskId: task.id, expectedRevision: 1 }), /ASSIGNMENT_REQUIRED/);
+  let current = await board.startAttempt({ taskId: task.id, expectedRevision: 1, executor: 'supervisor' });
+  assert.equal(current.currentAttempt!.agentId, null);
+  await assert.rejects(
+    board.reportResult({
+      taskId: task.id,
+      expectedRevision: current.revision,
+      attemptId: current.currentAttemptId,
+      ...resultReport,
+      provenance: 'worker_reported',
+    }),
+    /supervisor-recorded/,
+  );
+  await assert.rejects(
+    board.update({ taskId: task.id, expectedRevision: current.revision, patch: { status: 'done' } }),
+  );
+  const done = await completeTask(board, task.id);
+  assert.equal(done.assignedAgentId, null);
+  assert.equal(done.status, 'done');
+  const restarted = new TaskBoard(board.storage);
+  assert.deepEqual(await restarted.get(task.id), done);
+  assert.equal(
+    (await restarted.history({ taskId: task.id })).attempts.at(-1)!.reports[0].provenance,
+    'supervisor_recorded',
+  );
+  const assigned = await fixture();
+  await assert.rejects(
+    assigned.board.startAttempt({ taskId: assigned.task.id, expectedRevision: 1, executor: 'supervisor' }),
+    /SUPERVISOR_ASSIGNMENT/,
+  );
+});
+
+test('version-2 worker evidence migrates intact and writes version 3 only on mutation', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'term-dad-v2-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const { board, task, decision } = await reportFixture();
+  const done = await board.verify(decision);
+  const state = await board.storage.transaction(false, (state) => ({ result: state }));
+  const path = join(directory, 'tasks.json');
+  const old = JSON.stringify({ ...state, version: 2 });
+  await writeFile(path, old, { mode: 0o600 });
+  const migrated = new TaskBoard(new FileTaskStorage(directory));
+  assert.deepEqual(await migrated.get(task.id), done);
+  assert.equal(await readFile(path, 'utf8'), old);
+  await migrated.update({ taskId: task.id, expectedRevision: done.revision, patch: { title: 'Renamed' } });
+  assert.equal(JSON.parse(await readFile(path, 'utf8')).version, 3);
+  assert.deepEqual((await migrated.history({ taskId: task.id })).attempts, state.tasks[0].attempts);
 });

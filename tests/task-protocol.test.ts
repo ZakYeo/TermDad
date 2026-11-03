@@ -70,9 +70,14 @@ test('production stdio task tools persist across restart and serialize conflicti
     true,
   );
   const done = await completeViaTools(second.call, task.id);
+  assert.equal(done.currentAttempt.agentId, null);
+  await second.client.close();
+  const restarted = await connect(directory);
+  t.after(() => restarted.client.close());
+  assert.equal((await restarted.call('task.get', { taskId: task.id })).status, 'done');
   await third.call('task.archive', { taskId: task.id, expectedRevision: done.revision, archived: true });
-  assert.equal((await second.call('task.list')).total, 0);
-  assert.equal((await second.call('task.get', { taskId: task.id })).archived, true);
+  assert.equal((await restarted.call('task.list')).total, 0);
+  assert.equal((await restarted.call('task.get', { taskId: task.id })).archived, true);
   await assert.rejects(access(join(directory, 'workers.json')));
 });
 
@@ -130,6 +135,8 @@ test('stdio managed turns associate current attempts, preserve timeout semantics
   task = await f.call('task.start_attempt', { taskId: task.id, expectedRevision: task.revision });
   const attempt = { taskId: task.id, attemptId: task.currentAttemptId };
   const sent = await f.call('agent.send', { agentId: worker.agentId, text: 'Work', attempt });
+  assert.equal(sent.delivery, 'submitted_to_terminal');
+  assert.equal(sent.consumption, 'unknown');
   const observation = await f.call('agent.observe', { agentId: worker.agentId });
   assert.equal(observation.turnId, sent.turnId);
   assert.deepEqual(observation.attempt, attempt);

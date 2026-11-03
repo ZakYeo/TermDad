@@ -706,7 +706,13 @@ export class Agents {
           );
         }
         a.status = 'WORKING';
-        return { agentId: a.agentId, sent: true, turnId: a.turn!.id };
+        return {
+          agentId: a.agentId,
+          sent: true,
+          delivery: 'submitted_to_terminal' as const,
+          consumption: 'unknown' as const,
+          turnId: a.turn!.id,
+        };
       }),
     );
   }

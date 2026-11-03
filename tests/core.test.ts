@@ -228,3 +228,18 @@ test('spawn options are validated once, with one coded conflict error, for the b
   await agents.spawn({ name: 'w', cli: 'shell', command: `printf '%s' "a b"` });
   assert.deepEqual(f.calls[0].args.slice(-4), ['--', 'printf', '%s', 'a b']);
 });
+
+test('report prose mentioning questions is readiness, while direct questions and permission menus retain precedence', () => {
+  for (const cli of ['claude', 'codex']) {
+    const prompt = cli === 'claude' ? '❯' : '›';
+    for (const prose of [
+      'Regression passed for "Which fares are covered?".',
+      'The UI tells users to choose an option after expanding the panel.',
+      'Verified the answer to Which hotel should I book?',
+    ])
+      assert.equal(adapters[cli].classify(`${prose}\n${prompt} `), 'READY_FOR_PROMPT');
+    assert.equal(adapters[cli].classify(`Which package?\n${prompt} `), 'WAITING_FOR_QUESTION');
+    assert.equal(adapters[cli].classify(`Choose an option\nEnter to select\n${prompt} `), 'WAITING_FOR_QUESTION');
+    assert.equal(adapters[cli].classify(`Do you want to proceed?\n${prompt} Yes`), 'WAITING_FOR_PERMISSION');
+  }
+});

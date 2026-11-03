@@ -781,3 +781,33 @@ all subsequent live checks used GUI 15444. Final metadata verification preserved
 its original pane 0 and found no remaining test panes. No pre-existing pane was
 closed. These machine-specific GUI identifiers are evidence, not configuration
 values to copy on another run.
+
+
+### Run-report follow-up — 2026-11-03
+
+- `npm run check` passed: 394 tests, including build, formatting, task-journal
+  migration, supervisor completion over stdio/restart, explicit requirement
+  invalidation, dependency/blocker gating, hook-wrapper handling, unproven-push
+  polling, and report-question readiness events. Final tool-description and live
+  harness corrections also passed build and formatting checks.
+- The initial sandbox run could not exercise protocol subprocesses/local sockets;
+  the successful full check ran with the necessary sandbox escalation. An interim
+  check passed 392/393 tests; its remaining corruption fixture expected version 3
+  to be invalid and was updated for the new journal format.
+- A real Codex transport run passed in GUI 15444, explicitly selected by its
+  endpoint and process-start identity with parent pane 9: readiness, initial and
+  follow-up replies, interruption, and verified cleanup of its own pane.
+- With `TERM_DAD_TEST_PUSH=1`, the Codex harness observed three accepted hook
+  deliveries with final kind `ready`. An initial harness attempt incorrectly read
+  the status envelope instead of `worker.proven`; that assertion was corrected
+  before the successful run. No Claude sessions were launched.
+- A shell-only test reproduces the positional-argument loss in the report's
+  `zsh -lic claude` launch form without starting Claude. This supports a launch
+  wiring explanation for missing push, but does not replay the historical session.
+  The supplied log has no terminal capture of the false question, so classifier
+  coverage uses explicit synthetic report prose and direct-question/menu cases.
+
+Task journals now write version 3 on the first successful mutation; version-1 and
+version-2 reads retain existing evidence and do not rewrite files. Restart all MCP
+clients sharing the task journal before using the new workflow. The live tests
+used isolated state directories rather than migrating the user's task board.

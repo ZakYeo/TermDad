@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url';
+import { basename } from 'node:path';
 import type { PushKind } from './ingress.js';
 
 /**
@@ -41,4 +42,14 @@ export function pushHookArgv(
     return [...command, '--settings', JSON.stringify({ hooks })];
   }
   return [...command, '-c', `notify=${JSON.stringify(args(options, ['--codex']))}`];
+}
+
+/** Shell command strings do not receive appended flags unless they explicitly forward argv.
+ * Recognize only the fixed launch-local forms; never rewrite user shell source.
+ */
+export function forwardsHookArguments(command: string[]): boolean {
+  const shell = basename(command[0]);
+  if (!['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish'].includes(shell)) return true;
+  if (shell === 'fish') return command[1] === '-lic' && command[2] === 'exec $argv' && command.length > 3;
+  return command[1] === '-lic' && command[2] === 'exec "$@"' && command.length > 4;
 }

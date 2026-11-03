@@ -206,10 +206,10 @@ test('inputs and journals reject oversized fields, unknown fields and duplicate 
   await assert.rejects(board.update({ taskId: task.id, expectedRevision: 1, patch: {} }));
   await assert.rejects(board.update({ taskId: task.id, expectedRevision: 1, patch: { boardId: 'other' } }));
   const record = await board.storage.transaction(false, (state) => ({ result: state.tasks[0] }));
-  assert.throws(() => validateTaskState({ version: 2, tasks: [record, record] }), /TASK_DUPLICATE_ID/);
-  assert.throws(() => validateTaskState({ version: 3, tasks: [] }), /TASK_STATE_INVALID/);
+  assert.throws(() => validateTaskState({ version: 3, tasks: [record, record] }), /TASK_DUPLICATE_ID/);
+  assert.throws(() => validateTaskState({ version: 4, tasks: [] }), /TASK_STATE_INVALID/);
   const full = {
-    version: 2 as const,
+    version: 3 as const,
     tasks: Array.from({ length: MAX_TASKS }, () => ({ ...record, id: randomUUID(), archived: true })),
   };
   await assert.rejects(new TaskBoard(new MemoryTaskStorage(full)).create(input()), /TASK_CAPACITY/);
@@ -223,7 +223,7 @@ test('memory storage isolates initial state, reads, returned results and rollbac
   const { board } = fixture(),
     task = await board.create(input()),
     record = await board.storage.transaction(false, (state) => ({ result: state.tasks[0] }));
-  const initial = { version: 2 as const, tasks: [record] },
+  const initial = { version: 3 as const, tasks: [record] },
     storage = new MemoryTaskStorage(initial),
     next = new TaskBoard(storage);
   initial.tasks[0].title = 'External mutation';

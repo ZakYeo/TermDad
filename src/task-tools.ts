@@ -55,7 +55,7 @@ export function registerTaskTools(server: McpServer, board: TaskBoard, workers?:
     'task.update',
     {
       description:
-        'Update task metadata using its expected revision. Arrays replace previous values. Completion requires passing verification of the current report, satisfied criteria and dependencies, and no blockers.',
+        'Update task metadata using its expected revision. Arrays replace previous values. Requirement edits need invalidateAttempt:true when an attempt exists; history is retained. Completion requires passing verification of the current report, satisfied criteria and dependencies, and no blockers.',
       inputSchema: updateTaskSchema,
     },
     (a) => toolCall('task.update', () => board.update(a), invalid),
@@ -81,7 +81,8 @@ export function registerTaskTools(server: McpServer, board: TaskBoard, workers?:
   server.registerTool(
     'task.start_attempt',
     {
-      description: 'Start an assigned task attempt without dispatching input. Supersedes previous attempts.',
+      description:
+        'Start an unblocked task attempt without dispatching input. executor:worker (default) requires assignment; executor:supervisor requires no assignment. Supersedes previous attempts.',
       inputSchema: startAttemptSchema,
     },
     (a) => toolCall('task.start_attempt', () => board.startAttempt(a), invalid),

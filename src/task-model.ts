@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { completionFields, completionView } from './task-results.js';
+import { attemptSchema, completionFields, completionView } from './task-results.js';
 
 export const MAX_TASKS = 1000;
 const label = z.string().trim().min(1).max(200);
@@ -51,7 +51,9 @@ export const taskPatchSchema = z
   .strict()
   .refine((p) => Object.values(p).some((v) => v !== undefined), 'Provide at least one change');
 export const taskIdentity = { taskId: z.uuid(), expectedRevision: taskSchema.shape.revision };
-export const updateTaskSchema = z.object({ ...taskIdentity, patch: taskPatchSchema }).strict();
+export const updateTaskSchema = z
+  .object({ ...taskIdentity, patch: taskPatchSchema, invalidateAttempt: z.boolean().default(false) })
+  .strict();
 export const taskFilterSchema = z
   .object({
     boardId: label.optional(),
@@ -64,9 +66,9 @@ export const taskFilterSchema = z
     limit: z.number().int().min(1).max(100).default(50),
   })
   .strict();
-export const taskStateSchema = z.object({ version: z.literal(2), tasks: z.array(taskSchema).max(MAX_TASKS) }).strict();
+export const taskStateSchema = z.object({ version: z.literal(3), tasks: z.array(taskSchema).max(MAX_TASKS) }).strict();
 export type TaskState = z.infer<typeof taskStateSchema>;
-export const emptyTaskState = (): TaskState => ({ version: 2, tasks: [] });
+export const emptyTaskState = (): TaskState => ({ version: 3, tasks: [] });
 
 /** Validate the complete graph within one storage transaction, including reverse dependents. */
 export function validateTaskState(value: unknown): TaskState {
@@ -83,7 +85,7 @@ export function validateTaskState(value: unknown): TaskState {
     const old = legacy.safeParse(value);
     if (!old.success) throw new Error('TASK_STATE_INVALID: invalid legacy records');
     value = {
-      version: 2,
+      version: 3,
       tasks: old.data.tasks.map((t) => ({
         ...t,
         attempts: [],
@@ -91,6 +93,19 @@ export function validateTaskState(value: unknown): TaskState {
         legacyCompletion: t.status === 'done',
       })),
     };
+  }
+  if (typeof value === 'object' && value !== null && 'version' in value && value.version === 2) {
+    const old = z
+      .object({
+        version: z.literal(2),
+        tasks: z
+          .array(taskSchema.extend({ attempts: z.array(attemptSchema.extend({ agentId: z.uuid() })).max(20) }))
+          .max(MAX_TASKS),
+      })
+      .strict()
+      .safeParse(value);
+    if (!old.success) throw new Error('TASK_STATE_INVALID: invalid version-2 records');
+    value = { ...old.data, version: 3 };
   }
   const parsed = taskStateSchema.safeParse(value);
   if (!parsed.success) throw new Error('TASK_STATE_INVALID: invalid task records');
@@ -133,6 +148,11 @@ export function validateTaskState(value: unknown): TaskState {
       )
         throw new Error('TASK_STATE_INVALID: duplicate snapshot criteria');
       for (const r of a.reports) {
+        if (
+          a.agentId === null &&
+          (r.provenance !== 'supervisor_recorded' || r.checks.some((c) => c.provenance !== 'supervisor_recorded'))
+        )
+          throw new Error('TASK_STATE_INVALID: supervisor attempt requires supervisor-recorded evidence');
         if (
           new Set(r.checks.map((c) => c.id)).size !== r.checks.length ||
           r.checks.some(

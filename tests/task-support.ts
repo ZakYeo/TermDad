@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import type { TaskBoard } from '../src/tasks.js';
 
 export const resultReport = {
@@ -11,9 +10,11 @@ export const resultReport = {
 };
 export async function completeTask(board: TaskBoard, taskId: string) {
   let task = await board.get(taskId);
-  if (!task.assignedAgentId)
-    task = await board.assign({ taskId, expectedRevision: task.revision, agentId: randomUUID() });
-  task = await board.startAttempt({ taskId, expectedRevision: task.revision });
+  task = await board.startAttempt({
+    taskId,
+    expectedRevision: task.revision,
+    executor: task.assignedAgentId ? 'worker' : 'supervisor',
+  });
   task = await board.reportResult({
     taskId,
     expectedRevision: task.revision,
@@ -41,9 +42,11 @@ export async function completeViaTools(
   taskId: string,
 ) {
   let task = await call('task.get', { taskId });
-  if (!task.assignedAgentId)
-    task = await call('task.assign', { taskId, expectedRevision: task.revision, agentId: randomUUID() });
-  task = await call('task.start_attempt', { taskId, expectedRevision: task.revision });
+  task = await call('task.start_attempt', {
+    taskId,
+    expectedRevision: task.revision,
+    executor: task.assignedAgentId ? 'worker' : 'supervisor',
+  });
   task = await call('task.report_result', {
     taskId,
     expectedRevision: task.revision,

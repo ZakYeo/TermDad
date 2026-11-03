@@ -23,7 +23,7 @@ export function registerPushTools(server: McpServer, push: WorkerPushRegistry) {
     'push.set',
     {
       description:
-        'Turn worker-pushed events on or off for one pane (agentId or worker name). Returns the same deliverability facts as push.status: `deliverable`, `proven`, `reason`. Enable it for long-running work so its watch stops scraping the pane and reports as soon as the worker itself reports; disable it to return to polling. Enabling fails explicitly when the channel cannot deliver: PUSH_NOT_WIRED for a pane launched without hooks (an adopted pane); a surviving worker from a previous server is re-keyed here, not respawned; PUSH_SOCKET_UNAVAILABLE when the socket did not bind, PUSH_UNSUPPORTED_WORKER for a shell worker. Disabling always succeeds.',
+        'Turn worker-pushed events on or off for one pane (agentId or worker name). Returns the same deliverability facts as push.status: `deliverable`, `proven`, `reason`. Enable it for long-running work; normal polling continues until a hook delivery proves the channel, then the watch uses its slower liveness interval; disable it to return to polling. Enabling fails explicitly when the channel cannot deliver: PUSH_NOT_WIRED for a pane launched without hooks (an adopted pane); a surviving worker from a previous server is re-keyed here, not respawned; PUSH_SOCKET_UNAVAILABLE when the socket did not bind, PUSH_UNSUPPORTED_WORKER for a shell worker. Disabling always succeeds.',
       inputSchema: { agentId: z.string().min(1), enabled: z.boolean() },
     },
     ({ agentId, enabled }) => toolCall('push.set', () => push.setEnabled(agentId, enabled)),
