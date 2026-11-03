@@ -1,18 +1,23 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { LiveGuard } from './live-guard.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 /** Each live test has its own registry and closes only panes whose creation it observed. */
 export class LiveSession {
-  readonly owned = new Set<number>();
+  readonly guard: LiveGuard;
+  readonly owned: Set<number>;
   private uncertainSpawn = false;
   client = new Client({ name: 'term-dad-live-test', version: '1' });
   private constructor(
     readonly directory: string,
     private readonly env: Record<string, string>,
-  ) {}
+  ) {
+    this.guard = new LiveGuard(env.WEZTERM_UNIX_SOCKET ?? process.env.WEZTERM_UNIX_SOCKET);
+    this.owned = this.guard.panes;
+  }
   static async create(env: Record<string, string> = {}) {
     const session = new LiveSession(await mkdtemp(join(tmpdir(), 'term-dad-live-')), env);
     try {
@@ -28,7 +33,12 @@ export class LiveSession {
     await this.client.connect(
       new StdioClientTransport({
         command: `${process.cwd()}/scripts/launch-local`,
-        env: { ...process.env, ...this.env, TERM_DAD_STATE_DIR: this.directory } as Record<string, string>,
+        env: {
+          ...process.env,
+          ...this.env,
+          TERM_DAD_STATE_DIR: this.directory,
+          TERM_DAD_STRICT_INSTANCE: '1',
+        } as Record<string, string>,
         stderr: 'inherit',
       }),
     );
@@ -39,6 +49,16 @@ export class LiveSession {
     await this.connect();
   }
   call = async (name: string, args: Record<string, unknown> = {}) => {
+    if (name.startsWith('terminal.') || name.startsWith('agent.')) {
+      const identity = await this.rawCall('terminal.list_instances');
+      this.guard.verify(identity.selected);
+      this.guard.authorize(name, args);
+    }
+    const value = await this.rawCall(name, args);
+    if (name === 'agent.spawn' || name === 'agent.adopt') this.guard.agents.add(value.agentId);
+    return value;
+  };
+  private rawCall = async (name: string, args: Record<string, unknown> = {}) => {
     const result = await this.client.callTool({ name, arguments: args }, undefined, { timeout: 150000 });
     if (result.isError) throw new Error(JSON.stringify(result));
     return JSON.parse((result.content as { text: string }[])[0].text);

@@ -53,7 +53,7 @@ export function windowsInstance(binary: string, run: typeof execute): InstanceRe
           // identity is pinned, a dead endpoint stays an error, so a replacement GUI is never
           // adopted silently.
           const dead = e instanceof Error && /endpoint is not alive/.test(e.message);
-          if (firstKey !== undefined || !endpoint || !dead) throw e;
+          if (process.env.TERM_DAD_STRICT_INSTANCE === '1' || firstKey !== undefined || !endpoint || !dead) throw e;
           console.error(`[term-dad] inherited WEZTERM_UNIX_SOCKET ${endpoint} is not alive; discovering a live GUI`);
           endpoint = undefined;
           identity = instanceSchema.parse(await request('resolve'));
