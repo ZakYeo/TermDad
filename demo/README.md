@@ -25,17 +25,24 @@ the demo fails clearly elsewhere.
 writing global configuration, or preparing a scratch project. It runs
 `codex login status`, not login. It does not prove the live demo will succeed.
 
-The browser opens a local presentation URL, also printed in the terminal. Put
+The browser opens a local presentation URL, also printed in the terminal.
+The demo waits here: click **Start demo** when ready. No Codex supervisor or
+workers start before that click. Double clicks cannot create extra sessions.
+Ctrl+C before Start cancels the launch. Put
 it beside WezTerm or on a second screen. Dad occupies the original pane and
-creates three worker panes beside it. Login, trust, and permission prompts still
-need normal human attention. One supervisor and three workers use your configured
+creates three worker panes beside it. This demo explicitly authorizes Dad to approve folder trust and command
+permissions for its own scratch project and worker panes. Fresh scratch directories are deliberately not pre-trusted, so folder-access
+screens appear and Dad handles the worker approvals after observing them.
+Dad observes any remaining demo permission prompt, selects its approval option,
+and checks readiness again before sending tasks. Authentication, unrelated
+permissions, and substantive questions still need your input in Dad’s session. One supervisor and three workers use your configured
 Codex account and consume model usage.
 
 ## What to show
 
 1. Point at the starter dashboard and three tickets: executive KPIs, monthly
    sales, and accounts needing attention.
-2. Let Dad introduce and dispatch the team. Three independent Codex sessions
+2. Click **Start demo**, then let Dad introduce and dispatch the team. Three independent Codex sessions
    implement small components in separate Git worktrees.
 3. Watch the board progress. Dad checks each contribution and merges it into a
    local scratch release branch.
@@ -58,7 +65,7 @@ history. The reveal also requires all checks passing on a clean release tree.
 A worker report alone is “Checking”; silence does not mean completion.
 
 Unavailable observations retain their timestamp and show a warning; the after
-preview becomes unavailable. Permission requests, worker problems, failed checks
+preview becomes unavailable. Out-of-scope permission requests, worker problems, failed checks
 and blockers need attention. Merge failures preserve the repository for
 inspection: no force merges or resets. Tell Dad to stop to halt work; inspect
 workers before sending follow-ups, especially after uncertain input delivery.
@@ -96,3 +103,23 @@ small while requiring real code changes and parallel Git integration.
 
 Independent review and automated tests are not live rehearsal evidence. The live
 walkthrough is intentionally left for the presenter to launch manually.
+
+Startup states are **Starting**, **Needs approval**, and **Ready**. Dad starts a
+task attempt only when its worker is ready and sends with `requireReady:true`.
+The Start endpoint is loopback-only, requires the page’s origin and random
+per-run token, and is accepted only once. It cannot submit arbitrary commands.
+Normal TermDad sessions retain
+ask-first behavior unless the user explicitly authorizes a particular scope.
+
+## Prepare a fresh directory without launching
+
+`npm run demo -- --prepare` creates a new scratch repository and worktrees, then
+prints a command such as `npm run demo -- --prepared /tmp/term-dad-demo-XXXXXX`.
+It does not open a browser or start any Codex sessions. Run the printed command
+to load the presentation, then click **Start demo**. Prepared directories can be
+opened once; a cancelled or failed launch is retained for inspection rather than
+replayed. Prepare another directory for another fresh folder-trust demonstration.
+The supervisor itself may ask you to trust its new folder before it can run; Dad
+handles the three worker trust screens under your demo authorization. No global
+trust entries are written by the launcher, although Codex may remember a trust
+decision after Dad selects it.

@@ -12,26 +12,24 @@ type WorkerView = {
   agentId: string;
   inputRequired?: boolean;
   awaitingInput?: boolean;
+  readyForPrompt?: boolean;
+  inputRequest?: { kind: string } | null;
   error?: unknown;
   attachment?: string;
   deliveryPending?: boolean;
 };
 export function ticketState(task: TaskView | undefined, worker: WorkerView | undefined, merged: boolean) {
-  if (
-    !task ||
-    task.blockers.length ||
-    worker?.inputRequired ||
-    worker?.error ||
-    worker?.deliveryPending ||
-    worker?.attachment === 'detached'
-  )
+  if (!task || task.blockers.length || worker?.error || worker?.deliveryPending || worker?.attachment === 'detached')
     return 'Needs attention';
+  if (worker?.inputRequired) return worker.inputRequest?.kind === 'permission' ? 'Needs approval' : 'Needs attention';
   if (task.assignedAgentId && !worker) return 'Needs attention';
   if (task.latestReport && task.latestReport.outcome !== 'succeeded') return 'Needs attention';
   if (['failed', 'inconclusive', 'stale'].includes(task.verification?.status ?? '')) return 'Needs attention';
   if (merged && task.status === 'done' && task.verification?.status === 'passed') return 'Merged';
   if (task.latestReport || merged) return 'Checking';
-  return task.status === 'in_progress' ? 'Working' : 'Queued';
+  if (task.status === 'in_progress') return 'Working';
+  if (task.assignedAgentId) return worker?.readyForPrompt ? 'Ready' : 'Starting';
+  return 'Queued';
 }
 export async function collectStatus(
   run: DemoRun,

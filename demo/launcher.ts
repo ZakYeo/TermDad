@@ -80,8 +80,18 @@ export async function connect(root: string, run: DemoRun) {
   return { call, close: () => client.close() };
 }
 
-export function workerCommand(shell = process.env.TERM_DAD_LOCAL_SHELL || process.env.SHELL || '/bin/sh') {
-  const cli = ['codex', '--sandbox', 'workspace-write', '--ask-for-approval', 'on-request'];
+export function workerCommand(
+  shell = process.env.TERM_DAD_LOCAL_SHELL || process.env.SHELL || '/bin/sh',
+  run?: DemoRun,
+) {
+  const cli = [
+    'codex',
+    '--sandbox',
+    'workspace-write',
+    '--ask-for-approval',
+    'on-request',
+    ...(run ? ['--add-dir', run.directory] : []),
+  ];
   if (basename(shell) === 'fish') return [shell, '-lic', 'exec $argv', ...cli];
   if (['sh', 'dash', 'bash', 'zsh', 'ksh'].includes(basename(shell)))
     return [shell, '-lic', 'exec "$@"', 'term-dad-demo-worker', ...cli];

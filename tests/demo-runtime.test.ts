@@ -6,6 +6,7 @@ import test from 'node:test';
 import { command, integrate, prepareRun, readEvidence, releaseReady, type DemoRun } from '../demo/runtime.js';
 import { demoEnvironment, preflight, supervisorArgs, workerCommand, sameSocket } from '../demo/launcher.js';
 import { collectStatus, ticketState } from '../demo/status.js';
+import { demoOptions, loadPrepared, claimPrepared } from '../demo/prepared.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const implementations: Record<string, string> = {
@@ -166,8 +167,15 @@ test('demo preflight checks prerequisites without invoking interactive workers',
 test('demo launch argv preserves literal paths and normal approval handling without global writes', () => {
   const run = {
     directory: '/tmp/demo space',
+    repository: '/tmp/demo space/release',
+    tickets: [],
     state: '/tmp/demo space/state',
     endpoint: '/tmp/socket space',
+    before: '/tmp/demo space/before',
+    base: 'base',
+    parentPane: 7,
+    instanceKey: 'gui',
+    panes: [],
   } as DemoRun;
   const prompt = 'Use literal `text` and $(not-a-command).';
   const args = supervisorArgs('/tmp/checkout space', run, prompt);
@@ -243,4 +251,35 @@ test('demo accepts Windows socket spelling differences but rejects another socke
     list: async () => [{ pane_id: 7 }],
   });
   assert.equal(found.endpoint, resolved);
+});
+
+test('startup projection distinguishes starting, ready, and approval', () => {
+  const task = { id: 'task', status: 'todo', blockers: [], assignedAgentId: 'worker' };
+  assert.equal(ticketState(task, { agentId: 'worker' }, false), 'Starting');
+  assert.equal(ticketState(task, { agentId: 'worker', readyForPrompt: true }, false), 'Ready');
+  assert.equal(
+    ticketState(task, { agentId: 'worker', inputRequired: true, inputRequest: { kind: 'permission' } }, false),
+    'Needs approval',
+  );
+});
+
+test('prepared demo is fresh, validated and claimed only once without pre-trusting folders', async (t) => {
+  const run = await fixture(t);
+  assert.deepEqual(await loadPrepared(run.directory), run);
+  const argv = workerCommand('/bin/zsh', run);
+  assert.ok(!argv.some((arg) => /trust_level|dangerously/.test(arg)));
+  assert.ok(!supervisorArgs(root, run, 'demo').some((arg) => /trust_level|dangerously/.test(arg)));
+  await claimPrepared(run);
+  await assert.rejects(claimPrepared(run), /already been opened/);
+  const bad = { ...run, repository: '/tmp/unrelated' };
+  await writeFile(join(run.directory, 'run.json'), JSON.stringify(bad));
+  await assert.rejects(loadPrepared(run.directory), /Invalid/);
+});
+
+test('demo options keep preparation separate from launch', () => {
+  assert.deepEqual(demoOptions(['--prepare']), { mode: 'prepare' });
+  assert.deepEqual(demoOptions(['--prepared', '/tmp/demo']), { mode: 'launch', directory: '/tmp/demo' });
+  assert.deepEqual(demoOptions(['--check']), { mode: 'check' });
+  assert.throws(() => demoOptions(['--prepare', '--check']), /Usage/);
+  assert.throws(() => demoOptions(['--prepared']), /Usage/);
 });
