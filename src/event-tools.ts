@@ -59,7 +59,21 @@ export function wakeCommand(
   };
 }
 
-export function registerEventTools(server: McpServer, queue: EventQueue) {
+export function registerEventTools(
+  server: McpServer,
+  queue: EventQueue,
+  reconcile?: (agentIds: string[], expectedInstanceKey: string) => Promise<unknown>,
+) {
+  if (reconcile)
+    server.registerTool(
+      'event.reconcile',
+      {
+        description:
+          'Explicitly acknowledge a snapshot of events only for managed panes verified absent in the selected GUI. Unknown records and transport failures retain events.',
+        inputSchema: { agentIds: z.array(z.uuid()).min(1).max(64), expectedInstanceKey: z.string().min(1).max(1024) },
+      },
+      (a) => toolCall('event.reconcile', () => reconcile(a.agentIds, a.expectedInstanceKey)),
+    );
   server.registerTool(
     'event.list',
     {

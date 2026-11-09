@@ -882,6 +882,25 @@ export class Agents {
       }),
     );
   }
+  withVerifiedMissing<T>(agentId: string, expectedInstanceKey: string, fn: (paneId: number) => Promise<T>) {
+    return this.run(() =>
+      this.retrying(() =>
+        this.locked(agentId, async (w) => {
+          const identity = await this.identity();
+          if (
+            !identity ||
+            identity.key !== expectedInstanceKey ||
+            !sameInstance(w.instance, identity) ||
+            w.paneId === null
+          )
+            return null;
+          const panes = await this.backend.list();
+          if (panes.some((p) => p.pane_id === w.paneId) || !sameInstance(identity, await this.identity())) return null;
+          return fn(w.paneId);
+        }),
+      ),
+    );
+  }
   async findByPane(paneId: number) {
     const instance = await this.identity();
     return (await this.saved()).find((w) => w.paneId === paneId && this.attached(w, instance));

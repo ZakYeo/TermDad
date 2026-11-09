@@ -171,6 +171,7 @@ export const scenarios: Scenario[] = [
   },
   { tool: 'event.wait_for_event', args: () => ({ freshOnly: false, timeoutMs: 1 }) },
   { tool: 'event.acknowledge', args: (c) => ({ ids: [c.event.id] }) },
+  { tool: 'event.reconcile', args: (c) => ({ agentIds: [c.worker.agentId], expectedInstanceKey: 'benchmark' }) },
   { tool: 'event.wake_command', args: empty },
   { tool: 'usage.configure', args: () => ({ accountRef: 'benchmark', provider: 'codex' }) },
   { tool: 'usage.status', args: empty },

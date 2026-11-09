@@ -239,6 +239,9 @@ export class EventQueue {
             resumeAfterSequence: found.length > limit ? found[limit - 1].sequence : s.nextSequence - 1,
             pendingCount: s.events.filter((e) => e.acknowledgedAt === null).length,
             capacity: this.capacity,
+            retainedCount: s.events.length,
+            reclaimableCount: s.events.filter((e) => e.acknowledgedAt !== null).length,
+            capacityPressure: s.events.filter((e) => e.acknowledgedAt === null).length >= this.capacity * 0.8,
             storageWarning: this.storage.warning ?? null,
           },
         };

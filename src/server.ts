@@ -1,3 +1,4 @@
+import { reconcileEvents } from './event-reconcile.js';
 import { closePanes } from './terminal-close.js';
 import { workspaceContexts } from './workspace-context.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -573,7 +574,7 @@ export function createServer(
   const closeAttention = registerAttentionTools(server, attention, () => usageView(usage));
   registerUsageTools(server, usage, (id) => agents.resolve(id));
   usage.start();
-  const closeEvents = registerEventTools(server, events);
+  const closeEvents = registerEventTools(server, events, (ids, key) => reconcileEvents(events, agents, ids, key));
   registerPushTools(server, push);
   const closeWatches = registerWatchTools(server, watches);
   // Shutdown order, explicitly: watches stop sampling and drain their in-flight sink first, so

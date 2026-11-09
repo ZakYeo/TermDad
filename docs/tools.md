@@ -997,3 +997,16 @@ the state directory; reuse with different input fails. Reuse with identical inpu
 returns the existing result, without resending submitted or uncertain input.
 Uncertainty is persisted before terminal I/O. Inspect failed delivery before
 choosing an explicit next action; task preparation cannot roll back PTY input.
+
+### Event capacity and reconciliation
+
+`event.list` separates `retainedCount`, `pendingCount` and `reclaimableCount`;
+`capacityPressure` is true when pending obligations occupy at least 80% of the
+capacity. Retained acknowledged history alone is not a full-queue failure.
+`event.reconcile({agentIds,expectedInstanceKey})` acknowledges a snapshot only
+when the stored worker identity matches the selected GUI and its pane is absent.
+Live panes, unknown/forgotten workers, detached mappings, and transport failures
+retain events. For forgotten workers, inspect history before explicitly
+acknowledging individual event IDs. Unresolved prompts never expire silently.
+Quota status reads retry only storage-busy errors with five bounded delays;
+collectors and writes are not replayed.
