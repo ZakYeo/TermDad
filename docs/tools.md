@@ -971,3 +971,17 @@ is inferred. Ordinary follow-ups inherit a valid current attempt when omitted;
 Task mutation tools accept `responseMode:"compact"` to return only `id`,
 `revision`, `status`, `attemptId`, `reportId` and `verificationId`. Full remains
 the default. Use `task.get` and `task.history` for full requirements and evidence.
+
+### Conditional verification
+
+A criterion decision may be `not_applicable` with a nonempty `reason` and evidence.
+Passing verification requires every criterion to pass or be explicitly not
+applicable, a succeeded report without failed checks, and resolved dependencies
+and blockers. Errors name criterion IDs and their decisions. Verification summaries
+expose `notApplicable`; history retains the full decision. The legacy `satisfied`
+boolean means resolved, not necessarily tested-and-passed. Overall inconclusive
+verification still cannot complete a task.
+
+Task journals now write version 4; versions 1–3 migrate on read without writing
+until a successful mutation. Restart clients together; older builds cannot read
+new records and must not be used against the upgraded state directory.

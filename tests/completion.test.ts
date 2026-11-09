@@ -238,7 +238,7 @@ test('legacy migration is read-only until a successful write; reopened legacy ta
   assert.equal(read.verification.status, 'legacy_unverified');
   assert.equal(await readFile(path, 'utf8'), old);
   const reopened = await migrated.update({ taskId: task.id, expectedRevision: 1, patch: { status: 'todo' } });
-  assert.equal(JSON.parse(await readFile(path, 'utf8')).version, 3);
+  assert.equal(JSON.parse(await readFile(path, 'utf8')).version, 4);
   assert.equal(reopened.verification.status, 'unverified');
   await assert.rejects(
     migrated.update({ taskId: task.id, expectedRevision: 2, patch: { status: 'done' } }),
@@ -403,7 +403,7 @@ test('supervisor completion persists evidence without inventing a worker and can
   );
 });
 
-test('version-2 worker evidence migrates intact and writes version 3 only on mutation', async (t) => {
+test('version-2 worker evidence migrates intact and writes version 4 only on mutation', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'term-dad-v2-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const { board, task, decision } = await reportFixture();
@@ -416,6 +416,31 @@ test('version-2 worker evidence migrates intact and writes version 3 only on mut
   assert.deepEqual(await migrated.get(task.id), done);
   assert.equal(await readFile(path, 'utf8'), old);
   await migrated.update({ taskId: task.id, expectedRevision: done.revision, patch: { title: 'Renamed' } });
-  assert.equal(JSON.parse(await readFile(path, 'utf8')).version, 3);
+  assert.equal(JSON.parse(await readFile(path, 'utf8')).version, 4);
   assert.deepEqual((await migrated.history({ taskId: task.id })).attempts, state.tasks[0].attempts);
+});
+
+test('conditional criteria can be not applicable with explicit reason and evidence', async () => {
+  const { board, task, decision } = await reportFixture();
+  const criteria = [
+    {
+      criterionId: 'test',
+      result: 'not_applicable',
+      reason: 'The defect did not reproduce; no fix exists to test',
+      evidence: ['reproduction log'],
+    },
+  ];
+  await assert.rejects(
+    board.verify({ ...decision, criteria: [{ ...criteria[0], reason: undefined }] }),
+    /requires a reason/,
+  );
+  await assert.rejects(
+    board.verify({ ...decision, criteria: [{ ...criteria[0], result: 'inconclusive' }] }),
+    /test=inconclusive/,
+  );
+  const done = await board.verify({ ...decision, criteria });
+  assert.equal(done.status, 'done');
+  assert.deepEqual(done.verification.notApplicable, [{ criterionId: 'test', reason: criteria[0].reason }]);
+  const history = await board.history({ taskId: task.id });
+  assert.equal(history.attempts[0].verifications[0].criteria[0].result, 'not_applicable');
 });
