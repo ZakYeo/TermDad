@@ -1,3 +1,4 @@
+import { reconcileEvents } from './event-reconcile.js';
 import { closePanes } from './terminal-close.js';
 import { workspaceContexts } from './workspace-context.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -6,7 +7,7 @@ import { EventQueue } from './events.js';
 import { registerEventTools } from './event-tools.js';
 import { WezTermBackend, type TerminalBackend, id, spawnSchema, sendKeys, submit, keyDescription } from './backend.js';
 import { compactInventory } from './terminal-list.js';
-import { Agents, adoptionSchema, reattachSchema, normalizeScreen } from './agents.js';
+import { hashOutput, Agents, adoptionSchema, reattachSchema, normalizeScreen } from './agents.js';
 import { FileWorkerStorage, type WorkerStorage } from './worker-storage.js';
 import { CommandScreenshotProvider, type ScreenshotProvider } from './screenshots.js';
 import { WatchManager, type WatchOptions } from './watches.js';
@@ -15,6 +16,7 @@ import { CommandNotificationProvider } from './notifications.js';
 import { attemptReferenceSchema } from './task-results.js';
 import { TaskBoard } from './tasks.js';
 import { FileTaskStorage, type TaskStorage } from './task-storage.js';
+import { registerTaskDispatch } from './task-dispatch-tools.js';
 import { registerTaskTools } from './task-tools.js';
 import { withWorkerTasks } from './task-workers.js';
 import { AttentionService } from './attention.js';
@@ -56,6 +58,23 @@ export function createServer(
     (process.env.TERM_DAD_MONITORING === '1' ? Monitoring.file(join(stateDirectory(), 'monitoring')) : undefined);
   if (monitoring) backend = monitoring.backend(backend);
   const socketPath = pushSocketPath(stateDirectory());
+  const publishSignal = async (event: import('./events.js').EventInput) => {
+    if (
+      event.agentId &&
+      ['input_required', 'plan_approval', 'tool_permission', 'question', 'ready'].includes(event.kind)
+    ) {
+      const observation = await agents.peek(event.agentId);
+      if (event.kind === 'ready' && !observation.readyForPrompt) return;
+      if (event.kind === 'ready')
+        return events.publish({
+          ...event,
+          deliveryKey: hashOutput(`ready:${event.agentId}:${observation.turnId}:${observation.outputHash}`),
+        });
+      const request = observation.inputRequest;
+      if (request) return events.publish({ ...event, deliveryKey: hashOutput(`${event.agentId}:${request.id}`) });
+    }
+    return events.publish(event);
+  };
   // A pushed event still publishes bounded metadata; `watches.confirm` then samples the pane
   // so the recorded status comes from the terminal rather than from the worker's claim.
   const ingress = new PushIngress({
@@ -63,7 +82,24 @@ export function createServer(
       const start = performance.now();
       let success = false;
       try {
-        await events.publish(event);
+        const { report, inputHash, ...metadata } = event;
+        if (event.kind === 'worker_report') {
+          await agents.recordReport(event.agentId, event.report!);
+          if (report!.state !== 'parked_background') await events.publish(metadata);
+          await watches.confirm(event.paneId);
+          success = true;
+          return;
+        }
+        if (event.kind === 'input_activity') await agents.noteInputActivity(event.agentId, inputHash);
+        if (event.kind === 'ready' || event.kind === 'turn_ended') {
+          let observation = await agents.peek(event.agentId);
+          if (observation.lastInputAt && Date.now() - observation.lastInputAt < 750) {
+            const remaining = 750 - (Date.now() - observation.lastInputAt);
+            await new Promise((resolve) => setTimeout(resolve, remaining));
+            observation = await agents.peek(event.agentId);
+          }
+          if (observation.readyForPrompt) await publishSignal({ ...metadata, kind: 'ready' });
+        } else await publishSignal(metadata);
         await watches.confirm(event.paneId);
         success = true;
       } finally {
@@ -85,9 +121,15 @@ export function createServer(
     usageService ??
     new UsageService(undefined, events, undefined, undefined, CommandNotificationProvider.fromEnvironment());
   const push = new WorkerPushRegistry(ingress, socketPath, notifyCommand(), stateDir);
-  const agents = new Agents(backend, workerStorage, push, async (ref) => {
-    await usage.account(ref);
-  });
+  const agents = new Agents(
+    backend,
+    workerStorage,
+    push,
+    async (ref) => {
+      await usage.account(ref);
+    },
+    (ref, agentId) => tasks.validateAttempt(ref.taskId, ref.attemptId, agentId),
+  );
   // Push can then report on a managed worker it holds no registration for, rather than failing,
   // accept the worker's name, and re-key a surviving worker on demand under its own lock.
   push.attachWorkers(async (agentIdOrName) => {
@@ -345,7 +387,8 @@ export function createServer(
       agentId: agent.agentId.optional().describe('Worker ID or name (alias to).'),
       to: agent.agentId.optional().describe('Alias for agentId.'),
       ...textOrMessage,
-      attempt: attemptReferenceSchema.optional(),
+      attempt: attemptReferenceSchema.nullable().optional(),
+      mode: z.enum(['task', 'queue']).default('task'),
       requireReady: z.boolean().default(true),
     },
     async (a) => {
@@ -355,15 +398,20 @@ export function createServer(
         const worker = await agents.resolve(agentId);
         await tasks.validateAttempt(a.attempt.taskId, a.attempt.attemptId, worker.agentId);
       }
-      return agents.send(agentId, task, a.attempt, a.requireReady);
+      return agents.send(agentId, task, a.attempt, a.requireReady, a.mode);
     },
   );
   for (const name of ['observe', 'status'])
     register(
       `agent.${name}`,
       'Observe state, activity and the tail of normalized output (20 lines by default). Pass since to get only the change since that observation; raise lines only when a screen is actually needed.',
-      { ...agent, since: z.string().optional(), lines: z.number().int().min(1).max(150).default(20) },
-      (a) => agents.observe(a.agentId, a.since, a.lines),
+      {
+        ...agent,
+        since: z.string().optional(),
+        lines: z.number().int().min(1).max(150).default(20),
+        view: z.enum(['screen', 'last_reply']).default('screen'),
+      },
+      (a) => agents.observe(a.agentId, a.since, a.lines, a.view),
     );
   register('agent.interrupt', 'Send Ctrl+C to worker.', agent, (a) => agents.interrupt(a.agentId));
   register('agent.stop', 'Close worker pane and remove mapping.', agent, (a) => agents.stop(a.agentId));
@@ -499,7 +547,7 @@ export function createServer(
     pushProven: (agentId) => !!agentId && !ingress.revoked(agentId) && ingress.status(agentId).proven,
     ...(monitoring ? { monitoring } : {}),
     ...options,
-    sink: options.sink ?? ((input) => events.publish(input)),
+    sink: options.sink ?? ((input) => publishSignal(input)),
   });
   // Listening is best effort: a server that cannot bind still polls, it just cannot be pushed to.
   const pushReady = pushSocket
@@ -530,6 +578,7 @@ export function createServer(
       return removed;
     })
     .catch(() => [] as string[]);
+  registerTaskDispatch(server, tasks, agents);
   const closeTasks = registerTaskTools(server, tasks, () => agents.list());
   const attention = new AttentionService(
     () => tasks.snapshot(),
@@ -538,7 +587,7 @@ export function createServer(
   const closeAttention = registerAttentionTools(server, attention, () => usageView(usage));
   registerUsageTools(server, usage, (id) => agents.resolve(id));
   usage.start();
-  const closeEvents = registerEventTools(server, events);
+  const closeEvents = registerEventTools(server, events, (ids, key) => reconcileEvents(events, agents, ids, key));
   registerPushTools(server, push);
   const closeWatches = registerWatchTools(server, watches);
   // Shutdown order, explicitly: watches stop sampling and drain their in-flight sink first, so

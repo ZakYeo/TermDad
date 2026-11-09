@@ -11,6 +11,10 @@ import { toolCall } from './tool-result.js';
 export const wakeKinds = [
   'attention_required',
   'input_required',
+  'plan_approval',
+  'tool_permission',
+  'question',
+  'worker_report',
   'ready',
   'pane_disappeared',
   'session_ended',
@@ -25,10 +29,23 @@ const shellWord = (value: string) =>
  * PATH and `dist/wait-cli.js` is a module that exits at once; both were tried in the field.
  * `--state-dir` is explicit because the waiter runs in the caller's environment, not the server's.
  */
-export function wakeCommand(stateDir = stateDirectory(), execPath = process.execPath) {
+export function wakeCommand(
+  stateDir = stateDirectory(),
+  execPath = process.execPath,
+  filter: { agentIds?: string[]; afterSequence?: number } = {},
+) {
   const entry = fileURLToPath(new URL('./index.js', import.meta.url)),
     command = [execPath, entry, 'wait-for-event'];
-  const args = ['--until-event', '--state-dir', stateDir, '--kinds', wakeKinds.join(',')];
+  const args = [
+    '--until-event',
+    '--state-dir',
+    stateDir,
+    '--kinds',
+    wakeKinds.join(','),
+    '--after-sequence',
+    String(filter.afterSequence ?? 0),
+  ];
+  if (filter.agentIds?.length) args.push('--agents', filter.agentIds.join(','));
   // A server run from source (tsx) has no index.js beside it; say so rather than hand out a path that cannot run.
   const warning = existsSync(entry)
     ? undefined
@@ -42,7 +59,21 @@ export function wakeCommand(stateDir = stateDirectory(), execPath = process.exec
   };
 }
 
-export function registerEventTools(server: McpServer, queue: EventQueue) {
+export function registerEventTools(
+  server: McpServer,
+  queue: EventQueue,
+  reconcile?: (agentIds: string[], expectedInstanceKey: string) => Promise<unknown>,
+) {
+  if (reconcile)
+    server.registerTool(
+      'event.reconcile',
+      {
+        description:
+          'Explicitly acknowledge a snapshot of events only for managed panes verified absent in the selected GUI. Unknown records and transport failures retain events.',
+        inputSchema: { agentIds: z.array(z.uuid()).min(1).max(64), expectedInstanceKey: z.string().min(1).max(1024) },
+      },
+      (a) => toolCall('event.reconcile', () => reconcile(a.agentIds, a.expectedInstanceKey)),
+    );
   server.registerTool(
     'event.list',
     {
@@ -89,9 +120,9 @@ export function registerEventTools(server: McpServer, queue: EventQueue) {
     {
       description:
         'The exact detached command that wakes an idle supervisor when an event lands. Run its example verbatim as a background process; never run dist/wait-cli.js directly and never assume term-dad is on PATH. Read-only.',
-      inputSchema: {},
+      inputSchema: { agentIds: eventFilterSchema.shape.agentIds, afterSequence: eventFilterSchema.shape.afterSequence },
     },
-    () => toolCall('event.wake_command', async () => wakeCommand()),
+    (filter) => toolCall('event.wake_command', async () => wakeCommand(undefined, undefined, filter)),
   );
   const stopSweeper = queue.startSweeper();
   return async () => {

@@ -338,3 +338,53 @@ test('independent processes preserve published events and acknowledgments after 
   assert.equal((await reopened.list()).pendingCount, 0);
   assert.equal((await reopened.list({}, true)).events.length, 20);
 });
+
+test('capacity diagnostics distinguish retained history from pending obligations', async (t) => {
+  const { queue } = await fixture(t, 2);
+  const page = await queue.list();
+  assert.equal(page.retainedCount, 0);
+  assert.equal(page.reclaimableCount, 0);
+  assert.equal(page.capacityPressure, false);
+  const first = await queue.publish(input());
+  await queue.publish(input());
+  assert.equal((await queue.list()).capacityPressure, true);
+  await queue.acknowledge([first.id]);
+  const history = await queue.list();
+  assert.equal(history.retainedCount, 2);
+  assert.equal(history.reclaimableCount, 1);
+  assert.equal(history.capacityPressure, false);
+});
+
+test('reconciliation preserves live, detached and unavailable panes and acknowledges verified disappearance', async (t) => {
+  const { Agents } = await import('../src/agents.js');
+  const { WezTermBackend } = await import('../src/backend.js');
+  const { reconcileEvents } = await import('../src/event-reconcile.js');
+  const { queue } = await fixture(t, 10);
+  let visible = true,
+    failed = false;
+  const agents = new Agents(
+    new WezTermBackend(
+      async (args) => {
+        if (failed) throw new Error('transport unavailable');
+        return args[0] === 'list'
+          ? JSON.stringify(
+              visible
+                ? [{ pane_id: 7, tab_id: 1, window_id: 1, title: 'w', cwd: '/tmp', size: { rows: 24, cols: 80 } }]
+                : [],
+            )
+          : '$ ';
+      },
+      async () => ({ key: 'k', endpoint: 'e' }),
+    ),
+  );
+  const worker = await agents.adopt({ name: 'w', paneId: 7, cli: 'shell' });
+  await queue.publish({ ...input(7, 'input_required'), agentId: worker.agentId });
+  assert.equal((await reconcileEvents(queue, agents, [worker.agentId], 'k')).acknowledged.length, 0);
+  visible = false;
+  assert.equal((await reconcileEvents(queue, agents, [worker.agentId], 'other')).acknowledged.length, 0);
+  failed = true;
+  assert.equal((await reconcileEvents(queue, agents, [worker.agentId], 'k')).acknowledged.length, 0);
+  failed = false;
+  assert.equal((await reconcileEvents(queue, agents, [worker.agentId], 'k')).acknowledged.length, 1);
+  await agents.close();
+});

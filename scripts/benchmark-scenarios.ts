@@ -115,17 +115,45 @@ export const scenarios: Scenario[] = [
     }),
     save: saveTask,
   },
+  {
+    tool: 'task.dispatch',
+    args: (c) => ({
+      agentId: c.worker.agentId,
+      idempotencyKey: 'benchmark-dispatch',
+      task: { boardId: 'bench', title: 'Dispatch', goal: 'Dispatch once' },
+      text: 'Do fixture work',
+    }),
+    setup: async (f, c) => {
+      f.panes.set(c.worker.paneId, 'Dispatch ready\n$ ');
+      await f.app.agents.storage.transaction(true, (s) => {
+        s.workers.find((w) => w.agentId === c.worker.agentId)!.lastInputAt = 0;
+        return { state: s, result: null };
+      });
+    },
+  },
   { tool: 'task.history', args: (c) => ({ taskId: c.task.id }) },
   { tool: 'task.archive', args: (c) => ({ ...task(c), archived: true }), save: saveTask },
   { tool: 'orchestrator.attention', args: empty },
   {
     tool: 'watch.create',
     args: worker,
+    setup: async (f, c) => {
+      f.panes.set(c.worker.paneId, 'New request ready\n$ ');
+      await f.app.agents.storage.transaction(true, (s) => {
+        const w = s.workers.find((w) => w.agentId === c.worker.agentId)!;
+        w.lastInputAt = 0;
+        return { state: s, result: null };
+      });
+    },
     save: (c, r) => {
       c.watch = r;
     },
   },
   { tool: 'watch.list', args: empty },
+  {
+    tool: 'watch.set_disposition',
+    args: (c) => ({ watchId: c.watch.watchId, requestKey: c.watch.requestKey, disposition: 'awaiting_human' }),
+  },
   { tool: 'watch.remove', args: (c) => ({ watchId: c.watch.watchId }) },
   { tool: 'push.status', args: empty },
   { tool: 'push.set', args: (c) => ({ ...worker(c), enabled: false }) },
@@ -143,6 +171,7 @@ export const scenarios: Scenario[] = [
   },
   { tool: 'event.wait_for_event', args: () => ({ freshOnly: false, timeoutMs: 1 }) },
   { tool: 'event.acknowledge', args: (c) => ({ ids: [c.event.id] }) },
+  { tool: 'event.reconcile', args: (c) => ({ agentIds: [c.worker.agentId], expectedInstanceKey: 'benchmark' }) },
   { tool: 'event.wake_command', args: empty },
   { tool: 'usage.configure', args: () => ({ accountRef: 'benchmark', provider: 'codex' }) },
   { tool: 'usage.status', args: empty },

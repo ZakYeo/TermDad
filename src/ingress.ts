@@ -1,15 +1,36 @@
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
+import { workerReportSchema, type WorkerReport } from './worker-report.js';
 
 /** Kinds a worker CLI hook may report. Summaries are authored here, never by the worker. */
-export const pushKinds = ['input_required', 'ready', 'session_ended'] as const;
+export const pushKinds = [
+  'input_required',
+  'ready',
+  'session_ended',
+  'plan_submitted',
+  'plan_approval',
+  'tool_permission',
+  'question',
+  'input_activity',
+  'turn_ended',
+  'worker_report',
+] as const;
 export type PushKind = (typeof pushKinds)[number];
 const summaries: Record<PushKind, string> = {
+  worker_report: 'Worker reported its state; inspect its current report.',
+  plan_submitted: 'Worker submitted a plan; approval state requires confirmation.',
+  plan_approval: 'Worker requested plan approval.',
+  tool_permission: 'Worker requested tool permission.',
+  question: 'Worker requested an answer.',
+  input_activity: 'Worker received input; its source is unknown.',
+  turn_ended: 'Worker finished responding; readiness and task success are not established.',
   input_required: 'Worker reported that it needs input.',
   ready: 'Worker reported that its turn finished; task success is not established.',
   session_ended: 'Worker reported that its session ended; the pane may still be open.',
 };
 export interface PushEvent {
+  report?: WorkerReport;
+  inputHash?: string;
   kind: PushKind;
   paneId: number;
   agentId: string;
@@ -27,7 +48,17 @@ export interface PushResult {
   error?: string;
 }
 // Only the token and the kind are trusted from a hook; any other field is ignored.
-const messageSchema = z.object({ token: z.string().min(1).max(200), kind: z.enum(pushKinds) }).passthrough();
+const messageSchema = z
+  .object({
+    token: z.string().min(1).max(200),
+    kind: z.enum(pushKinds),
+    report: workerReportSchema.optional(),
+    inputHash: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .optional(),
+  })
+  .passthrough();
 type Registration = {
   agentId: string;
   paneId: number;
@@ -123,10 +154,13 @@ export class PushIngress {
     } catch {
       return { error: 'PUSH_INPUT_INVALID: expected {"token":string,"kind":one of ' + pushKinds.join('|') + '}' };
     }
+    if (message.kind === 'worker_report' && !message.report) return { error: 'PUSH_INPUT_INVALID: report required' };
     const registration = this.byToken.get(message.token);
     if (!registration) return { error: 'PUSH_UNAUTHORIZED: unknown or revoked push token' };
     if (!registration.enabled) return { ok: true, delivered: false };
     const event: PushEvent = {
+      ...(message.kind === 'input_activity' && message.inputHash ? { inputHash: message.inputHash } : {}),
+      ...(message.kind === 'worker_report' ? { report: message.report } : {}),
       kind: message.kind,
       paneId: registration.paneId,
       agentId: registration.agentId,

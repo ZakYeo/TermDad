@@ -160,8 +160,12 @@ them, and pass `freshOnly:false` only to read history.
 
 Never end a turn with a busy worker and no pending waiter, and never promise a
 later update any other way; a wait you are inside counts only until it returns.
-To be woken while idle, call `event.wake_command` once per session and run its
-`example` verbatim as a detached background command, editing only `--kinds`.
+To be woken while idle, call `event.wake_command` with your live `agentIds` and last handled
+`afterSequence`, then run its `example` as a detached background command.
+Without a cursor it drains pending events from sequence zero. Drain each list
+page completely before advancing to `resumeAfterSequence`; never jump to a
+newly sampled latest sequence. Use a separate unscoped usage-only waiter because
+agent filters exclude account events.
 It prints one JSON line: `{"status":"event",…}` is your wake and
 `{"status":"timeout"}` means re-arm. Read `status`, never the exit code; a
 waiter with no JSON line or a non-zero exit is broken. On every wake: inspect
@@ -243,3 +247,16 @@ screens; never replay uncertain input or revive canceled work.
 
 Hook code, templates, and installation instructions are in this repository; see
 `docs/hooks.md`. Do not invent local-only hook scripts or bypass client hook trust.
+
+Prefer `agent.observe` with `view:"last_reply"` and your last `since` ID for
+reply inspection; use screen view when extraction falls back or you need to
+inspect an approval. A plan path is a reference in the worker's domain.
+
+Use explicit `agent.send` `mode:"queue"` for steering an active Claude turn.
+It preserves tracking but does not prove Claude consumed the correction. Normal
+follow-ups inherit their current validated attempt; use `attempt:null` only for
+an intentional detachment. Never queue answers to approval screens.
+
+Request `responseMode:"compact"` for task mutations to avoid repeated requirements
+and evidence. Use the returned revision and attempt/report IDs for subsequent
+calls; fetch full details only when needed.

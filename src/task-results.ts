@@ -42,10 +42,12 @@ export const reportSchema = z.object({ ...reportFields, id: z.uuid(), createdAt:
 export const decisionSchema = z
   .object({
     criterionId: z.string().min(1).max(100),
-    result: z.enum(['passed', 'failed', 'inconclusive']),
+    result: z.enum(['passed', 'failed', 'inconclusive', 'not_applicable']),
+    reason: text.optional(),
     evidence: z.array(reference).min(1).max(50),
   })
-  .strict();
+  .strict()
+  .refine((d) => d.result !== 'not_applicable' || !!d.reason, 'not_applicable requires a reason');
 export const verificationFields = {
   reportId: z.uuid(),
   workVersion: reference,
@@ -113,6 +115,13 @@ export function completionView(task: {
     verification: valid
       ? {
           status: verification.result,
+          ...(verification.criteria.some((c) => c.result === 'not_applicable')
+            ? {
+                notApplicable: verification.criteria
+                  .filter((c) => c.result === 'not_applicable')
+                  .map((c) => ({ criterionId: c.criterionId, reason: c.reason })),
+              }
+            : {}),
           id: verification.id,
           reportId: verification.reportId,
           workVersion: verification.workVersion,

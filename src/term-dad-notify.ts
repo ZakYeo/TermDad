@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { createHash } from 'node:crypto';
+import { workerReportSchema, type WorkerReport } from './worker-report.js';
 import { connect } from 'node:net';
 import { pathToFileURL } from 'node:url';
 import { pushKinds, type PushKind } from './ingress.js';
@@ -19,11 +21,27 @@ export type NotifyTarget = { credentialPath: string } | { socketPath: string; to
 export interface NotifyRequest {
   target: NotifyTarget;
   kind: PushKind;
+  report?: WorkerReport;
+  inputHash?: string;
 }
 
 /** Which event this invocation reports, or nothing when the CLI's event is not modelled. */
 export function notifyKind(argv: string[], stdin: string): PushKind | undefined {
   let kind = flag(argv, '--kind') as PushKind | undefined;
+  const hook = flag(argv, '--claude-event');
+  if (hook) {
+    const payload = JSON.parse(stdin || '{}');
+    if (hook === 'UserPromptSubmit' && typeof payload.prompt !== 'string') return undefined;
+    if (hook === 'Notification' && payload.notification_type !== 'permission_prompt') return undefined;
+    if (hook === 'PreToolUse' && payload.tool_name !== 'ExitPlanMode') return undefined;
+    if (hook === 'PermissionRequest')
+      kind =
+        payload.tool_name === 'ExitPlanMode'
+          ? 'plan_approval'
+          : payload.tool_name === 'AskUserQuestion'
+            ? 'question'
+            : 'tool_permission';
+  }
   if (argv.includes('--codex')) {
     const payload = argv.at(-1);
     let type: unknown;
@@ -58,15 +76,35 @@ export function notifyTarget(argv: string[]): NotifyTarget {
  * without touching the filesystem even when the credential is gone.
  */
 export function notifyRequest(argv: string[], stdin: string): NotifyRequest | undefined {
+  const reportText = flag(argv, '--report');
+  if (reportText)
+    return {
+      target: notifyTarget(argv),
+      kind: 'worker_report',
+      report: workerReportSchema.parse(JSON.parse(reportText)),
+    };
   const kind = notifyKind(argv, stdin);
   if (!kind) return undefined;
-  return { target: notifyTarget(argv), kind };
+  let inputHash: string | undefined;
+  if (kind === 'input_activity') {
+    const payload = JSON.parse(stdin || '{}');
+    if (typeof payload.prompt === 'string') inputHash = createHash('sha256').update(payload.prompt).digest('hex');
+  }
+  return { target: notifyTarget(argv), kind, ...(inputHash ? { inputHash } : {}) };
 }
 /** The one filesystem read, at fire time, so a re-keyed credential is picked up with no relaunch. */
 export async function resolveRequest(request: NotifyRequest) {
   const { socketPath, token } =
     'credentialPath' in request.target ? await readCredential(request.target.credentialPath) : request.target;
-  return { socketPath, line: JSON.stringify({ token, kind: request.kind }) };
+  return {
+    socketPath,
+    line: JSON.stringify({
+      token,
+      kind: request.kind,
+      ...(request.report ? { report: request.report } : {}),
+      ...(request.inputHash ? { inputHash: request.inputHash } : {}),
+    }),
+  };
 }
 
 /** One request, one reply, bounded: a hook must never block the worker it runs in. */
@@ -103,6 +141,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         let text = '';
         process.stdin.setEncoding('utf8');
         process.stdin.on('data', (c) => {
+          if (text.length + c.length > 1_000_000) {
+            resolve('');
+            process.stdin.destroy();
+            return;
+          }
           text += c;
         });
         process.stdin.on('end', () => resolve(text));

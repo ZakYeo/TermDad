@@ -1,6 +1,7 @@
 export type Status =
   | 'STARTING'
   | 'WORKING'
+  | 'PARKED_BACKGROUND'
   | 'READY_FOR_PROMPT'
   | 'WAITING_FOR_PERMISSION'
   | 'WAITING_FOR_QUESTION'
@@ -37,6 +38,7 @@ export class ClaudeCodeAdapter implements InteractiveAgentAdapter {
     const t = text.split('\n').slice(-25).join('\n');
     return (
       common(t) ??
+      (claudeBackground(t) ? 'PARKED_BACKGROUND' : undefined) ??
       (/(?:esc to interrupt|ctrl\+c to interrupt|Thinking…|Working…)/i.test(t)
         ? 'WORKING'
         : /(?:^|\n)\s*[❯>]\s*[^\n]*$/m.test(t)
@@ -79,3 +81,15 @@ export const adapters: Record<string, InteractiveAgentAdapter> = {
   codex: new CodexAdapter(),
   shell: new ShellAdapter(),
 };
+
+/** Only footer-like complete lines count, never quoted prose in the reply. */
+export function claudeBackground(text: string): boolean {
+  return text
+    .split('\n')
+    .slice(-8)
+    .some((line) =>
+      /^\s*(?:⏵⏵[^\n]*·\s*)?(?:[1-9]\d* shells? still running|Waiting for [1-9]\d* background agents?|←\s*[1-9]\d* agents?)(?:\s*[·|].*)?\s*$/i.test(
+        line,
+      ),
+    );
+}

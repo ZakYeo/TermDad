@@ -1,3 +1,5 @@
+import { workerReportSchema, reportInstructions, type WorkerReport } from './worker-report.js';
+import { observationView, type ObservationView } from './observation-view.js';
 import { boundedMap } from './bounded-map.js';
 import type { ActivityContext } from './terminal-list.js';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -49,7 +51,7 @@ export function delta(previous: string, current: string) {
       return { mode: 'append', text: after.slice(overlap).join('\n') };
   return { mode: 'replace', text: current };
 }
-type Observation = { id: string; text: string; status: Status };
+type Observation = { id: string; text: string; status: Status; view?: ObservationView };
 type Sample = Awaited<ReturnType<Agents['sample']>>;
 export interface Agent extends Omit<WorkerRecord, 'paneId'>, InteractionState {
   paneId: number;
@@ -91,6 +93,7 @@ export class Agents {
     readonly storage: WorkerStorage = new MemoryWorkerStorage(),
     readonly push?: WorkerPush,
     readonly validateAccount?: (accountRef: string) => Promise<void>,
+    readonly validateAttempt?: (ref: z.infer<typeof attemptReferenceSchema>, agentId: string) => Promise<unknown>,
   ) {}
   private run<T>(fn: () => Promise<T>): Promise<T> {
     if (this.closed) return Promise.reject(new Error('WORKER_CLOSED'));
@@ -140,7 +143,13 @@ export class Agents {
       if (!this.records.has(w.agentId) && this.records.size >= 64)
         this.records.delete(this.records.keys().next().value!);
       this.records.set(w.agentId, a);
-    } else Object.assign(a, w);
+    } else {
+      delete a.turn;
+      delete a.report;
+      delete a.reportContext;
+      delete a.submittedInputHashes;
+      Object.assign(a, w);
+    }
     return a;
   }
   private async change(agentId: string, fn: (a: WorkerRecord) => void) {
@@ -369,6 +378,9 @@ export class Agents {
             revision: randomUUID(),
             deliveryPending: false,
           });
+          delete a.report;
+          delete a.reportContext;
+          delete a.submittedInputHashes;
           if (o.workerSkillInitialized !== undefined) a.workerSkillSent = o.workerSkillInitialized;
           if (moved) {
             delete a.lastInputAt;
@@ -598,6 +610,26 @@ export class Agents {
     a.outputHash = hash;
     a.recentText = text;
     a.status = adapters[a.cli].classify(text);
+    if (a.report && a.report.turnId === a.turn?.id && a.reportContext) {
+      const context = a.reportContext;
+      if (
+        (a.status === 'WORKING' && context.settled && hash !== context.hash) ||
+        (a.report.state === 'parked_background' && Date.now() >= context.expiresAt)
+      ) {
+        await this.change(a.agentId, (w) => {
+          delete w.report;
+          delete w.reportContext;
+        });
+      } else if (!context.settled && ['READY_FOR_PROMPT', 'PARKED_BACKGROUND'].includes(a.status)) {
+        await this.change(a.agentId, (w) => {
+          w.reportContext = { ...context, settled: true, hash };
+        });
+      }
+    }
+    if (a.report && a.report.turnId === a.turn?.id && a.status === 'READY_FOR_PROMPT') {
+      if (a.report.state === 'parked_background') a.status = 'PARKED_BACKGROUND';
+      if (a.report.state === 'awaiting_parent') a.status = 'WAITING_FOR_QUESTION';
+    }
     const classifiedStatus = a.status;
     if (
       (a.deliveryPending || (a.lastInputAt && (Date.now() - a.lastInputAt < 750 || hash === a.inputOutputHash))) &&
@@ -625,6 +657,7 @@ export class Agents {
       ...interaction,
       turnId: a.turn?.id ?? null,
       attempt: a.turn?.attempt ?? null,
+      workerReport: a.report?.turnId === a.turn?.id ? (a.report ?? null) : null,
       status: a.status,
       activity: changed ? 'changed' : 'unchanged',
       lastActivitySecondsAgo: (Date.now() - a.lastOutputAt) / 1000,
@@ -643,7 +676,7 @@ export class Agents {
       deliveryPending: a.deliveryPending,
       screenshotAvailable: !!process.env.TERM_DAD_SCREENSHOT_COMMAND,
     };
-    return { observation, text, history };
+    return { observation, text, history, cli: a.cli };
   }
   private remember(a: Agent, id: string, text: string, status: Status) {
     a.history.push({ id, text, status });
@@ -656,12 +689,24 @@ export class Agents {
       this.remember(a, observation.observationId, text, observation.status);
   }
   /** Presentation only: the delta against `since` (or against `base` text when the caller pinned it) and the line cap. */
-  private present({ observation, text, history }: Sample, since: string | undefined, lines: number, base?: string) {
-    const previous = base ?? (since ? history.find((h) => h.id === since)?.text : undefined);
-    const output = previous !== undefined ? delta(previous, text) : { mode: 'replace', text };
+  private present(
+    { observation, text, history, cli }: Sample,
+    since: string | undefined,
+    lines: number,
+    base?: string,
+    view: ObservationView = 'screen',
+  ) {
+    const current = observationView(text, cli, view);
+    const prior = since ? history.find((h) => h.id === since && (h.view ?? 'screen') === view) : undefined;
+    const previous = base ?? (prior ? observationView(prior.text, cli, view).text : undefined);
+    const output = previous !== undefined ? delta(previous, current.text) : { mode: 'replace', text: current.text };
     const capped = tail(output.text, lines);
+    const stored = this.records.get(observation.agentId)?.history.find((h) => h.id === observation.observationId);
+    if (stored) stored.view = view;
     return {
       ...observation,
+      ...(current.planPath ? { planPath: current.planPath, planPathSource: 'screen' as const } : {}),
+      ...(view === 'last_reply' ? { view, extractionFallback: current.fallback } : {}),
       previousObservationId: since,
       deltaReset: !!since && previous === undefined,
       recentText: capped.text,
@@ -669,10 +714,13 @@ export class Agents {
       linesOmitted: capped.linesOmitted,
     };
   }
-  observe(agentId: string, since?: string, lines?: number) {
+  observe(agentId: string, since?: string, lines?: number, view: ObservationView = 'screen') {
     return this.run(async () => {
       const n = linesSchema.parse(lines);
-      return this.retrying(() => this.locked(agentId, async (w) => this.present(await this.sample(w), since, n)));
+      z.enum(['screen', 'last_reply']).parse(view);
+      return this.retrying(() =>
+        this.locked(agentId, async (w) => this.present(await this.sample(w), since, n, undefined, view)),
+      );
     });
   }
   /** A full observation that records nothing, for pollers: it can never evict a caller's `since` baseline. */
@@ -702,35 +750,68 @@ export class Agents {
       }),
     );
   }
-  send(agentId: string, text: string, attempt?: z.infer<typeof attemptReferenceSchema>, requireReady = true) {
+  send(
+    agentId: string,
+    text: string,
+    attempt?: z.infer<typeof attemptReferenceSchema> | null,
+    requireReady = true,
+    mode: 'task' | 'queue' = 'task',
+  ) {
     return this.run(() =>
-      this.sendLocked(agentId, requireReady, async (w) => {
+      this.sendLocked(agentId, mode === 'queue' ? false : requireReady, async (w) => {
         z.string().max(100000).parse(text);
         if (attempt) attemptReferenceSchema.parse(attempt);
         const { a } = await this.checked(w);
         if (a.deliveryPending)
           throw new Error('WORKER_DELIVERY_UNCERTAIN: inspect and agent.reattach before further input');
         z.boolean().parse(requireReady);
-        const readySample = requireReady ? await this.sample(w, false) : undefined;
+        z.enum(['task', 'queue']).parse(mode);
+        const queued = mode === 'queue';
+        if (queued && (a.cli !== 'claude' || !a.turn))
+          throw new Error('WORKER_QUEUE_UNSUPPORTED: queue requires a Claude worker with an active turn');
+        const effectiveAttempt = attempt === undefined ? a.turn?.attempt : (attempt ?? undefined);
+        if (queued && JSON.stringify(effectiveAttempt) !== JSON.stringify(a.turn?.attempt))
+          throw new Error('WORKER_QUEUE_ATTEMPT_CONFLICT');
+        if (effectiveAttempt) await this.validateAttempt?.(effectiveAttempt, a.agentId);
+        const readySample = requireReady || queued ? await this.sample(w, false) : undefined;
         if (readySample?.observation.inputRequired)
           throw new CodedError(
             'WORKER_INPUT_REQUIRED',
             'Worker needs input; inspect the request and ask the user unless explicitly authorized. No text was sent.',
           );
-        if (readySample && !readySample.observation.readyForPrompt)
+        if (
+          queued &&
+          readySample &&
+          !['WORKING', 'PARKED_BACKGROUND', 'READY_FOR_PROMPT'].includes(readySample.observation.status)
+        )
+          throw new Error('WORKER_NOT_READY');
+        if (!queued && readySample && !readySample.observation.readyForPrompt)
           throw new CodedError(
             'WORKER_NOT_READY',
             'Worker is not ready for a task. Use agent.wait_until_ready. No text was sent.',
           );
-        const initialize = requireReady && a.cli === 'codex' && !a.workerSkillSent,
-          prompt = initialize ? initialWorkerPrompt(text) : text;
+        const preserveTurn =
+          queued || (!requireReady && !!a.turn && JSON.stringify(effectiveAttempt) === JSON.stringify(a.turn.attempt));
+        const initialize = !queued && requireReady && a.cli !== 'shell' && !a.workerSkillSent,
+          turnId = preserveTurn ? a.turn!.id : randomUUID(),
+          prompt =
+            (initialize ? initialWorkerPrompt(text) : text) +
+            (!queued && requireReady && a.push ? reportInstructions(a.push.credentialPath, turnId) : '');
         z.string().max(100000).parse(prompt);
         const hash = readySample?.observation.outputHash ?? hashOutput(await this.screen(a.paneId));
         await this.change(a.agentId, (w) => {
           w.inputOutputHash = hash;
           w.lastInputAt = Date.now();
           w.deliveryPending = true;
-          w.turn = { id: randomUUID(), bindingRevision: w.revision, ...(attempt ? { attempt } : {}) };
+          delete w.report;
+          delete w.reportContext;
+          w.submittedInputHashes = [...(w.submittedInputHashes ?? []), hashOutput(prompt)].slice(-16);
+          if (!preserveTurn)
+            w.turn = {
+              id: turnId,
+              bindingRevision: w.revision,
+              ...(effectiveAttempt ? { attempt: effectiveAttempt } : {}),
+            };
         });
         try {
           await submit(this.backend, a.paneId, prompt);
@@ -747,11 +828,61 @@ export class Agents {
         return {
           agentId: a.agentId,
           sent: true,
+          ...(queued ? { mode: 'queue' as const, submissionId: randomUUID() } : {}),
           delivery: 'submitted_to_terminal' as const,
           consumption: 'unknown' as const,
           turnId: a.turn!.id,
         };
       }),
+    );
+  }
+  recordReport(agentId: string, input: WorkerReport) {
+    const report = workerReportSchema.parse(input);
+    return this.run(() =>
+      this.retrying(() =>
+        this.locked(agentId, async (w) => {
+          await this.checked(w);
+          if (w.turn?.id !== report.turnId || w.turn.bindingRevision !== w.revision)
+            throw new Error('WORKER_REPORT_STALE');
+          const screen = await this.screen(w.paneId!);
+          const status = adapters[w.cli].classify(screen);
+          await this.change(w.agentId, (current) => {
+            current.reportContext = {
+              hash: hashOutput(normalizeScreen(screen)),
+              settled: ['READY_FOR_PROMPT', 'PARKED_BACKGROUND'].includes(status),
+              expiresAt: Date.now() + 120000,
+            };
+            current.report = report;
+          });
+        }),
+      ),
+    );
+  }
+  noteInputActivity(agentId: string, inputHash?: string) {
+    return this.run(() =>
+      this.retrying(() =>
+        this.locked(agentId, async (w) => {
+          const { a } = await this.checked(w);
+          const hash = hashOutput(await this.screen(a.paneId));
+          await this.change(a.agentId, (record) => {
+            const pending = [...(record.submittedInputHashes ?? [])];
+            const index = inputHash ? pending.indexOf(inputHash) : -1;
+            if (index >= 0) pending.splice(index, 1);
+            else {
+              record.turn = {
+                id: randomUUID(),
+                bindingRevision: record.revision,
+                ...(record.turn?.attempt ? { attempt: record.turn.attempt } : {}),
+              };
+              delete record.report;
+              delete record.reportContext;
+            }
+            record.submittedInputHashes = pending;
+            record.lastInputAt = Date.now();
+            record.inputOutputHash = hash;
+          });
+        }),
+      ),
     );
   }
   interrupt(agentId: string) {
@@ -793,6 +924,25 @@ export class Agents {
         const { a } = await this.checked(w);
         return fn(a.paneId, a.instance);
       }),
+    );
+  }
+  withVerifiedMissing<T>(agentId: string, expectedInstanceKey: string, fn: (paneId: number) => Promise<T>) {
+    return this.run(() =>
+      this.retrying(() =>
+        this.locked(agentId, async (w) => {
+          const identity = await this.identity();
+          if (
+            !identity ||
+            identity.key !== expectedInstanceKey ||
+            !sameInstance(w.instance, identity) ||
+            w.paneId === null
+          )
+            return null;
+          const panes = await this.backend.list();
+          if (panes.some((p) => p.pane_id === w.paneId) || !sameInstance(identity, await this.identity())) return null;
+          return fn(w.paneId);
+        }),
+      ),
     );
   }
   async findByPane(paneId: number) {

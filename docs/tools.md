@@ -377,9 +377,11 @@ which keeps working until the next restart and then needs a relaunch.
 A hook connects to a per-server Unix socket in the state directory
 (`push.<pid>.sock`, mode 0600, one per server process so servers under different
 MCP clients never contend) and sends one bounded JSON line,
-`{"token":…,"kind":…}`. Only `input_required`, `ready` and `session_ended` are
-accepted (`attention_required` is derived from pane samples only, never pushed), and only the token and kind are trusted: summaries are authored by the
-server, so a worker cannot inject event text. An unknown or revoked token is
+`{"token":…,"kind":…}`. Lifecycle kinds include input, plan, permission, question,
+turn and session signals (see the lifecycle hook reference). `worker_report` also
+accepts bounded turn-bound report data, stored separately from event metadata.
+Event summaries are always authored by the server; worker text cannot become
+an event summary. Readiness pushes are sampled before readiness publication. An unknown or revoked token is
 rejected with `PUSH_UNAUTHORIZED`. Tokens are per worker, minted at spawn or at a
 re-key, held in memory and in that worker's owner-only credential file, and
 released when the worker is stopped or forgotten. Sockets left by crashed servers
@@ -604,11 +606,11 @@ version. Failed or blocked reports leave task lifecycle status unchanged.
 Attempts are capped at 20 per task, with 20 reports and 20 verification decisions
 per attempt and 50 artifacts/checks per report. The existing 4 MB global bound
 still applies; capacity errors never purge evidence. Archived history counts.
-Old version-1 and version-2 task journals are validated and migrated in memory on reads, and
-written as version 3 on the next successful mutation. Version 3 permits supervisor
+Old version-1, version-2 and version-3 task journals are validated and migrated in memory on reads, and
+written as version 4 on the next successful mutation. Version 4 permits supervisor
 attempts with `agentId:null`; their reports and checks must use `supervisor_recorded`. Existing done tasks remain
 `legacy_unverified` and continue satisfying dependencies; reopening requires the
-new verification workflow. Old server versions cannot read version-3 journals;
+new verification workflow. Old server versions cannot read version-4 journals;
 restart all clients on the new build before making writes.
 
 For supervisor work (merges, coordination, or other directly performed actions),
@@ -918,3 +920,95 @@ unchanged but cannot enable push (`PUSH_NOT_WIRED`). `push.status` explains why.
 Other custom launchers must forward appended flags themselves; configured wiring
 is not proof that their hooks execute. Keep the normal watch polling interval until
 `proven:true`; only a successful delivery permits the slower liveness interval.
+
+### Resuming a supervisor waiter
+
+`event.wake_command({agentIds, afterSequence})` emits a command that drains
+pending matching events after the last handled sequence. Its default cursor is
+zero. Process every event in a list page before advancing to that page's
+`resumeAfterSequence`; this prevents gaps between handling and re-arming.
+Agent-scoped waiters exclude account events: use a separate usage-only waiter
+without agent filters. Direct CLI calls without a cursor retain fresh-only
+behavior. `wait-for-event --help` lists available options without starting MCP.
+
+### Worker state reports
+
+Managed Claude and Codex workers receive shared role instructions on their first
+ready-gated task. Hook-equipped workers also receive a per-turn notifier command:
+`--credential <path> --report <JSON>`, containing `turnId`, `state`, `summary`,
+`references` and `checks`. States are `parked_background`, `awaiting_parent` and
+`done`. Observations expose `workerReport`; claims never complete task records.
+Reports require enabled push and the current turn ID. Their text stays in worker
+metadata, not the event journal. Older server builds cannot read worker records
+with these new fields; restart clients together and do not downgrade active state.
+
+### Attention handoff
+
+Watches default to `reminderMs:300000` for unresolved prompts, preventing an
+immediate second attention wake after input-required. Zero retains legacy
+one-shot attention behavior. `watch.list` exposes a `requestKey`;
+`watch.set_disposition({watchId,requestKey,disposition:"awaiting_human"})` suppresses
+reminders for that observed request. `active` resumes them. Changed evidence
+clears the handoff. Watches and handoffs are process-local; recreate them after
+restart. Acknowledging an event does not resolve the underlying request.
+
+### Compact worker replies
+
+`agent.observe` and `agent.status` accept `view:"last_reply"`; `screen` remains
+the default. Recognized Claude reply blocks omit UI chrome and echoed prompts.
+`extractionFallback:true` means the bounded screen was returned instead. `since`
+deltas are view-specific; switching views resets the delta. `planPath`, when
+present, is a screen-derived reference in the worker's domain, never a file the
+server has opened or verified. Classification always uses the full screen.
+
+### Steering an active Claude turn
+
+`agent.send({mode:"queue", ...})` submits to Claude's native input queue, retaining
+the current turn and attempt. It requires an existing Claude turn and rejects
+permission/authentication/question screens and uncertain delivery. The reply
+includes a submission ID and `consumption:"unknown"`; no application acceptance
+is inferred. Ordinary follow-ups inherit a valid current attempt when omitted;
+`attempt:null` explicitly detaches it. Queue mode cannot change the attempt.
+
+Task mutation tools accept `responseMode:"compact"` to return only `id`,
+`revision`, `status`, `attemptId`, `reportId` and `verificationId`. Full remains
+the default. Use `task.get` and `task.history` for full requirements and evidence.
+
+### Conditional verification
+
+A criterion decision may be `not_applicable` with a nonempty `reason` and evidence.
+Passing verification requires every criterion to pass or be explicitly not
+applicable, a succeeded report without failed checks, and resolved dependencies
+and blockers. Errors name criterion IDs and their decisions. Verification summaries
+expose `notApplicable`; history retains the full decision. The legacy `satisfied`
+boolean means resolved, not necessarily tested-and-passed. Overall inconclusive
+verification still cannot complete a task.
+
+Task journals now write version 4; versions 1–3 migrate on read without writing
+until a successful mutation. Restart clients together; older builds cannot read
+new records and must not be used against the upgraded state directory.
+
+### Combined task dispatch
+
+`task.dispatch({idempotencyKey,agentId,task,text})` creates, assigns and starts a
+task in one transaction, then submits to an existing worker with readiness checks.
+`task` uses create fields without `assignedAgentId`; `agentId` is a worker UUID.
+Responses contain compact task IDs and durable dispatch status: `prepared`,
+`submitted`, `not_submitted` or `uncertain`. An idempotency key is unique across
+the state directory; reuse with different input fails. Reuse with identical input
+returns the existing result, without resending submitted or uncertain input.
+Uncertainty is persisted before terminal I/O. Inspect failed delivery before
+choosing an explicit next action; task preparation cannot roll back PTY input.
+
+### Event capacity and reconciliation
+
+`event.list` separates `retainedCount`, `pendingCount` and `reclaimableCount`;
+`capacityPressure` is true when pending obligations occupy at least 80% of the
+capacity. Retained acknowledged history alone is not a full-queue failure.
+`event.reconcile({agentIds,expectedInstanceKey})` acknowledges a snapshot only
+when the stored worker identity matches the selected GUI and its pane is absent.
+Live panes, unknown/forgotten workers, detached mappings, and transport failures
+retain events. For forgotten workers, inspect history before explicitly
+acknowledging individual event IDs. Unresolved prompts never expire silently.
+Quota status reads retry only storage-busy errors with five bounded delays;
+collectors and writes are not replayed.

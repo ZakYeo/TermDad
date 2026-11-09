@@ -207,7 +207,7 @@ test('inputs and journals reject oversized fields, unknown fields and duplicate 
   await assert.rejects(board.update({ taskId: task.id, expectedRevision: 1, patch: { boardId: 'other' } }));
   const record = await board.storage.transaction(false, (state) => ({ result: state.tasks[0] }));
   assert.throws(() => validateTaskState({ version: 3, tasks: [record, record] }), /TASK_DUPLICATE_ID/);
-  assert.throws(() => validateTaskState({ version: 4, tasks: [] }), /TASK_STATE_INVALID/);
+  assert.throws(() => validateTaskState({ version: 5, tasks: [] }), /TASK_STATE_INVALID/);
   const full = {
     version: 3 as const,
     tasks: Array.from({ length: MAX_TASKS }, () => ({ ...record, id: randomUUID(), archived: true })),

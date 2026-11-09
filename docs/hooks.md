@@ -9,7 +9,7 @@ the implementation. The source of generated client templates is
 
 | Purpose | Repository source | Installation/lifetime |
 | --- | --- | --- |
-| Claude worker Stop, Notification, SessionEnd push | `src/worker-hooks.ts`, `src/term-dad-notify.ts` | Injected by `agent.spawn`; enabled with `push.set` |
+| Claude worker plan, permission, prompt, Stop and SessionEnd push | `src/worker-hooks.ts`, `src/term-dad-notify.ts` | Injected by `agent.spawn`; enabled with `push.set` |
 | Codex legacy notify lifecycle push | Same files | Existing launch-time `notify` configuration; preserved for surviving workers |
 | Supervisor usage warnings and reset context | `src/usage-hooks.ts`, `src/usage-hook-cli.ts` | `hooks install`; account explicitly selected |
 | Claude status-line usage collection | Same usage helper plus `src/usage-providers.ts` | Installed wrapper preserves the previous renderer |
@@ -94,3 +94,20 @@ line only when the installed wrapper is still intact. Manually modified hooks ar
 preserved and reported as missing/changed by doctor. Backups remain for explicit
 recovery. Neither `npm run build` nor starting the MCP server installs personal
 hooks.
+
+### Login shells and custom commands
+
+The local launcher already preserves login/interactive shell startup and forwards
+hook arguments literally. Start the server through `scripts/launch-local` and omit
+worker command overrides. A custom `zsh -lic claude` does not forward appended
+arguments and cannot acquire hooks after launch; keep polling that existing pane.
+Use a newly launched worker to adopt the supported hook surface. Hook delivery,
+not configured argv alone, establishes `proven:true`.
+
+Worker hooks now distinguish `plan_submitted` (PreToolUse/ExitPlanMode),
+`plan_approval`, `tool_permission`, `question` (PermissionRequest), and
+`input_activity` (UserPromptSubmit). Notifications are filtered to permission
+prompts. Stop reports `turn_ended` internally and triggers sampled readiness;
+it never establishes task completion. Input activity has unknown origin: CLI
+hooks do not prove a person typed. No prompt/tool input is copied to events.
+Existing workers need relaunching to receive new hook configuration.

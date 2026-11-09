@@ -78,7 +78,7 @@ export class WorkerPushRegistry implements WorkerPush {
     if (!forwardsHookArguments(command)) {
       this.hookErrors.set(
         agentId,
-        'Shell command does not forward hook flags. Omit command to use the configured launcher, or supply CLI argv directly; keep polling this worker.',
+        'Shell command does not forward hook flags (for example zsh -lic claude). Launch the server through scripts/launch-local and omit the worker command to retain login-shell PATH and hooks. Existing panes must keep polling; arbitrary shell source is never rewritten.',
       );
       return { command };
     }

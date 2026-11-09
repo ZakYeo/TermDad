@@ -90,3 +90,32 @@ test('standalone task tools validate MCP calls, report conflicts and preserve ex
   }
   await assert.rejects(board.list(), /TASK_BOARD_CLOSED/);
 });
+
+test('compact mutations return identifiers for subsequent calls while reads retain the full task', async () => {
+  const server = new McpServer({ name: 'compact-test', version: '1' });
+  const board = new TaskBoard(new MemoryTaskStorage());
+  const close = registerTaskTools(server, board);
+  const client = new Client({ name: 'test', version: '1' });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  await server.connect(a);
+  await client.connect(b);
+  try {
+    const result: any = await client.callTool({
+      name: 'task.create',
+      arguments: { boardId: 'b', title: 't', goal: 'A lengthy requirement '.repeat(100), responseMode: 'compact' },
+    });
+    assert.notEqual(result.isError, true);
+    const task = JSON.parse(result.content[0].text);
+    assert.deepEqual(Object.keys(task).sort(), ['attemptId', 'id', 'reportId', 'revision', 'status', 'verificationId']);
+    const full = await board.get(task.id);
+    assert.ok(JSON.stringify(task).length < JSON.stringify(full).length / 4);
+    const attempt: any = await client.callTool({
+      name: 'task.start_attempt',
+      arguments: { taskId: task.id, expectedRevision: task.revision, executor: 'supervisor', responseMode: 'compact' },
+    });
+    assert.ok(JSON.parse(attempt.content[0].text).attemptId);
+  } finally {
+    await client.close();
+    await close();
+  }
+});

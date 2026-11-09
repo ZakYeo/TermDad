@@ -1,3 +1,4 @@
+import { retryUsageRead } from './usage-read.js';
 import { isAbsolute, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { EventQueue } from './events.js';
@@ -127,7 +128,7 @@ export class UsageService {
     });
   }
   async status(ref?: string) {
-    const accounts = await this.accounts();
+    const accounts = await retryUsageRead(() => this.accounts());
     if (ref && !accounts.some((a) => a.config.accountRef === ref)) throw new Error('USAGE_ACCOUNT_UNKNOWN');
     return {
       accounts: accounts

@@ -124,10 +124,10 @@ test('subprocess timeout and execution errors are diagnostic', async () => {
   await assert.rejects(execute('/nonexistent/term-dad', []), /Check executable/);
 });
 
-test('captured Claude UI fixture recognizes prompt despite non-blocking local hook error', async () => {
+test('captured Claude UI fixture recognizes its background agent despite non-blocking hook error', async () => {
   const { readFile } = await import('node:fs/promises');
   const text = await readFile(new URL('./fixtures/claude-ready.txt', import.meta.url), 'utf8');
-  assert.equal(adapters.claude.classify(text), 'READY_FOR_PROMPT');
+  assert.equal(adapters.claude.classify(text), 'PARKED_BACKGROUND');
 });
 
 test('captured Codex UI fixture recognizes the current interactive prompt', async () => {
@@ -213,14 +213,18 @@ test('failed Codex input keeps initialization pending; concurrent input cannot d
   assert.equal(inputs[1], 'follow-up');
 });
 
-test('Claude and shell task text stays literal', async () => {
+test('Claude receives worker instructions while shell task text stays literal', async () => {
   for (const cli of ['claude', 'shell'] as const) {
     const f = fake(),
       a = new Agents(f.backend);
     f.setText(cli === 'claude' ? '❯ Ready' : '$ ');
     await a.spawn({ name: 'worker', cli });
     await a.send('worker', 'literal task');
-    assert.equal(f.calls.find((c) => c.args[0] === 'send-text').input, 'literal task');
+    const sent = f.calls.find((c) => c.args[0] === 'send-text').input;
+    if (cli === 'claude') {
+      assert.match(sent, /Term Dad worker/);
+      assert.match(sent, /literal task$/);
+    } else assert.equal(sent, 'literal task');
   }
 });
 test('spawn options are validated once, with one coded conflict error, for the backend and for managed workers', async () => {

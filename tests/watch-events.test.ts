@@ -79,7 +79,7 @@ async function connect(queue: EventQueue, options: WatchOptions = {}) {
     },
   };
 }
-const config = { paneId: 7, adapter: 'codex', pollMs: 500, inactivityMs: 10000, cooldownMs: 0 };
+const config = { reminderMs: 0, paneId: 7, adapter: 'codex', pollMs: 500, inactivityMs: 10000, cooldownMs: 0 };
 async function directory(t: any) {
   const path = await mkdtemp(join(tmpdir(), 'term-dad-watch-events-'));
   t.after(() => rm(path, { recursive: true, force: true }));
@@ -133,10 +133,9 @@ test('MCP watch events reach filtered waiters, acknowledge and replay after rest
   const remaining = (await restarted.call('event.list')).events;
   assert.deepEqual(
     remaining.map((e: any) => e.kind),
-    ['attention_required'],
-    'the recognised prompt also asked for a person, and that request never expires on its own',
+    [],
+    'a surfaced prompt does not immediately duplicate its input-required event',
   );
-  await restarted.call('event.acknowledge', { ids: [remaining[0].id] });
   assert.equal((await restarted.call('event.list')).pendingCount, 0);
 });
 

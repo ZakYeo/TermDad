@@ -18,7 +18,10 @@ const args = (o: PushHookOptions, extra: string[]) => [...o.notify, '--credentia
 // Claude Code fires these on its own state changes, so no screen scraping is needed to learn about them.
 const claudeHooks: Record<string, PushKind> = {
   Notification: 'input_required',
-  Stop: 'ready',
+  Stop: 'turn_ended',
+  PreToolUse: 'plan_submitted',
+  PermissionRequest: 'tool_permission',
+  UserPromptSubmit: 'input_activity',
   SessionEnd: 'session_ended',
 };
 
@@ -36,7 +39,22 @@ export function pushHookArgv(
     const hooks = Object.fromEntries(
       Object.entries(claudeHooks).map(([event, kind]) => [
         event,
-        [{ hooks: [{ type: 'command', command: args(options, ['--kind', kind]).map(quote).join(' '), timeout: 5 }] }],
+        [
+          {
+            ...(event === 'PreToolUse'
+              ? { matcher: 'ExitPlanMode' }
+              : event === 'Notification'
+                ? { matcher: 'permission_prompt' }
+                : {}),
+            hooks: [
+              {
+                type: 'command',
+                command: args(options, ['--claude-event', event, '--kind', kind]).map(quote).join(' '),
+                timeout: 5,
+              },
+            ],
+          },
+        ],
       ]),
     );
     return [...command, '--settings', JSON.stringify({ hooks })];

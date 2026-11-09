@@ -6,6 +6,19 @@ import { startAttemptSchema, reportResultSchema, verifyTaskSchema, taskHistorySc
 import { TaskBoard, assignTaskSchema, archiveTaskSchema } from './tasks.js';
 import { withTaskAssignments, type WorkerLookup } from './task-workers.js';
 
+const responseMode = z.enum(['full', 'compact']).default('full');
+export function taskMutationView(task: Awaited<ReturnType<TaskBoard['get']>>, mode: 'full' | 'compact') {
+  if (mode === 'full') return task;
+  return {
+    id: task.id,
+    revision: task.revision,
+    status: task.status,
+    attemptId: task.currentAttemptId,
+    reportId: task.latestReport?.id ?? null,
+    verificationId: 'id' in task.verification ? task.verification.id : null,
+  };
+}
+
 /** Worker lookup enriches reads only; task mutations never dispatch or depend on the terminal. */
 export function registerTaskTools(server: McpServer, board: TaskBoard, workers?: WorkerLookup) {
   const invalid = { invalid: 'TASK_INPUT_INVALID' };
@@ -14,9 +27,10 @@ export function registerTaskTools(server: McpServer, board: TaskBoard, workers?:
     {
       description:
         'Record a task goal, priority, dependencies and acceptance criteria. Does not send input to workers.',
-      inputSchema: createTaskSchema,
+      inputSchema: createTaskSchema.extend({ responseMode }),
     },
-    (a) => toolCall('task.create', () => board.create(a), invalid),
+    ({ responseMode, ...a }) =>
+      toolCall('task.create', async () => taskMutationView(await board.create(a), responseMode), invalid),
   );
   server.registerTool(
     'task.get',
@@ -56,53 +70,59 @@ export function registerTaskTools(server: McpServer, board: TaskBoard, workers?:
     {
       description:
         'Update task metadata using its expected revision. Arrays replace previous values. Requirement edits need invalidateAttempt:true when an attempt exists; history is retained. Completion requires passing verification of the current report, satisfied criteria and dependencies, and no blockers.',
-      inputSchema: updateTaskSchema,
+      inputSchema: updateTaskSchema.extend({ responseMode }),
     },
-    (a) => toolCall('task.update', () => board.update(a), invalid),
+    ({ responseMode, ...a }) =>
+      toolCall('task.update', async () => taskMutationView(await board.update(a), responseMode), invalid),
   );
   server.registerTool(
     'task.assign',
     {
       description:
         'Record a worker UUID assignment, or null to unassign. Does not verify worker availability or dispatch input.',
-      inputSchema: assignTaskSchema,
+      inputSchema: assignTaskSchema.extend({ responseMode }),
     },
-    (a) => toolCall('task.assign', () => board.assign(a), invalid),
+    ({ responseMode, ...a }) =>
+      toolCall('task.assign', async () => taskMutationView(await board.assign(a), responseMode), invalid),
   );
   server.registerTool(
     'task.archive',
     {
       description:
         'Archive or restore a task without deleting it or satisfying dependencies. Requires the expected revision.',
-      inputSchema: archiveTaskSchema,
+      inputSchema: archiveTaskSchema.extend({ responseMode }),
     },
-    (a) => toolCall('task.archive', () => board.archive(a), invalid),
+    ({ responseMode, ...a }) =>
+      toolCall('task.archive', async () => taskMutationView(await board.archive(a), responseMode), invalid),
   );
   server.registerTool(
     'task.start_attempt',
     {
       description:
         'Start an unblocked task attempt without dispatching input. executor:worker (default) requires assignment; executor:supervisor requires no assignment. Supersedes previous attempts.',
-      inputSchema: startAttemptSchema,
+      inputSchema: startAttemptSchema.extend({ responseMode }),
     },
-    (a) => toolCall('task.start_attempt', () => board.startAttempt(a), invalid),
+    ({ responseMode, ...a }) =>
+      toolCall('task.start_attempt', async () => taskMutationView(await board.startAttempt(a), responseMode), invalid),
   );
   server.registerTool(
     'task.report_result',
     {
       description: 'Record a result, artifacts and reported checks. Does not complete or verify the task.',
-      inputSchema: reportResultSchema,
+      inputSchema: reportResultSchema.extend({ responseMode }),
     },
-    (a) => toolCall('task.report_result', () => board.reportResult(a), invalid),
+    ({ responseMode, ...a }) =>
+      toolCall('task.report_result', async () => taskMutationView(await board.reportResult(a), responseMode), invalid),
   );
   server.registerTool(
     'task.verify',
     {
       description:
         'Record a decision against the current report and work version; optionally complete atomically. Evidence is supplied, not automatically executed.',
-      inputSchema: verifyTaskSchema,
+      inputSchema: verifyTaskSchema.extend({ responseMode }),
     },
-    (a) => toolCall('task.verify', () => board.verify(a), invalid),
+    ({ responseMode, ...a }) =>
+      toolCall('task.verify', async () => taskMutationView(await board.verify(a), responseMode), invalid),
   );
   server.registerTool(
     'task.history',

@@ -24,6 +24,17 @@ export const taskSchema = z
   .object({
     ...taskFields,
     ...completionFields,
+    dispatch: z
+      .object({
+        key: z.string().min(1).max(100),
+        fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+        attemptId: z.uuid(),
+        status: z.enum(['prepared', 'uncertain', 'submitted', 'not_submitted']),
+        turnId: z.uuid().optional(),
+        errorCode: z.string().max(100).optional(),
+      })
+      .strict()
+      .optional(),
     id: z.uuid(),
     boardId: label,
     status: z.enum(['todo', 'in_progress', 'done', 'cancelled']),
@@ -66,9 +77,9 @@ export const taskFilterSchema = z
     limit: z.number().int().min(1).max(100).default(50),
   })
   .strict();
-export const taskStateSchema = z.object({ version: z.literal(3), tasks: z.array(taskSchema).max(MAX_TASKS) }).strict();
+export const taskStateSchema = z.object({ version: z.literal(4), tasks: z.array(taskSchema).max(MAX_TASKS) }).strict();
 export type TaskState = z.infer<typeof taskStateSchema>;
-export const emptyTaskState = (): TaskState => ({ version: 3, tasks: [] });
+export const emptyTaskState = (): TaskState => ({ version: 4, tasks: [] });
 
 /** Validate the complete graph within one storage transaction, including reverse dependents. */
 export function validateTaskState(value: unknown): TaskState {
@@ -85,7 +96,7 @@ export function validateTaskState(value: unknown): TaskState {
     const old = legacy.safeParse(value);
     if (!old.success) throw new Error('TASK_STATE_INVALID: invalid legacy records');
     value = {
-      version: 3,
+      version: 4,
       tasks: old.data.tasks.map((t) => ({
         ...t,
         attempts: [],
@@ -105,12 +116,19 @@ export function validateTaskState(value: unknown): TaskState {
       .strict()
       .safeParse(value);
     if (!old.success) throw new Error('TASK_STATE_INVALID: invalid version-2 records');
-    value = { ...old.data, version: 3 };
+    value = { ...old.data, version: 4 };
+  }
+  if (typeof value === 'object' && value !== null && 'version' in value && value.version === 3) {
+    const old = taskStateSchema.extend({ version: z.literal(3) }).safeParse(value);
+    if (!old.success) throw new Error('TASK_STATE_INVALID: invalid version-3 records');
+    value = { ...old.data, version: 4 };
   }
   const parsed = taskStateSchema.safeParse(value);
   if (!parsed.success) throw new Error('TASK_STATE_INVALID: invalid task records');
   const state = parsed.data,
     byId = new Map(state.tasks.map((t) => [t.id, t]));
+  const keys = state.tasks.flatMap((t) => (t.dispatch ? [t.dispatch.key] : []));
+  if (new Set(keys).size !== keys.length) throw new Error('TASK_DISPATCH_DUPLICATE_KEY');
   if (byId.size !== state.tasks.length) throw new Error('TASK_DUPLICATE_ID');
   for (const task of state.tasks) {
     if (task.updatedAt < task.createdAt) throw new Error('TASK_STATE_INVALID: timestamps out of order');
@@ -177,10 +195,19 @@ export function validateTaskState(value: unknown): TaskState {
           v.result === 'passed' &&
           (report.outcome !== 'succeeded' ||
             report.checks.some((c) => c.result === 'failed') ||
-            v.criteria.some((c) => c.result !== 'passed') ||
+            v.criteria.some((c) => c.result !== 'passed' && c.result !== 'not_applicable') ||
             ids.length !== a.specification.acceptanceCriteria.length)
         )
-          throw new Error('TASK_STATE_INVALID: invalid passing verification');
+          throw new Error(
+            'TASK_STATE_INVALID: invalid passing verification: ' +
+              a.specification.acceptanceCriteria
+                .map((c) => {
+                  const d = v.criteria.find((d) => d.criterionId === c.id);
+                  return `${c.id}=${d?.result ?? 'missing'}`;
+                })
+                .join(', ') +
+              '; report must succeed and contain no failed checks',
+          );
       }
     }
     if (

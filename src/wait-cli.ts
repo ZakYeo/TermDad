@@ -196,6 +196,17 @@ export async function waitForEvent(args: WaitArgs, deps: WaitDeps = {}): Promise
 
 /** Writes exactly one JSON line to stdout; every diagnostic goes to stderr. */
 export async function runWaitForEvent(argv: string[]): Promise<number> {
+  if (argv.length === 1 && argv[0] === '--help') {
+    process.stdout.write(
+      'Usage: term-dad wait-for-event [options]\n' +
+        'Resume safely: --agents <ids> --after-sequence <last handled sequence>\n' +
+        'Without --after-sequence only new events are returned. Waiting never acknowledges.\n' +
+        'Options: ' +
+        [...flags, ...switches, '--help'].join(', ') +
+        '\n',
+    );
+    return 0;
+  }
   let args;
   try {
     args = parseWaitArgs(argv);

@@ -122,3 +122,74 @@ test('the built notifier runs its entry point from an install path containing a 
   assert.equal(stdout, '');
   assert.match(stderr, /PUSH_CREDENTIAL_UNREADABLE/);
 });
+
+test('Claude lifecycle hooks route typed metadata without forwarding prompt contents', () => {
+  const args = ['--token', 't', '--socket', '/s', '--kind', 'tool_permission', '--claude-event', 'PermissionRequest'];
+  assert.equal(notifyRequest(args, '{"tool_name":"ExitPlanMode"}')!.kind, 'plan_approval');
+  assert.equal(notifyRequest(args, '{"tool_name":"AskUserQuestion"}')!.kind, 'question');
+  assert.equal(notifyRequest(args, '{"tool_name":"Bash","tool_input":{"command":"secret"}}')!.kind, 'tool_permission');
+  assert.equal(notifyRequest(['--claude-event', 'Notification'], '{"notification_type":"idle_prompt"}'), undefined);
+  assert.equal(notifyRequest(['--claude-event', 'PreToolUse'], '{"tool_name":"Bash"}'), undefined);
+});
+
+test('prompt submission sends a hash for correlation, never its text', async () => {
+  const request = notifyRequest(
+    ['--socket', '/s', '--token', 't', '--kind', 'input_activity', '--claude-event', 'UserPromptSubmit'],
+    JSON.stringify({ prompt: 'private brief' }),
+  )!;
+  assert.match(request.inputHash!, /^[a-f0-9]{64}$/);
+  const wire = JSON.parse((await resolveRequest(request)).line);
+  assert.equal(wire.inputHash, request.inputHash);
+  assert.ok(!JSON.stringify(wire).includes('private brief'));
+});
+
+test('the built notifier correlates maximum-sized JSON-escaped prompts without forwarding their text', async (t) => {
+  const { spawn } = await import('node:child_process');
+  const { createHash } = await import('node:crypto');
+  const directory = await mkdtemp(join(tmpdir(), 'term-dad-long-hook-'));
+  let received: any;
+  const ingress = new PushIngress({
+    sink: async (event) => {
+      received = event;
+    },
+  });
+  const socket = new PushSocket(ingress, join(directory, 'push.sock'));
+  t.after(async () => {
+    await socket.close();
+    await rm(directory, { recursive: true, force: true });
+  });
+  await socket.listen();
+  const { token } = ingress.register('worker', 7);
+  ingress.setEnabled('worker', true);
+  const prompt = '\u0001'.repeat(100000);
+  const child = spawn(
+    process.execPath,
+    [
+      'dist/term-dad-notify.js',
+      '--socket',
+      socket.path,
+      '--token',
+      token,
+      '--kind',
+      'input_activity',
+      '--claude-event',
+      'UserPromptSubmit',
+    ],
+    { stdio: ['pipe', 'pipe', 'pipe'] },
+  );
+  let diagnostics = '';
+  child.stderr.on('data', (chunk) => {
+    diagnostics += chunk;
+  });
+  child.stdout.resume();
+  const ended = new Promise<number | null>((resolve, reject) => {
+    child.on('error', reject);
+    child.on('close', resolve);
+  });
+  child.stdin.end(JSON.stringify({ prompt }));
+  assert.equal(await ended, 0, diagnostics);
+  assert.equal(received.inputHash, createHash('sha256').update(prompt).digest('hex'));
+  assert.equal(received.kind, 'input_activity');
+  assert.ok(!JSON.stringify(received).includes('prompt'));
+  assert.equal(notifyRequest(['--kind', 'input_activity', '--claude-event', 'UserPromptSubmit'], '{}'), undefined);
+});

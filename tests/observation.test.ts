@@ -118,3 +118,17 @@ test('polling the board does not push a worker observation out of its history', 
   assert.equal(next.deltaReset, false);
   assert.equal(next.outputMode, 'append');
 });
+
+test('compact observation deltas reset when switching views', async () => {
+  const f = fake('⏺ Reply\n❯');
+  const a = new Agents(f.backend);
+  await a.spawn({ name: 'w', cli: 'claude' });
+  const screen = await a.observe('w');
+  const reply = await a.observe('w', screen.observationId, 20, 'last_reply');
+  assert.equal(reply.deltaReset, true);
+  assert.equal(reply.recentText, 'Reply');
+  const unchanged = await a.observe('w', reply.observationId, 20, 'last_reply');
+  assert.equal(unchanged.outputMode, 'unchanged');
+  assert.equal(unchanged.recentText, '');
+  await a.close();
+});
