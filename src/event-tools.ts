@@ -11,6 +11,9 @@ import { toolCall } from './tool-result.js';
 export const wakeKinds = [
   'attention_required',
   'input_required',
+  'plan_approval',
+  'tool_permission',
+  'question',
   'ready',
   'pane_disappeared',
   'session_ended',

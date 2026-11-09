@@ -754,6 +754,22 @@ export class Agents {
       }),
     );
   }
+  noteInputActivity(agentId: string) {
+    return this.run(() =>
+      this.retrying(() =>
+        this.locked(agentId, async (w) => {
+          const { a } = await this.checked(w);
+          // Supervisor sends already recorded this input. No claim about human origin.
+          if (a.lastInputAt && Date.now() - a.lastInputAt < 2000) return;
+          const hash = hashOutput(await this.screen(a.paneId));
+          await this.change(a.agentId, (record) => {
+            record.lastInputAt = Date.now();
+            record.inputOutputHash = hash;
+          });
+        }),
+      ),
+    );
+  }
   interrupt(agentId: string) {
     return this.run(() =>
       this.locked(agentId, async (w) => {

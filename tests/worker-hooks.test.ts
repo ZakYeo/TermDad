@@ -8,11 +8,18 @@ test('claude workers receive inert hook settings that route each event kind to o
   assert.deepEqual(argv.slice(0, 3), ['claude', '--model', 'opus']);
   assert.equal(argv[3], '--settings');
   const settings = JSON.parse(argv[4]);
-  assert.deepEqual(Object.keys(settings.hooks).sort(), ['Notification', 'SessionEnd', 'Stop']);
+  assert.deepEqual(Object.keys(settings.hooks).sort(), [
+    'Notification',
+    'PermissionRequest',
+    'PreToolUse',
+    'SessionEnd',
+    'Stop',
+    'UserPromptSubmit',
+  ]);
   const commands = Object.values(settings.hooks).flatMap((matchers: any) =>
     matchers.flatMap((m: any) => m.hooks.map((h: any) => h.command)),
   );
-  assert.equal(commands.length, 3);
+  assert.equal(commands.length, 6);
   // The argv carries a path, never credentials: a running process's argv cannot be rewritten,
   // so baking the socket and token in is what orphaned every worker across a restart.
   for (const command of commands) {
@@ -22,7 +29,7 @@ test('claude workers receive inert hook settings that route each event kind to o
   }
   assert.ok(
     commands.some((c) => c.includes('input_required')) &&
-      commands.some((c) => c.includes('ready')) &&
+      commands.some((c) => c.includes('turn_ended')) &&
       commands.some((c) => c.includes('session_ended')),
   );
 });

@@ -122,3 +122,12 @@ test('the built notifier runs its entry point from an install path containing a 
   assert.equal(stdout, '');
   assert.match(stderr, /PUSH_CREDENTIAL_UNREADABLE/);
 });
+
+test('Claude lifecycle hooks route typed metadata without forwarding prompt contents', () => {
+  const args = ['--token', 't', '--socket', '/s', '--kind', 'tool_permission', '--claude-event', 'PermissionRequest'];
+  assert.equal(notifyRequest(args, '{"tool_name":"ExitPlanMode"}')!.kind, 'plan_approval');
+  assert.equal(notifyRequest(args, '{"tool_name":"AskUserQuestion"}')!.kind, 'question');
+  assert.equal(notifyRequest(args, '{"tool_name":"Bash","tool_input":{"command":"secret"}}')!.kind, 'tool_permission');
+  assert.equal(notifyRequest(['--claude-event', 'Notification'], '{"notification_type":"idle_prompt"}'), undefined);
+  assert.equal(notifyRequest(['--claude-event', 'PreToolUse'], '{"tool_name":"Bash"}'), undefined);
+});

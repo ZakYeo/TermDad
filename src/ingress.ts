@@ -2,9 +2,25 @@ import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 
 /** Kinds a worker CLI hook may report. Summaries are authored here, never by the worker. */
-export const pushKinds = ['input_required', 'ready', 'session_ended'] as const;
+export const pushKinds = [
+  'input_required',
+  'ready',
+  'session_ended',
+  'plan_submitted',
+  'plan_approval',
+  'tool_permission',
+  'question',
+  'input_activity',
+  'turn_ended',
+] as const;
 export type PushKind = (typeof pushKinds)[number];
 const summaries: Record<PushKind, string> = {
+  plan_submitted: 'Worker submitted a plan; approval state requires confirmation.',
+  plan_approval: 'Worker requested plan approval.',
+  tool_permission: 'Worker requested tool permission.',
+  question: 'Worker requested an answer.',
+  input_activity: 'Worker received input; its source is unknown.',
+  turn_ended: 'Worker finished responding; readiness and task success are not established.',
   input_required: 'Worker reported that it needs input.',
   ready: 'Worker reported that its turn finished; task success is not established.',
   session_ended: 'Worker reported that its session ended; the pane may still be open.',

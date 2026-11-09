@@ -63,10 +63,11 @@ export function createServer(
       const start = performance.now();
       let success = false;
       try {
-        if (event.kind === 'ready') {
+        if (event.kind === 'input_activity') await agents.noteInputActivity(event.agentId);
+        if (event.kind === 'ready' || event.kind === 'turn_ended') {
           const observation = await agents.peek(event.agentId);
           if (observation.readyForPrompt && !watches.list().some((w) => w.agentId === event.agentId))
-            await events.publish(event);
+            await events.publish({ ...event, kind: 'ready' });
         } else await events.publish(event);
         await watches.confirm(event.paneId);
         success = true;

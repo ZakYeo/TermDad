@@ -103,3 +103,11 @@ worker command overrides. A custom `zsh -lic claude` does not forward appended
 arguments and cannot acquire hooks after launch; keep polling that existing pane.
 Use a newly launched worker to adopt the supported hook surface. Hook delivery,
 not configured argv alone, establishes `proven:true`.
+
+Worker hooks now distinguish `plan_submitted` (PreToolUse/ExitPlanMode),
+`plan_approval`, `tool_permission`, `question` (PermissionRequest), and
+`input_activity` (UserPromptSubmit). Notifications are filtered to permission
+prompts. Stop reports `turn_ended` internally and triggers sampled readiness;
+it never establishes task completion. Input activity has unknown origin: CLI
+hooks do not prove a person typed. No prompt/tool input is copied to events.
+Existing workers need relaunching to receive new hook configuration.

@@ -24,6 +24,19 @@ export interface NotifyRequest {
 /** Which event this invocation reports, or nothing when the CLI's event is not modelled. */
 export function notifyKind(argv: string[], stdin: string): PushKind | undefined {
   let kind = flag(argv, '--kind') as PushKind | undefined;
+  const hook = flag(argv, '--claude-event');
+  if (hook) {
+    const payload = JSON.parse(stdin || '{}');
+    if (hook === 'Notification' && payload.notification_type !== 'permission_prompt') return undefined;
+    if (hook === 'PreToolUse' && payload.tool_name !== 'ExitPlanMode') return undefined;
+    if (hook === 'PermissionRequest')
+      kind =
+        payload.tool_name === 'ExitPlanMode'
+          ? 'plan_approval'
+          : payload.tool_name === 'AskUserQuestion'
+            ? 'question'
+            : 'tool_permission';
+  }
   if (argv.includes('--codex')) {
     const payload = argv.at(-1);
     let type: unknown;
@@ -103,6 +116,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         let text = '';
         process.stdin.setEncoding('utf8');
         process.stdin.on('data', (c) => {
+          if (text.length + c.length > 65536) {
+            resolve('');
+            process.stdin.destroy();
+            return;
+          }
           text += c;
         });
         process.stdin.on('end', () => resolve(text));
