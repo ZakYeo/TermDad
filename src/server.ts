@@ -15,6 +15,7 @@ import { CommandNotificationProvider } from './notifications.js';
 import { attemptReferenceSchema } from './task-results.js';
 import { TaskBoard } from './tasks.js';
 import { FileTaskStorage, type TaskStorage } from './task-storage.js';
+import { registerTaskDispatch } from './task-dispatch-tools.js';
 import { registerTaskTools } from './task-tools.js';
 import { withWorkerTasks } from './task-workers.js';
 import { AttentionService } from './attention.js';
@@ -563,6 +564,7 @@ export function createServer(
       return removed;
     })
     .catch(() => [] as string[]);
+  registerTaskDispatch(server, tasks, agents);
   const closeTasks = registerTaskTools(server, tasks, () => agents.list());
   const attention = new AttentionService(
     () => tasks.snapshot(),

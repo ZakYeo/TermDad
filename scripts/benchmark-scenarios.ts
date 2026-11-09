@@ -115,6 +115,22 @@ export const scenarios: Scenario[] = [
     }),
     save: saveTask,
   },
+  {
+    tool: 'task.dispatch',
+    args: (c) => ({
+      agentId: c.worker.agentId,
+      idempotencyKey: 'benchmark-dispatch',
+      task: { boardId: 'bench', title: 'Dispatch', goal: 'Dispatch once' },
+      text: 'Do fixture work',
+    }),
+    setup: async (f, c) => {
+      f.panes.set(c.worker.paneId, 'Dispatch ready\n$ ');
+      await f.app.agents.storage.transaction(true, (s) => {
+        s.workers.find((w) => w.agentId === c.worker.agentId)!.lastInputAt = 0;
+        return { state: s, result: null };
+      });
+    },
+  },
   { tool: 'task.history', args: (c) => ({ taskId: c.task.id }) },
   { tool: 'task.archive', args: (c) => ({ ...task(c), archived: true }), save: saveTask },
   { tool: 'orchestrator.attention', args: empty },

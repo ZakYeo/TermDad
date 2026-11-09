@@ -1,3 +1,4 @@
+import { dispatchTask } from './task-dispatch.js';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import {
@@ -69,6 +70,9 @@ export class TaskBoard {
         return { state, result: taskView(task, state) };
       });
     });
+  }
+  dispatch(input: unknown, submit: (taskId: string, attemptId: string) => Promise<{ turnId: string }>) {
+    return this.run(() => dispatchTask(this, input, submit));
   }
   get(taskId: string) {
     return this.run(async () => {

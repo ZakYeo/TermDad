@@ -24,6 +24,17 @@ export const taskSchema = z
   .object({
     ...taskFields,
     ...completionFields,
+    dispatch: z
+      .object({
+        key: z.string().min(1).max(100),
+        fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+        attemptId: z.uuid(),
+        status: z.enum(['prepared', 'uncertain', 'submitted', 'not_submitted']),
+        turnId: z.uuid().optional(),
+        errorCode: z.string().max(100).optional(),
+      })
+      .strict()
+      .optional(),
     id: z.uuid(),
     boardId: label,
     status: z.enum(['todo', 'in_progress', 'done', 'cancelled']),
@@ -116,6 +127,8 @@ export function validateTaskState(value: unknown): TaskState {
   if (!parsed.success) throw new Error('TASK_STATE_INVALID: invalid task records');
   const state = parsed.data,
     byId = new Map(state.tasks.map((t) => [t.id, t]));
+  const keys = state.tasks.flatMap((t) => (t.dispatch ? [t.dispatch.key] : []));
+  if (new Set(keys).size !== keys.length) throw new Error('TASK_DISPATCH_DUPLICATE_KEY');
   if (byId.size !== state.tasks.length) throw new Error('TASK_DUPLICATE_ID');
   for (const task of state.tasks) {
     if (task.updatedAt < task.createdAt) throw new Error('TASK_STATE_INVALID: timestamps out of order');

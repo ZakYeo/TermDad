@@ -985,3 +985,15 @@ verification still cannot complete a task.
 Task journals now write version 4; versions 1–3 migrate on read without writing
 until a successful mutation. Restart clients together; older builds cannot read
 new records and must not be used against the upgraded state directory.
+
+### Combined task dispatch
+
+`task.dispatch({idempotencyKey,agentId,task,text})` creates, assigns and starts a
+task in one transaction, then submits to an existing worker with readiness checks.
+`task` uses create fields without `assignedAgentId`; `agentId` is a worker UUID.
+Responses contain compact task IDs and durable dispatch status: `prepared`,
+`submitted`, `not_submitted` or `uncertain`. An idempotency key is unique across
+the state directory; reuse with different input fails. Reuse with identical input
+returns the existing result, without resending submitted or uncertain input.
+Uncertainty is persisted before terminal I/O. Inspect failed delivery before
+choosing an explicit next action; task preparation cannot roll back PTY input.
