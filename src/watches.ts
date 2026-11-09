@@ -25,6 +25,7 @@ export const watchShape = {
   pollMs: z.number().int().min(500).max(60000).default(2000),
   pushPollMs: z.number().int().min(1000).max(3600000).default(30000),
   inactivityMs: z.number().int().min(1000).max(3600000).default(60000),
+  reminderMs: z.number().int().min(0).max(3600000).default(300000),
   attentionMs: z.number().int().min(1000).max(3600000).default(120000),
   cooldownMs: z.number().int().min(0).max(3600000).default(10000),
   notify: z.boolean().default(false),
@@ -48,6 +49,8 @@ type Watch = Config & {
   lastDelivery?: number;
   pending: Map<string, Pending>;
   attentionKey?: string;
+  attentionAt?: number;
+  handoffKey?: string;
   backendError?: string;
   deliveryError?: string;
   lastEvent?: WatchEventInput;
@@ -133,6 +136,12 @@ export class WatchManager {
   list() {
     return [...this.records.values()].map((w) => this.view(w));
   }
+  setDisposition(watchId: string, requestKey: string, disposition: 'active' | 'awaiting_human') {
+    const w = this.records.get(watchId);
+    if (!w || this.view(w).requestKey !== requestKey) throw new Error('WATCH_REQUEST_STALE');
+    w.handoffKey = disposition === 'awaiting_human' ? requestKey : undefined;
+    return this.view(w);
+  }
   assertSwitchable() {
     if (this.records.size || this.creations.size || this.running)
       throw new Error('TERMINAL_BUSY: remove watches and let polling finish before switching GUI');
@@ -148,6 +157,12 @@ export class WatchManager {
       pushBacked: this.pushed(w),
       inactivityMs: w.inactivityMs,
       attentionMs: w.attentionMs,
+      reminderMs: w.reminderMs,
+      requestKey:
+        w.hash && (inputKind(w.status!) || w.status === 'READY_FOR_PROMPT')
+          ? hashOutput(`${w.status}\0${w.hash}`)
+          : null,
+      disposition: w.handoffKey ? 'awaiting_human' : 'active',
       cooldownMs: w.cooldownMs,
       notify: w.notify,
       status: w.status,
@@ -285,6 +300,7 @@ export class WatchManager {
     }
     if (!this.active(w)) return;
     const changed = hash !== w.hash;
+    if (w.handoffKey !== hashOutput(`${status}\0${hash}`)) w.handoffKey = undefined;
     this.options.monitoring?.record({
       kind: 'sample',
       watchId: w.watchId,
@@ -323,12 +339,15 @@ export class WatchManager {
       stalled = !baseline && status === 'READY_FOR_PROMPT' && this.now() - w.changedAt >= w.attentionMs;
     if (!prompt && status !== 'READY_FOR_PROMPT') {
       w.attentionKey = undefined;
+      w.attentionAt = undefined;
       return;
     }
-    if (changed || (!prompt && !stalled)) return;
+    if (w.handoffKey || changed || (!prompt && !stalled)) return;
+    if (prompt && w.reminderMs > 0 && this.now() - w.changedAt < w.reminderMs) return;
     const key = `${status}\0${hash}`;
-    if (key === w.attentionKey) return;
+    if (key === w.attentionKey && (w.reminderMs === 0 || this.now() - (w.attentionAt ?? 0) < w.reminderMs)) return;
     w.attentionKey = key;
+    w.attentionAt = this.now();
     this.enqueue(w, attention);
   }
   private async deliver(w: Watch) {

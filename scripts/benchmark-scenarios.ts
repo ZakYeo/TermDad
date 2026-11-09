@@ -121,11 +121,23 @@ export const scenarios: Scenario[] = [
   {
     tool: 'watch.create',
     args: worker,
+    setup: async (f, c) => {
+      f.panes.set(c.worker.paneId, 'New request ready\n$ ');
+      await f.app.agents.storage.transaction(true, (s) => {
+        const w = s.workers.find((w) => w.agentId === c.worker.agentId)!;
+        w.lastInputAt = 0;
+        return { state: s, result: null };
+      });
+    },
     save: (c, r) => {
       c.watch = r;
     },
   },
   { tool: 'watch.list', args: empty },
+  {
+    tool: 'watch.set_disposition',
+    args: (c) => ({ watchId: c.watch.watchId, requestKey: c.watch.requestKey, disposition: 'awaiting_human' }),
+  },
   { tool: 'watch.remove', args: (c) => ({ watchId: c.watch.watchId }) },
   { tool: 'push.status', args: empty },
   { tool: 'push.set', args: (c) => ({ ...worker(c), enabled: false }) },

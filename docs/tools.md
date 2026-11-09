@@ -939,3 +939,13 @@ ready-gated task. Hook-equipped workers also receive a per-turn notifier command
 Reports require enabled push and the current turn ID. Their text stays in worker
 metadata, not the event journal. Older server builds cannot read worker records
 with these new fields; restart clients together and do not downgrade active state.
+
+### Attention handoff
+
+Watches default to `reminderMs:300000` for unresolved prompts, preventing an
+immediate second attention wake after input-required. Zero retains legacy
+one-shot attention behavior. `watch.list` exposes a `requestKey`;
+`watch.set_disposition({watchId,requestKey,disposition:"awaiting_human"})` suppresses
+reminders for that observed request. `active` resumes them. Changed evidence
+clears the handoff. Watches and handoffs are process-local; recreate them after
+restart. Acknowledging an event does not resolve the underlying request.

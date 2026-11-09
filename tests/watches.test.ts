@@ -71,7 +71,7 @@ function fixture(options: any = {}) {
     },
   };
 }
-const config = { paneId: 7, adapter: 'codex', pollMs: 500, inactivityMs: 1000, cooldownMs: 0 };
+const config = { reminderMs: 0, paneId: 7, adapter: 'codex', pollMs: 500, inactivityMs: 1000, cooldownMs: 0 };
 test('baseline, prompt transitions, permission precedence and quiet episodes', async () => {
   const f = fixture();
   await f.watches.create(config);
@@ -714,5 +714,31 @@ test('a report containing a quoted question emits ready rather than input_requir
     ['ready'],
   );
   assert.equal(f.watches.list()[0].status, 'READY_FOR_PROMPT');
+  await f.watches.dispose();
+});
+
+test('default prompt reminders avoid duplicate immediate attention and respect handoff', async () => {
+  const f = fixture();
+  const watch = await f.watches.create({ ...config, reminderMs: 300000 });
+  f.setText('Do you want to proceed?\n›');
+  await f.tick();
+  await f.tick();
+  assert.deepEqual(
+    f.events.map((e) => e.kind),
+    ['input_required'],
+  );
+  const request = f.watches.list()[0].requestKey!;
+  f.watches.setDisposition(watch.watchId, request, 'awaiting_human');
+  await f.tick(300000);
+  assert.equal(
+    f.events.some((e) => e.kind === 'attention_required'),
+    false,
+  );
+  f.watches.setDisposition(watch.watchId, request, 'active');
+  await f.tick();
+  assert.equal(f.events.at(-1)?.kind, 'attention_required');
+  f.setText('Working (esc to interrupt)');
+  await f.tick();
+  assert.throws(() => f.watches.setDisposition(watch.watchId, request, 'awaiting_human'), /WATCH_REQUEST_STALE/);
   await f.watches.dispose();
 });

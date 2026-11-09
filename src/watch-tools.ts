@@ -13,6 +13,12 @@ export function registerWatchTools(server: McpServer, watches: WatchManager) {
     watchShape,
     (a) => watches.create(a),
   );
+  register(
+    'watch.set_disposition',
+    'Mark this observed request as awaiting a human; cleared by changed evidence or watch removal.',
+    { watchId: z.string(), requestKey: z.string(), disposition: z.enum(['active', 'awaiting_human']) },
+    (a) => watches.setDisposition(a.watchId, a.requestKey, a.disposition),
+  );
   register('watch.list', 'List watches, pending delivery counts and recoverable errors.', {}, () => watches.list());
   register('watch.remove', 'Remove a watch without closing its pane.', { watchId: z.string().min(1).max(100) }, (a) =>
     watches.remove(a.watchId),

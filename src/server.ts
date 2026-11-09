@@ -6,7 +6,7 @@ import { EventQueue } from './events.js';
 import { registerEventTools } from './event-tools.js';
 import { WezTermBackend, type TerminalBackend, id, spawnSchema, sendKeys, submit, keyDescription } from './backend.js';
 import { compactInventory } from './terminal-list.js';
-import { Agents, adoptionSchema, reattachSchema, normalizeScreen } from './agents.js';
+import { hashOutput, Agents, adoptionSchema, reattachSchema, normalizeScreen } from './agents.js';
 import { FileWorkerStorage, type WorkerStorage } from './worker-storage.js';
 import { CommandScreenshotProvider, type ScreenshotProvider } from './screenshots.js';
 import { WatchManager, type WatchOptions } from './watches.js';
@@ -56,6 +56,14 @@ export function createServer(
     (process.env.TERM_DAD_MONITORING === '1' ? Monitoring.file(join(stateDirectory(), 'monitoring')) : undefined);
   if (monitoring) backend = monitoring.backend(backend);
   const socketPath = pushSocketPath(stateDirectory());
+  const publishSignal = async (event: import('./events.js').EventInput) => {
+    if (event.agentId && ['input_required', 'plan_approval', 'tool_permission', 'question'].includes(event.kind)) {
+      const observation = await agents.peek(event.agentId);
+      const request = observation.inputRequest;
+      if (request) return events.publish({ ...event, deliveryKey: hashOutput(`${event.agentId}:${request.id}`) });
+    }
+    return events.publish(event);
+  };
   // A pushed event still publishes bounded metadata; `watches.confirm` then samples the pane
   // so the recorded status comes from the terminal rather than from the worker's claim.
   const ingress = new PushIngress({
@@ -76,7 +84,7 @@ export function createServer(
           const observation = await agents.peek(event.agentId);
           if (observation.readyForPrompt && !watches.list().some((w) => w.agentId === event.agentId))
             await events.publish({ ...event, kind: 'ready' });
-        } else await events.publish(event);
+        } else await publishSignal(event);
         await watches.confirm(event.paneId);
         success = true;
       } finally {
@@ -512,7 +520,7 @@ export function createServer(
     pushProven: (agentId) => !!agentId && !ingress.revoked(agentId) && ingress.status(agentId).proven,
     ...(monitoring ? { monitoring } : {}),
     ...options,
-    sink: options.sink ?? ((input) => events.publish(input)),
+    sink: options.sink ?? ((input) => publishSignal(input)),
   });
   // Listening is best effort: a server that cannot bind still polls, it just cannot be pushed to.
   const pushReady = pushSocket

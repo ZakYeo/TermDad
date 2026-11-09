@@ -88,7 +88,7 @@ export function claudeBackground(text: string): boolean {
     .split('\n')
     .slice(-8)
     .some((line) =>
-      /^\s*(?:[1-9]\d* shells? still running|Waiting for [1-9]\d* background agents?|←\s*[1-9]\d* agents?)(?:\s*[·|].*)?\s*$/i.test(
+      /^\s*(?:⏵⏵[^\n]*·\s*)?(?:[1-9]\d* shells? still running|Waiting for [1-9]\d* background agents?|←\s*[1-9]\d* agents?)(?:\s*[·|].*)?\s*$/i.test(
         line,
       ),
     );

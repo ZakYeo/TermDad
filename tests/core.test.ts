@@ -124,10 +124,10 @@ test('subprocess timeout and execution errors are diagnostic', async () => {
   await assert.rejects(execute('/nonexistent/term-dad', []), /Check executable/);
 });
 
-test('captured Claude UI fixture recognizes prompt despite non-blocking local hook error', async () => {
+test('captured Claude UI fixture recognizes its background agent despite non-blocking hook error', async () => {
   const { readFile } = await import('node:fs/promises');
   const text = await readFile(new URL('./fixtures/claude-ready.txt', import.meta.url), 'utf8');
-  assert.equal(adapters.claude.classify(text), 'READY_FOR_PROMPT');
+  assert.equal(adapters.claude.classify(text), 'PARKED_BACKGROUND');
 });
 
 test('captured Codex UI fixture recognizes the current interactive prompt', async () => {
