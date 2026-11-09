@@ -928,3 +928,14 @@ zero. Process every event in a list page before advancing to that page's
 Agent-scoped waiters exclude account events: use a separate usage-only waiter
 without agent filters. Direct CLI calls without a cursor retain fresh-only
 behavior. `wait-for-event --help` lists available options without starting MCP.
+
+### Worker state reports
+
+Managed Claude and Codex workers receive shared role instructions on their first
+ready-gated task. Hook-equipped workers also receive a per-turn notifier command:
+`--credential <path> --report <JSON>`, containing `turnId`, `state`, `summary`,
+`references` and `checks`. States are `parked_background`, `awaiting_parent` and
+`done`. Observations expose `workerReport`; claims never complete task records.
+Reports require enabled push and the current turn ID. Their text stays in worker
+metadata, not the event journal. Older server builds cannot read worker records
+with these new fields; restart clients together and do not downgrade active state.

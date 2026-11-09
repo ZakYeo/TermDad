@@ -63,6 +63,14 @@ export function createServer(
       const start = performance.now();
       let success = false;
       try {
+        if (event.kind === 'worker_report') {
+          await agents.recordReport(event.agentId, event.report!);
+          const { report, ...metadata } = event;
+          if (report!.state !== 'parked_background') await events.publish(metadata);
+          await watches.confirm(event.paneId);
+          success = true;
+          return;
+        }
         if (event.kind === 'input_activity') await agents.noteInputActivity(event.agentId);
         if (event.kind === 'ready' || event.kind === 'turn_ended') {
           const observation = await agents.peek(event.agentId);

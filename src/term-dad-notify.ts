@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { workerReportSchema, type WorkerReport } from './worker-report.js';
 import { connect } from 'node:net';
 import { pathToFileURL } from 'node:url';
 import { pushKinds, type PushKind } from './ingress.js';
@@ -19,6 +20,7 @@ export type NotifyTarget = { credentialPath: string } | { socketPath: string; to
 export interface NotifyRequest {
   target: NotifyTarget;
   kind: PushKind;
+  report?: WorkerReport;
 }
 
 /** Which event this invocation reports, or nothing when the CLI's event is not modelled. */
@@ -71,6 +73,13 @@ export function notifyTarget(argv: string[]): NotifyTarget {
  * without touching the filesystem even when the credential is gone.
  */
 export function notifyRequest(argv: string[], stdin: string): NotifyRequest | undefined {
+  const reportText = flag(argv, '--report');
+  if (reportText)
+    return {
+      target: notifyTarget(argv),
+      kind: 'worker_report',
+      report: workerReportSchema.parse(JSON.parse(reportText)),
+    };
   const kind = notifyKind(argv, stdin);
   if (!kind) return undefined;
   return { target: notifyTarget(argv), kind };
@@ -79,7 +88,10 @@ export function notifyRequest(argv: string[], stdin: string): NotifyRequest | un
 export async function resolveRequest(request: NotifyRequest) {
   const { socketPath, token } =
     'credentialPath' in request.target ? await readCredential(request.target.credentialPath) : request.target;
-  return { socketPath, line: JSON.stringify({ token, kind: request.kind }) };
+  return {
+    socketPath,
+    line: JSON.stringify({ token, kind: request.kind, ...(request.report ? { report: request.report } : {}) }),
+  };
 }
 
 /** One request, one reply, bounded: a hook must never block the worker it runs in. */

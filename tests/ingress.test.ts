@@ -60,7 +60,18 @@ test('every accepted kind is distinct, bounded and summarised by the server', as
   const { token } = ingress.register('worker-1', 7);
   ingress.setEnabled('worker-1', true);
   for (const kind of pushKinds)
-    assert.deepEqual(await ingress.handle(JSON.stringify({ token, kind })), { ok: true, delivered: true });
+    assert.deepEqual(
+      await ingress.handle(
+        JSON.stringify({
+          token,
+          kind,
+          ...(kind === 'worker_report'
+            ? { report: { turnId: '00000000-0000-4000-8000-000000000000', state: 'done', summary: 'finished' } }
+            : {}),
+        }),
+      ),
+      { ok: true, delivered: true },
+    );
   assert.deepEqual(
     pushes.map((p) => p.kind),
     [...pushKinds],

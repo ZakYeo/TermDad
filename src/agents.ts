@@ -1,3 +1,4 @@
+import { workerReportSchema, reportInstructions, type WorkerReport } from './worker-report.js';
 import { boundedMap } from './bounded-map.js';
 import type { ActivityContext } from './terminal-list.js';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -140,7 +141,10 @@ export class Agents {
       if (!this.records.has(w.agentId) && this.records.size >= 64)
         this.records.delete(this.records.keys().next().value!);
       this.records.set(w.agentId, a);
-    } else Object.assign(a, w);
+    } else {
+      delete a.report;
+      Object.assign(a, w);
+    }
     return a;
   }
   private async change(agentId: string, fn: (a: WorkerRecord) => void) {
@@ -598,6 +602,10 @@ export class Agents {
     a.outputHash = hash;
     a.recentText = text;
     a.status = adapters[a.cli].classify(text);
+    if (a.report && a.report.turnId === a.turn?.id && a.status === 'READY_FOR_PROMPT') {
+      if (a.report.state === 'parked_background') a.status = 'PARKED_BACKGROUND';
+      if (a.report.state === 'awaiting_parent') a.status = 'WAITING_FOR_QUESTION';
+    }
     const classifiedStatus = a.status;
     if (
       (a.deliveryPending || (a.lastInputAt && (Date.now() - a.lastInputAt < 750 || hash === a.inputOutputHash))) &&
@@ -625,6 +633,7 @@ export class Agents {
       ...interaction,
       turnId: a.turn?.id ?? null,
       attempt: a.turn?.attempt ?? null,
+      workerReport: a.report?.turnId === a.turn?.id ? (a.report ?? null) : null,
       status: a.status,
       activity: changed ? 'changed' : 'unchanged',
       lastActivitySecondsAgo: (Date.now() - a.lastOutputAt) / 1000,
@@ -722,15 +731,19 @@ export class Agents {
             'WORKER_NOT_READY',
             'Worker is not ready for a task. Use agent.wait_until_ready. No text was sent.',
           );
-        const initialize = requireReady && a.cli === 'codex' && !a.workerSkillSent,
-          prompt = initialize ? initialWorkerPrompt(text) : text;
+        const initialize = requireReady && a.cli !== 'shell' && !a.workerSkillSent,
+          turnId = randomUUID(),
+          prompt =
+            (initialize ? initialWorkerPrompt(text) : text) +
+            (requireReady && a.push ? reportInstructions(a.push.credentialPath, turnId) : '');
         z.string().max(100000).parse(prompt);
         const hash = readySample?.observation.outputHash ?? hashOutput(await this.screen(a.paneId));
         await this.change(a.agentId, (w) => {
           w.inputOutputHash = hash;
           w.lastInputAt = Date.now();
           w.deliveryPending = true;
-          w.turn = { id: randomUUID(), bindingRevision: w.revision, ...(attempt ? { attempt } : {}) };
+          delete w.report;
+          w.turn = { id: turnId, bindingRevision: w.revision, ...(attempt ? { attempt } : {}) };
         });
         try {
           await submit(this.backend, a.paneId, prompt);
@@ -754,6 +767,20 @@ export class Agents {
       }),
     );
   }
+  recordReport(agentId: string, input: WorkerReport) {
+    const report = workerReportSchema.parse(input);
+    return this.run(() =>
+      this.retrying(() =>
+        this.locked(agentId, async (w) => {
+          await this.checked(w);
+          if (w.turn?.id !== report.turnId) throw new Error('WORKER_REPORT_STALE');
+          await this.change(w.agentId, (current) => {
+            current.report = report;
+          });
+        }),
+      ),
+    );
+  }
   noteInputActivity(agentId: string) {
     return this.run(() =>
       this.retrying(() =>
@@ -763,6 +790,7 @@ export class Agents {
           if (a.lastInputAt && Date.now() - a.lastInputAt < 2000) return;
           const hash = hashOutput(await this.screen(a.paneId));
           await this.change(a.agentId, (record) => {
+            delete record.report;
             record.lastInputAt = Date.now();
             record.inputOutputHash = hash;
           });

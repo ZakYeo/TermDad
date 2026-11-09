@@ -14,6 +14,7 @@ export const wakeKinds = [
   'plan_approval',
   'tool_permission',
   'question',
+  'worker_report',
   'ready',
   'pane_disappeared',
   'session_ended',

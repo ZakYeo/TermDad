@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { attemptReferenceSchema } from './task-results.js';
 import { FileJournal, acquireLock } from './journal.js';
+import { workerReportSchema } from './worker-report.js';
 import { CodedError } from './errors.js';
 
 export const instanceSchema = z
@@ -30,6 +31,7 @@ export const workerSchema = z
       .strict()
       .optional(),
     workerSkillSent: z.boolean(),
+    report: workerReportSchema.optional(),
     deliveryPending: z.boolean(),
     lastInputAt: z.number().nonnegative().optional(),
     // Records that this pane was launched with a hook surface, and where it rereads its

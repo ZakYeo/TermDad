@@ -44,3 +44,12 @@ start additional model work to poll a reset timer. Continue only when the
 supervisor resumes the assignment after fresh quota checks; inspect existing
 state instead of replaying the last command. Term Dad measures and notifies;
 the supervisor coordinates pausing and resuming.
+
+## State reports
+
+When the brief supplies a reporting command, use it for `parked_background`
+(waiting for your background work), `awaiting_parent` (a decision is needed), and
+`done` (include commit/PR references and actual check results). Use the supplied
+turn ID; do not reuse one from an earlier assignment. Continue writing normal
+terminal responses so supervision works when push is unavailable. Name any
+panes you create for testing and clean up only your own panes.
