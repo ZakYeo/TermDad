@@ -1,4 +1,5 @@
 import { workerReportSchema, reportInstructions, type WorkerReport } from './worker-report.js';
+import { observationView, type ObservationView } from './observation-view.js';
 import { boundedMap } from './bounded-map.js';
 import type { ActivityContext } from './terminal-list.js';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -50,7 +51,7 @@ export function delta(previous: string, current: string) {
       return { mode: 'append', text: after.slice(overlap).join('\n') };
   return { mode: 'replace', text: current };
 }
-type Observation = { id: string; text: string; status: Status };
+type Observation = { id: string; text: string; status: Status; view?: ObservationView };
 type Sample = Awaited<ReturnType<Agents['sample']>>;
 export interface Agent extends Omit<WorkerRecord, 'paneId'>, InteractionState {
   paneId: number;
@@ -652,7 +653,7 @@ export class Agents {
       deliveryPending: a.deliveryPending,
       screenshotAvailable: !!process.env.TERM_DAD_SCREENSHOT_COMMAND,
     };
-    return { observation, text, history };
+    return { observation, text, history, cli: a.cli };
   }
   private remember(a: Agent, id: string, text: string, status: Status) {
     a.history.push({ id, text, status });
@@ -665,12 +666,24 @@ export class Agents {
       this.remember(a, observation.observationId, text, observation.status);
   }
   /** Presentation only: the delta against `since` (or against `base` text when the caller pinned it) and the line cap. */
-  private present({ observation, text, history }: Sample, since: string | undefined, lines: number, base?: string) {
-    const previous = base ?? (since ? history.find((h) => h.id === since)?.text : undefined);
-    const output = previous !== undefined ? delta(previous, text) : { mode: 'replace', text };
+  private present(
+    { observation, text, history, cli }: Sample,
+    since: string | undefined,
+    lines: number,
+    base?: string,
+    view: ObservationView = 'screen',
+  ) {
+    const current = observationView(text, cli, view);
+    const prior = since ? history.find((h) => h.id === since && (h.view ?? 'screen') === view) : undefined;
+    const previous = base ?? (prior ? observationView(prior.text, cli, view).text : undefined);
+    const output = previous !== undefined ? delta(previous, current.text) : { mode: 'replace', text: current.text };
     const capped = tail(output.text, lines);
+    const stored = this.records.get(observation.agentId)?.history.find((h) => h.id === observation.observationId);
+    if (stored) stored.view = view;
     return {
       ...observation,
+      ...(current.planPath ? { planPath: current.planPath, planPathSource: 'screen' as const } : {}),
+      ...(view === 'last_reply' ? { view, extractionFallback: current.fallback } : {}),
       previousObservationId: since,
       deltaReset: !!since && previous === undefined,
       recentText: capped.text,
@@ -678,10 +691,13 @@ export class Agents {
       linesOmitted: capped.linesOmitted,
     };
   }
-  observe(agentId: string, since?: string, lines?: number) {
+  observe(agentId: string, since?: string, lines?: number, view: ObservationView = 'screen') {
     return this.run(async () => {
       const n = linesSchema.parse(lines);
-      return this.retrying(() => this.locked(agentId, async (w) => this.present(await this.sample(w), since, n)));
+      z.enum(['screen', 'last_reply']).parse(view);
+      return this.retrying(() =>
+        this.locked(agentId, async (w) => this.present(await this.sample(w), since, n, undefined, view)),
+      );
     });
   }
   /** A full observation that records nothing, for pollers: it can never evict a caller's `since` baseline. */

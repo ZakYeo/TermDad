@@ -949,3 +949,12 @@ one-shot attention behavior. `watch.list` exposes a `requestKey`;
 reminders for that observed request. `active` resumes them. Changed evidence
 clears the handoff. Watches and handoffs are process-local; recreate them after
 restart. Acknowledging an event does not resolve the underlying request.
+
+### Compact worker replies
+
+`agent.observe` and `agent.status` accept `view:"last_reply"`; `screen` remains
+the default. Recognized Claude reply blocks omit UI chrome and echoed prompts.
+`extractionFallback:true` means the bounded screen was returned instead. `since`
+deltas are view-specific; switching views resets the delta. `planPath`, when
+present, is a screen-derived reference in the worker's domain, never a file the
+server has opened or verified. Classification always uses the full screen.

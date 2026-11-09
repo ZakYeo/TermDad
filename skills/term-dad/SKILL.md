@@ -247,3 +247,7 @@ screens; never replay uncertain input or revive canceled work.
 
 Hook code, templates, and installation instructions are in this repository; see
 `docs/hooks.md`. Do not invent local-only hook scripts or bypass client hook trust.
+
+Prefer `agent.observe` with `view:"last_reply"` and your last `since` ID for
+reply inspection; use screen view when extraction falls back or you need to
+inspect an approval. A plan path is a reference in the worker's domain.

@@ -383,8 +383,13 @@ export function createServer(
     register(
       `agent.${name}`,
       'Observe state, activity and the tail of normalized output (20 lines by default). Pass since to get only the change since that observation; raise lines only when a screen is actually needed.',
-      { ...agent, since: z.string().optional(), lines: z.number().int().min(1).max(150).default(20) },
-      (a) => agents.observe(a.agentId, a.since, a.lines),
+      {
+        ...agent,
+        since: z.string().optional(),
+        lines: z.number().int().min(1).max(150).default(20),
+        view: z.enum(['screen', 'last_reply']).default('screen'),
+      },
+      (a) => agents.observe(a.agentId, a.since, a.lines, a.view),
     );
   register('agent.interrupt', 'Send Ctrl+C to worker.', agent, (a) => agents.interrupt(a.agentId));
   register('agent.stop', 'Close worker pane and remove mapping.', agent, (a) => agents.stop(a.agentId));
