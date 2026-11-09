@@ -200,3 +200,30 @@ test('the reported wake command warns when its entry point does not exist beside
   assert.match(wake.command[1], /index\.js$/);
   assert.match(wake.warning ?? '', /entry point/, 'a supervisor must not be handed a path that cannot run');
 });
+
+test('a scoped resumed waiter catches an event in the sweep-to-arm gap', async (t) => {
+  const { directory, queue } = await journal(t);
+  const page = await queue.list();
+  await queue.publish({ ...input(), agentId: 'other' });
+  const expected = await queue.publish(input('input_required'));
+  const result = await waitForEvent(
+    parseWaitArgs([
+      '--state-dir',
+      directory,
+      '--agents',
+      'worker-1',
+      '--after-sequence',
+      String(page.resumeAfterSequence),
+    ]),
+    {
+      sleep: async () => {
+        throw new Error('pending event should wake immediately');
+      },
+    },
+  );
+  assert.equal(JSON.parse(result.output).event.id, expected.id);
+  const first = await queue.list({}, false, 1);
+  assert.equal(first.hasMore, true);
+  const next = await queue.list({ afterSequence: first.resumeAfterSequence });
+  assert.equal(next.events[0].id, expected.id);
+});

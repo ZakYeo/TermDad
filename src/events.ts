@@ -236,6 +236,7 @@ export class EventQueue {
           result: {
             events: found.slice(0, limit),
             hasMore: found.length > limit,
+            resumeAfterSequence: found.length > limit ? found[limit - 1].sequence : s.nextSequence - 1,
             pendingCount: s.events.filter((e) => e.acknowledgedAt === null).length,
             capacity: this.capacity,
             storageWarning: this.storage.warning ?? null,

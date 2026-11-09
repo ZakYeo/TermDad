@@ -129,3 +129,11 @@ test('the server names its own waiter: the reported command runs, and the exampl
     await client.close();
   }
 });
+
+test('wait-for-event help is available without a journal or server', async () => {
+  const result = await run(['wait-for-event', '--help']);
+  assert.equal(result.code, 0);
+  assert.match(result.stdout, /--after-sequence/);
+  assert.match(result.stdout, /--agents/);
+  assert.equal(result.stderr, '');
+});

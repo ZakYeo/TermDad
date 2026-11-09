@@ -918,3 +918,13 @@ unchanged but cannot enable push (`PUSH_NOT_WIRED`). `push.status` explains why.
 Other custom launchers must forward appended flags themselves; configured wiring
 is not proof that their hooks execute. Keep the normal watch polling interval until
 `proven:true`; only a successful delivery permits the slower liveness interval.
+
+### Resuming a supervisor waiter
+
+`event.wake_command({agentIds, afterSequence})` emits a command that drains
+pending matching events after the last handled sequence. Its default cursor is
+zero. Process every event in a list page before advancing to that page's
+`resumeAfterSequence`; this prevents gaps between handling and re-arming.
+Agent-scoped waiters exclude account events: use a separate usage-only waiter
+without agent filters. Direct CLI calls without a cursor retain fresh-only
+behavior. `wait-for-event --help` lists available options without starting MCP.

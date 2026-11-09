@@ -160,8 +160,12 @@ them, and pass `freshOnly:false` only to read history.
 
 Never end a turn with a busy worker and no pending waiter, and never promise a
 later update any other way; a wait you are inside counts only until it returns.
-To be woken while idle, call `event.wake_command` once per session and run its
-`example` verbatim as a detached background command, editing only `--kinds`.
+To be woken while idle, call `event.wake_command` with your live `agentIds` and last handled
+`afterSequence`, then run its `example` as a detached background command.
+Without a cursor it drains pending events from sequence zero. Drain each list
+page completely before advancing to `resumeAfterSequence`; never jump to a
+newly sampled latest sequence. Use a separate unscoped usage-only waiter because
+agent filters exclude account events.
 It prints one JSON line: `{"status":"event",…}` is your wake and
 `{"status":"timeout"}` means re-arm. Read `status`, never the exit code; a
 waiter with no JSON line or a non-zero exit is broken. On every wake: inspect

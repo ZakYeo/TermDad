@@ -25,10 +25,23 @@ const shellWord = (value: string) =>
  * PATH and `dist/wait-cli.js` is a module that exits at once; both were tried in the field.
  * `--state-dir` is explicit because the waiter runs in the caller's environment, not the server's.
  */
-export function wakeCommand(stateDir = stateDirectory(), execPath = process.execPath) {
+export function wakeCommand(
+  stateDir = stateDirectory(),
+  execPath = process.execPath,
+  filter: { agentIds?: string[]; afterSequence?: number } = {},
+) {
   const entry = fileURLToPath(new URL('./index.js', import.meta.url)),
     command = [execPath, entry, 'wait-for-event'];
-  const args = ['--until-event', '--state-dir', stateDir, '--kinds', wakeKinds.join(',')];
+  const args = [
+    '--until-event',
+    '--state-dir',
+    stateDir,
+    '--kinds',
+    wakeKinds.join(','),
+    '--after-sequence',
+    String(filter.afterSequence ?? 0),
+  ];
+  if (filter.agentIds?.length) args.push('--agents', filter.agentIds.join(','));
   // A server run from source (tsx) has no index.js beside it; say so rather than hand out a path that cannot run.
   const warning = existsSync(entry)
     ? undefined
@@ -89,9 +102,9 @@ export function registerEventTools(server: McpServer, queue: EventQueue) {
     {
       description:
         'The exact detached command that wakes an idle supervisor when an event lands. Run its example verbatim as a background process; never run dist/wait-cli.js directly and never assume term-dad is on PATH. Read-only.',
-      inputSchema: {},
+      inputSchema: { agentIds: eventFilterSchema.shape.agentIds, afterSequence: eventFilterSchema.shape.afterSequence },
     },
-    () => toolCall('event.wake_command', async () => wakeCommand()),
+    (filter) => toolCall('event.wake_command', async () => wakeCommand(undefined, undefined, filter)),
   );
   const stopSweeper = queue.startSweeper();
   return async () => {
