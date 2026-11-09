@@ -967,3 +967,7 @@ permission/authentication/question screens and uncertain delivery. The reply
 includes a submission ID and `consumption:"unknown"`; no application acceptance
 is inferred. Ordinary follow-ups inherit a valid current attempt when omitted;
 `attempt:null` explicitly detaches it. Queue mode cannot change the attempt.
+
+Task mutation tools accept `responseMode:"compact"` to return only `id`,
+`revision`, `status`, `attemptId`, `reportId` and `verificationId`. Full remains
+the default. Use `task.get` and `task.history` for full requirements and evidence.

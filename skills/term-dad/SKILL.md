@@ -256,3 +256,7 @@ Use explicit `agent.send` `mode:"queue"` for steering an active Claude turn.
 It preserves tracking but does not prove Claude consumed the correction. Normal
 follow-ups inherit their current validated attempt; use `attempt:null` only for
 an intentional detachment. Never queue answers to approval screens.
+
+Request `responseMode:"compact"` for task mutations to avoid repeated requirements
+and evidence. Use the returned revision and attempt/report IDs for subsequent
+calls; fetch full details only when needed.
