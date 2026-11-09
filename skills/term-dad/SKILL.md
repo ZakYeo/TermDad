@@ -251,3 +251,8 @@ Hook code, templates, and installation instructions are in this repository; see
 Prefer `agent.observe` with `view:"last_reply"` and your last `since` ID for
 reply inspection; use screen view when extraction falls back or you need to
 inspect an approval. A plan path is a reference in the worker's domain.
+
+Use explicit `agent.send` `mode:"queue"` for steering an active Claude turn.
+It preserves tracking but does not prove Claude consumed the correction. Normal
+follow-ups inherit their current validated attempt; use `attempt:null` only for
+an intentional detachment. Never queue answers to approval screens.

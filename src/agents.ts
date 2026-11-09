@@ -93,6 +93,7 @@ export class Agents {
     readonly storage: WorkerStorage = new MemoryWorkerStorage(),
     readonly push?: WorkerPush,
     readonly validateAccount?: (accountRef: string) => Promise<void>,
+    readonly validateAttempt?: (ref: z.infer<typeof attemptReferenceSchema>, agentId: string) => Promise<unknown>,
   ) {}
   private run<T>(fn: () => Promise<T>): Promise<T> {
     if (this.closed) return Promise.reject(new Error('WORKER_CLOSED'));
@@ -727,31 +728,51 @@ export class Agents {
       }),
     );
   }
-  send(agentId: string, text: string, attempt?: z.infer<typeof attemptReferenceSchema>, requireReady = true) {
+  send(
+    agentId: string,
+    text: string,
+    attempt?: z.infer<typeof attemptReferenceSchema> | null,
+    requireReady = true,
+    mode: 'task' | 'queue' = 'task',
+  ) {
     return this.run(() =>
-      this.sendLocked(agentId, requireReady, async (w) => {
+      this.sendLocked(agentId, mode === 'queue' ? false : requireReady, async (w) => {
         z.string().max(100000).parse(text);
         if (attempt) attemptReferenceSchema.parse(attempt);
         const { a } = await this.checked(w);
         if (a.deliveryPending)
           throw new Error('WORKER_DELIVERY_UNCERTAIN: inspect and agent.reattach before further input');
         z.boolean().parse(requireReady);
-        const readySample = requireReady ? await this.sample(w, false) : undefined;
+        z.enum(['task', 'queue']).parse(mode);
+        const queued = mode === 'queue';
+        if (queued && (a.cli !== 'claude' || !a.turn))
+          throw new Error('WORKER_QUEUE_UNSUPPORTED: queue requires a Claude worker with an active turn');
+        const effectiveAttempt = attempt === undefined ? a.turn?.attempt : (attempt ?? undefined);
+        if (queued && JSON.stringify(effectiveAttempt) !== JSON.stringify(a.turn?.attempt))
+          throw new Error('WORKER_QUEUE_ATTEMPT_CONFLICT');
+        if (effectiveAttempt) await this.validateAttempt?.(effectiveAttempt, a.agentId);
+        const readySample = requireReady || queued ? await this.sample(w, false) : undefined;
         if (readySample?.observation.inputRequired)
           throw new CodedError(
             'WORKER_INPUT_REQUIRED',
             'Worker needs input; inspect the request and ask the user unless explicitly authorized. No text was sent.',
           );
-        if (readySample && !readySample.observation.readyForPrompt)
+        if (
+          queued &&
+          readySample &&
+          !['WORKING', 'PARKED_BACKGROUND', 'READY_FOR_PROMPT'].includes(readySample.observation.status)
+        )
+          throw new Error('WORKER_NOT_READY');
+        if (!queued && readySample && !readySample.observation.readyForPrompt)
           throw new CodedError(
             'WORKER_NOT_READY',
             'Worker is not ready for a task. Use agent.wait_until_ready. No text was sent.',
           );
-        const initialize = requireReady && a.cli !== 'shell' && !a.workerSkillSent,
-          turnId = randomUUID(),
+        const initialize = !queued && requireReady && a.cli !== 'shell' && !a.workerSkillSent,
+          turnId = queued ? a.turn!.id : randomUUID(),
           prompt =
             (initialize ? initialWorkerPrompt(text) : text) +
-            (requireReady && a.push ? reportInstructions(a.push.credentialPath, turnId) : '');
+            (!queued && requireReady && a.push ? reportInstructions(a.push.credentialPath, turnId) : '');
         z.string().max(100000).parse(prompt);
         const hash = readySample?.observation.outputHash ?? hashOutput(await this.screen(a.paneId));
         await this.change(a.agentId, (w) => {
@@ -759,7 +780,12 @@ export class Agents {
           w.lastInputAt = Date.now();
           w.deliveryPending = true;
           delete w.report;
-          w.turn = { id: turnId, bindingRevision: w.revision, ...(attempt ? { attempt } : {}) };
+          if (!queued)
+            w.turn = {
+              id: turnId,
+              bindingRevision: w.revision,
+              ...(effectiveAttempt ? { attempt: effectiveAttempt } : {}),
+            };
         });
         try {
           await submit(this.backend, a.paneId, prompt);
@@ -776,6 +802,7 @@ export class Agents {
         return {
           agentId: a.agentId,
           sent: true,
+          ...(queued ? { mode: 'queue' as const, submissionId: randomUUID() } : {}),
           delivery: 'submitted_to_terminal' as const,
           consumption: 'unknown' as const,
           turnId: a.turn!.id,

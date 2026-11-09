@@ -958,3 +958,12 @@ the default. Recognized Claude reply blocks omit UI chrome and echoed prompts.
 deltas are view-specific; switching views resets the delta. `planPath`, when
 present, is a screen-derived reference in the worker's domain, never a file the
 server has opened or verified. Classification always uses the full screen.
+
+### Steering an active Claude turn
+
+`agent.send({mode:"queue", ...})` submits to Claude's native input queue, retaining
+the current turn and attempt. It requires an existing Claude turn and rejects
+permission/authentication/question screens and uncertain delivery. The reply
+includes a submission ID and `consumption:"unknown"`; no application acceptance
+is inferred. Ordinary follow-ups inherit a valid current attempt when omitted;
+`attempt:null` explicitly detaches it. Queue mode cannot change the attempt.

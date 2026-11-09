@@ -106,9 +106,15 @@ export function createServer(
     usageService ??
     new UsageService(undefined, events, undefined, undefined, CommandNotificationProvider.fromEnvironment());
   const push = new WorkerPushRegistry(ingress, socketPath, notifyCommand(), stateDir);
-  const agents = new Agents(backend, workerStorage, push, async (ref) => {
-    await usage.account(ref);
-  });
+  const agents = new Agents(
+    backend,
+    workerStorage,
+    push,
+    async (ref) => {
+      await usage.account(ref);
+    },
+    (ref, agentId) => tasks.validateAttempt(ref.taskId, ref.attemptId, agentId),
+  );
   // Push can then report on a managed worker it holds no registration for, rather than failing,
   // accept the worker's name, and re-key a surviving worker on demand under its own lock.
   push.attachWorkers(async (agentIdOrName) => {
@@ -366,7 +372,8 @@ export function createServer(
       agentId: agent.agentId.optional().describe('Worker ID or name (alias to).'),
       to: agent.agentId.optional().describe('Alias for agentId.'),
       ...textOrMessage,
-      attempt: attemptReferenceSchema.optional(),
+      attempt: attemptReferenceSchema.nullable().optional(),
+      mode: z.enum(['task', 'queue']).default('task'),
       requireReady: z.boolean().default(true),
     },
     async (a) => {
@@ -376,7 +383,7 @@ export function createServer(
         const worker = await agents.resolve(agentId);
         await tasks.validateAttempt(a.attempt.taskId, a.attempt.attemptId, worker.agentId);
       }
-      return agents.send(agentId, task, a.attempt, a.requireReady);
+      return agents.send(agentId, task, a.attempt, a.requireReady, a.mode);
     },
   );
   for (const name of ['observe', 'status'])
