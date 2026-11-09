@@ -589,3 +589,8 @@ application acknowledgment. Question classification recognizes standalone questi
 or selection cues rather than phrases embedded in report prose; it remains
 heuristic and permission checks retain precedence. Existing `ready` events and
 `turn_finished` outcomes describe readiness, never verified task success.
+
+Claude background footer evidence now classifies as `PARKED_BACKGROUND`, after
+permission/authentication/question precedence. It cannot finish a readiness wait
+or generate ready/stalled-at-prompt attention. Legacy pushed `ready` signals are
+sampled before publication; active watches own their corroborated transitions.

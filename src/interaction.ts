@@ -41,7 +41,7 @@ export function observeInteraction(state: InteractionState, status: Status, text
       };
       state.fingerprint = fingerprint;
     } else if (state.request) state.request.state = 'pending';
-  } else if (status === 'WORKING' || status === 'READY_FOR_PROMPT') {
+  } else if (status === 'WORKING' || status === 'PARKED_BACKGROUND' || status === 'READY_FOR_PROMPT') {
     delete state.request;
     delete state.fingerprint;
   } else if (state.request) state.request.state = 'uncertain';

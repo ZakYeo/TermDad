@@ -63,7 +63,11 @@ export function createServer(
       const start = performance.now();
       let success = false;
       try {
-        await events.publish(event);
+        if (event.kind === 'ready') {
+          const observation = await agents.peek(event.agentId);
+          if (observation.readyForPrompt && !watches.list().some((w) => w.agentId === event.agentId))
+            await events.publish(event);
+        } else await events.publish(event);
         await watches.confirm(event.paneId);
         success = true;
       } finally {
