@@ -94,3 +94,12 @@ line only when the installed wrapper is still intact. Manually modified hooks ar
 preserved and reported as missing/changed by doctor. Backups remain for explicit
 recovery. Neither `npm run build` nor starting the MCP server installs personal
 hooks.
+
+### Login shells and custom commands
+
+The local launcher already preserves login/interactive shell startup and forwards
+hook arguments literally. Start the server through `scripts/launch-local` and omit
+worker command overrides. A custom `zsh -lic claude` does not forward appended
+arguments and cannot acquire hooks after launch; keep polling that existing pane.
+Use a newly launched worker to adopt the supported hook surface. Hook delivery,
+not configured argv alone, establishes `proven:true`.
