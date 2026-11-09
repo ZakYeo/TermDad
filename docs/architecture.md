@@ -55,7 +55,7 @@ The bundled PowerShell provider restricts candidates to the configured GUI socke
 
 ## Lifecycle and failures
 
-Managed Codex workers receive an explicit `$term-dad-worker` invocation and the
+Managed Claude and Codex workers receive an explicit `$term-dad-worker` invocation and the
 bundled skill body with their first submitted task. The same skill source ships
 in `skills/` for local installation; embedding it avoids server-host paths in
 remote domains. No prompt means initialization is deferred until `agent.send`
@@ -65,7 +65,7 @@ interleaved pastes and duplicate initialization. Failed submission records uncer
 paste/Enter may have delivered some input. Inspect and explicitly reattach before
 retrying, declaring whether the skill was initialized. This is delivery of role
 instructions, not proof the model followed them. Raw terminal operations do not
-initialize skills, and Claude/shell inputs are unchanged.
+initialize skills; shell inputs remain unchanged. Hook-equipped workers receive a per-turn reporting command.
 
 MCP stdio stdout contains only protocol messages. Every tool answers through one helper (`src/tool-result.ts`): the JSON of its result, or the failure message as `isError` text, with a schema failure naming the offending field; failures are logged to stderr without intentionally logging terminal content. Failure kinds are `CodedError`s (`src/errors.ts`) whose `code` callers branch on, keeping the `CODE: detail` message shape. CLI calls have a 15-second subprocess timeout and 8 MiB output limit. Worker waits allow up to 120 seconds plus the duration of the final observation. A failed initial prompt wait retains the worker for diagnosis. Closing the MCP connection does not kill workers. Multiple server instances sharing a state directory share durable worker metadata and input exclusion, while observation caches remain process-local.
 
@@ -241,11 +241,12 @@ was read as deliverability. `enabled` is intent, `registered` a live token,
 `hookSurface` whether this server launched the pane with hooks, `deliveries` only
 pushes the sink accepted, `proven` the sole evidence the channel works, and
 `deliverable` the conjunction of everything the server can see, which deliberately
-stops short of a promise. Only `input_required`, `ready` and `session_ended` may be
-pushed; summaries are server-authored and `attention_required` is derived from
-pane samples alone. An accepted push publishes and then calls
-`WatchManager.confirm`, which samples the pane, so the recorded status is the
-terminal's. Watches select `pushPollMs` only while the worker's push is
+stops short of a promise. Lifecycle pushes distinguish plan submission, plan approval,
+tool permission, questions, input activity, turn end and session end. Legacy
+`ready` remains accepted but, like turn end, is sampled before readiness publication.
+Worker reports are turn-bound claims stored outside the event journal; event
+summaries remain server-authored. Input events share a request delivery key, and
+`WatchManager.confirm` samples the pane without treating a report as verified success. Watches select `pushPollMs` only while the worker's push is
 *deliverable and proven*, so an enabled registration without a successful hook delivery never
 leaves a pane neither pushed nor polled at its normal rate.
 
@@ -371,7 +372,7 @@ Task-change event delivery and automatic dispatch are outside this implementatio
 
 ## Reported results and verification
 
-Task state version 3 keeps bounded attempts, reports and verification decisions
+Task state version 4 keeps bounded attempts, reports and verification decisions
 in the existing atomic task journal. An attempt snapshots requirements and worker
 assignment (null for explicit supervisor work). Only its latest report can be verified; verification references the
 same work version and requires explicit evidence for each criterion. Both completion
@@ -572,7 +573,7 @@ classifier and guarded dispatch without clearing or restarting worker sessions.
 
 ## Task evidence safeguards
 
-Task journal version 3 adds unassigned supervisor attempts (`agentId:null`) using
+Task journal version 4 retains unassigned supervisor attempts (`agentId:null`) using
 the existing report and verification records. Their evidence provenance must be
 `supervisor_recorded`. Versions 1 and 2 migrate on read without writing until a
 successful mutation. Restart clients together before writing the new journal.
@@ -594,3 +595,18 @@ Claude background footer evidence now classifies as `PARKED_BACKGROUND`, after
 permission/authentication/question precedence. It cannot finish a readiness wait
 or generate ready/stalled-at-prompt attention. Legacy pushed `ready` signals are
 sampled before publication; active watches own their corroborated transitions.
+
+### Review follow-up: reporting and completion boundaries
+
+Completion hooks and watch readiness share a turn/output delivery key, so a fast
+turn can wake its supervisor even without an intervening WORKING poll. Typed
+permission hooks enrich a generic canonical event without changing its ID,
+sequence, or acknowledgment. Replies to observed prompts retain the active turn;
+new tasks create a new one. Prompt hooks correlate supervisor input through a
+bounded list of hashes, never stored prompt text. Unmatched input invalidates
+old reporting IDs. Reattachment also invalidates old reporting bindings.
+
+Blocking claims retire when sampled foreground work resumes after a settled
+report. A parked claim expires after two minutes; fallback classification still
+requires current screen evidence and never derives completion from silence.
+Background footer evidence continues to suppress readiness independently.

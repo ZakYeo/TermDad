@@ -140,6 +140,7 @@ export class WatchManager {
     const w = this.records.get(watchId);
     if (!w || this.view(w).requestKey !== requestKey) throw new Error('WATCH_REQUEST_STALE');
     w.handoffKey = disposition === 'awaiting_human' ? requestKey : undefined;
+    if (w.handoffKey) w.pending.delete(attention);
     return this.view(w);
   }
   assertSwitchable() {
@@ -380,7 +381,7 @@ export class WatchManager {
         failed = true;
       }
     }
-    if (!this.active(w)) return false;
+    if (!this.active(w) || (kind === attention && w.handoffKey)) return false;
     if (!p.notificationDone) {
       try {
         await this.options.notifications!.notify({ ...p.event });

@@ -9,7 +9,7 @@ the implementation. The source of generated client templates is
 
 | Purpose | Repository source | Installation/lifetime |
 | --- | --- | --- |
-| Claude worker Stop, Notification, SessionEnd push | `src/worker-hooks.ts`, `src/term-dad-notify.ts` | Injected by `agent.spawn`; enabled with `push.set` |
+| Claude worker plan, permission, prompt, Stop and SessionEnd push | `src/worker-hooks.ts`, `src/term-dad-notify.ts` | Injected by `agent.spawn`; enabled with `push.set` |
 | Codex legacy notify lifecycle push | Same files | Existing launch-time `notify` configuration; preserved for surviving workers |
 | Supervisor usage warnings and reset context | `src/usage-hooks.ts`, `src/usage-hook-cli.ts` | `hooks install`; account explicitly selected |
 | Claude status-line usage collection | Same usage helper plus `src/usage-providers.ts` | Installed wrapper preserves the previous renderer |

@@ -811,3 +811,32 @@ Task journals now write version 3 on the first successful mutation; version-1 an
 version-2 reads retain existing evidence and do not rewrite files. Restart all MCP
 clients sharing the task journal before using the new workflow. The live tests
 used isolated state directories rather than migrating the user's task board.
+
+## Supervision review implementation — 9 November 2026
+
+The twelve implementation slices passed `npm run check` after each commit's
+changes. The final planned slice passed 456 tests. Sandboxed baseline execution
+lost subprocess output; the same checks passed with approved execution outside
+the sandbox. One later full run hit the existing 200ms task-journal contention
+budget; the repeat passed. These are deterministic/backend and stdio protocol
+checks, not evidence of a real Claude or Codex session.
+
+`npm run test:live` was attempted and stopped at the existing guard because
+`TERM_DAD_TEST_ENDPOINT`, `TERM_DAD_TEST_INSTANCE_KEY`, and `TERM_DAD_TEST_PANE`
+were not configured. No GUI pane was targeted. Real hook delivery, authentication,
+and recovery remain unverified in this environment.
+
+Measured fixture payloads: normalized captured Claude screen text 1,812 bytes,
+extracted reply text 17 bytes; a sample task with repeated requirements was 1,768
+JSON bytes in full and 129 bytes in compact form. These are fixture measurements,
+not a forecast of savings for the 41-minute review session.
+
+A fresh native reviewer identified fast-turn wake loss, reporting-ID/lifetime
+issues, typed-hook deduplication loss, and dispatch replay after worker removal.
+Regression coverage now exercises those cases, including input correlation and
+maximum-size escaped hook prompts.
+
+After implementing the review findings and its two follow-up findings,
+`npm run check` passed all 464 tests (build, demo typecheck, formatting, unit and
+stdio protocol checks). The reviewer rechecked the fixes and reported no further
+concrete findings. `git diff --check` also passed.

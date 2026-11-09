@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createHash } from 'node:crypto';
 import { workerReportSchema, type WorkerReport } from './worker-report.js';
 import { connect } from 'node:net';
 import { pathToFileURL } from 'node:url';
@@ -21,6 +22,7 @@ export interface NotifyRequest {
   target: NotifyTarget;
   kind: PushKind;
   report?: WorkerReport;
+  inputHash?: string;
 }
 
 /** Which event this invocation reports, or nothing when the CLI's event is not modelled. */
@@ -29,6 +31,7 @@ export function notifyKind(argv: string[], stdin: string): PushKind | undefined 
   const hook = flag(argv, '--claude-event');
   if (hook) {
     const payload = JSON.parse(stdin || '{}');
+    if (hook === 'UserPromptSubmit' && typeof payload.prompt !== 'string') return undefined;
     if (hook === 'Notification' && payload.notification_type !== 'permission_prompt') return undefined;
     if (hook === 'PreToolUse' && payload.tool_name !== 'ExitPlanMode') return undefined;
     if (hook === 'PermissionRequest')
@@ -82,7 +85,12 @@ export function notifyRequest(argv: string[], stdin: string): NotifyRequest | un
     };
   const kind = notifyKind(argv, stdin);
   if (!kind) return undefined;
-  return { target: notifyTarget(argv), kind };
+  let inputHash: string | undefined;
+  if (kind === 'input_activity') {
+    const payload = JSON.parse(stdin || '{}');
+    if (typeof payload.prompt === 'string') inputHash = createHash('sha256').update(payload.prompt).digest('hex');
+  }
+  return { target: notifyTarget(argv), kind, ...(inputHash ? { inputHash } : {}) };
 }
 /** The one filesystem read, at fire time, so a re-keyed credential is picked up with no relaunch. */
 export async function resolveRequest(request: NotifyRequest) {
@@ -90,7 +98,12 @@ export async function resolveRequest(request: NotifyRequest) {
     'credentialPath' in request.target ? await readCredential(request.target.credentialPath) : request.target;
   return {
     socketPath,
-    line: JSON.stringify({ token, kind: request.kind, ...(request.report ? { report: request.report } : {}) }),
+    line: JSON.stringify({
+      token,
+      kind: request.kind,
+      ...(request.report ? { report: request.report } : {}),
+      ...(request.inputHash ? { inputHash: request.inputHash } : {}),
+    }),
   };
 }
 
@@ -128,7 +141,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         let text = '';
         process.stdin.setEncoding('utf8');
         process.stdin.on('data', (c) => {
-          if (text.length + c.length > 65536) {
+          if (text.length + c.length > 1_000_000) {
             resolve('');
             process.stdin.destroy();
             return;

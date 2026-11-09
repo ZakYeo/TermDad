@@ -144,7 +144,10 @@ export class Agents {
         this.records.delete(this.records.keys().next().value!);
       this.records.set(w.agentId, a);
     } else {
+      delete a.turn;
       delete a.report;
+      delete a.reportContext;
+      delete a.submittedInputHashes;
       Object.assign(a, w);
     }
     return a;
@@ -375,6 +378,9 @@ export class Agents {
             revision: randomUUID(),
             deliveryPending: false,
           });
+          delete a.report;
+          delete a.reportContext;
+          delete a.submittedInputHashes;
           if (o.workerSkillInitialized !== undefined) a.workerSkillSent = o.workerSkillInitialized;
           if (moved) {
             delete a.lastInputAt;
@@ -604,6 +610,22 @@ export class Agents {
     a.outputHash = hash;
     a.recentText = text;
     a.status = adapters[a.cli].classify(text);
+    if (a.report && a.report.turnId === a.turn?.id && a.reportContext) {
+      const context = a.reportContext;
+      if (
+        (a.status === 'WORKING' && context.settled && hash !== context.hash) ||
+        (a.report.state === 'parked_background' && Date.now() >= context.expiresAt)
+      ) {
+        await this.change(a.agentId, (w) => {
+          delete w.report;
+          delete w.reportContext;
+        });
+      } else if (!context.settled && ['READY_FOR_PROMPT', 'PARKED_BACKGROUND'].includes(a.status)) {
+        await this.change(a.agentId, (w) => {
+          w.reportContext = { ...context, settled: true, hash };
+        });
+      }
+    }
     if (a.report && a.report.turnId === a.turn?.id && a.status === 'READY_FOR_PROMPT') {
       if (a.report.state === 'parked_background') a.status = 'PARKED_BACKGROUND';
       if (a.report.state === 'awaiting_parent') a.status = 'WAITING_FOR_QUESTION';
@@ -768,8 +790,10 @@ export class Agents {
             'WORKER_NOT_READY',
             'Worker is not ready for a task. Use agent.wait_until_ready. No text was sent.',
           );
+        const preserveTurn =
+          queued || (!requireReady && !!a.turn && JSON.stringify(effectiveAttempt) === JSON.stringify(a.turn.attempt));
         const initialize = !queued && requireReady && a.cli !== 'shell' && !a.workerSkillSent,
-          turnId = queued ? a.turn!.id : randomUUID(),
+          turnId = preserveTurn ? a.turn!.id : randomUUID(),
           prompt =
             (initialize ? initialWorkerPrompt(text) : text) +
             (!queued && requireReady && a.push ? reportInstructions(a.push.credentialPath, turnId) : '');
@@ -780,7 +804,9 @@ export class Agents {
           w.lastInputAt = Date.now();
           w.deliveryPending = true;
           delete w.report;
-          if (!queued)
+          delete w.reportContext;
+          w.submittedInputHashes = [...(w.submittedInputHashes ?? []), hashOutput(prompt)].slice(-16);
+          if (!preserveTurn)
             w.turn = {
               id: turnId,
               bindingRevision: w.revision,
@@ -816,24 +842,42 @@ export class Agents {
       this.retrying(() =>
         this.locked(agentId, async (w) => {
           await this.checked(w);
-          if (w.turn?.id !== report.turnId) throw new Error('WORKER_REPORT_STALE');
+          if (w.turn?.id !== report.turnId || w.turn.bindingRevision !== w.revision)
+            throw new Error('WORKER_REPORT_STALE');
+          const screen = await this.screen(w.paneId!);
+          const status = adapters[w.cli].classify(screen);
           await this.change(w.agentId, (current) => {
+            current.reportContext = {
+              hash: hashOutput(normalizeScreen(screen)),
+              settled: ['READY_FOR_PROMPT', 'PARKED_BACKGROUND'].includes(status),
+              expiresAt: Date.now() + 120000,
+            };
             current.report = report;
           });
         }),
       ),
     );
   }
-  noteInputActivity(agentId: string) {
+  noteInputActivity(agentId: string, inputHash?: string) {
     return this.run(() =>
       this.retrying(() =>
         this.locked(agentId, async (w) => {
           const { a } = await this.checked(w);
-          // Supervisor sends already recorded this input. No claim about human origin.
-          if (a.lastInputAt && Date.now() - a.lastInputAt < 2000) return;
           const hash = hashOutput(await this.screen(a.paneId));
           await this.change(a.agentId, (record) => {
-            delete record.report;
+            const pending = [...(record.submittedInputHashes ?? [])];
+            const index = inputHash ? pending.indexOf(inputHash) : -1;
+            if (index >= 0) pending.splice(index, 1);
+            else {
+              record.turn = {
+                id: randomUUID(),
+                bindingRevision: record.revision,
+                ...(record.turn?.attempt ? { attempt: record.turn.attempt } : {}),
+              };
+              delete record.report;
+              delete record.reportContext;
+            }
+            record.submittedInputHashes = pending;
             record.lastInputAt = Date.now();
             record.inputOutputHash = hash;
           });

@@ -32,6 +32,11 @@ export const workerSchema = z
       .optional(),
     workerSkillSent: z.boolean(),
     report: workerReportSchema.optional(),
+    reportContext: z.object({ hash: z.string(), settled: z.boolean(), expiresAt: z.number() }).strict().optional(),
+    submittedInputHashes: z
+      .array(z.string().regex(/^[a-f0-9]{64}$/))
+      .max(16)
+      .optional(),
     deliveryPending: z.boolean(),
     lastInputAt: z.number().nonnegative().optional(),
     // Records that this pane was launched with a hook surface, and where it rereads its

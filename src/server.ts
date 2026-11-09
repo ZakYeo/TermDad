@@ -59,8 +59,17 @@ export function createServer(
   if (monitoring) backend = monitoring.backend(backend);
   const socketPath = pushSocketPath(stateDirectory());
   const publishSignal = async (event: import('./events.js').EventInput) => {
-    if (event.agentId && ['input_required', 'plan_approval', 'tool_permission', 'question'].includes(event.kind)) {
+    if (
+      event.agentId &&
+      ['input_required', 'plan_approval', 'tool_permission', 'question', 'ready'].includes(event.kind)
+    ) {
       const observation = await agents.peek(event.agentId);
+      if (event.kind === 'ready' && !observation.readyForPrompt) return;
+      if (event.kind === 'ready')
+        return events.publish({
+          ...event,
+          deliveryKey: hashOutput(`ready:${event.agentId}:${observation.turnId}:${observation.outputHash}`),
+        });
       const request = observation.inputRequest;
       if (request) return events.publish({ ...event, deliveryKey: hashOutput(`${event.agentId}:${request.id}`) });
     }
@@ -73,20 +82,24 @@ export function createServer(
       const start = performance.now();
       let success = false;
       try {
+        const { report, inputHash, ...metadata } = event;
         if (event.kind === 'worker_report') {
           await agents.recordReport(event.agentId, event.report!);
-          const { report, ...metadata } = event;
           if (report!.state !== 'parked_background') await events.publish(metadata);
           await watches.confirm(event.paneId);
           success = true;
           return;
         }
-        if (event.kind === 'input_activity') await agents.noteInputActivity(event.agentId);
+        if (event.kind === 'input_activity') await agents.noteInputActivity(event.agentId, inputHash);
         if (event.kind === 'ready' || event.kind === 'turn_ended') {
-          const observation = await agents.peek(event.agentId);
-          if (observation.readyForPrompt && !watches.list().some((w) => w.agentId === event.agentId))
-            await events.publish({ ...event, kind: 'ready' });
-        } else await publishSignal(event);
+          let observation = await agents.peek(event.agentId);
+          if (observation.lastInputAt && Date.now() - observation.lastInputAt < 750) {
+            const remaining = 750 - (Date.now() - observation.lastInputAt);
+            await new Promise((resolve) => setTimeout(resolve, remaining));
+            observation = await agents.peek(event.agentId);
+          }
+          if (observation.readyForPrompt) await publishSignal({ ...metadata, kind: 'ready' });
+        } else await publishSignal(metadata);
         await watches.confirm(event.paneId);
         success = true;
       } finally {

@@ -15,9 +15,8 @@ export function registerTaskDispatch(server: McpServer, board: TaskBoard, agents
     },
     (input) =>
       toolCall('task.dispatch', async () => {
-        const worker = await agents.resolve(input.agentId);
         const result = await board.dispatch(input, (taskId, attemptId) =>
-          agents.send(worker.agentId, input.text, { taskId, attemptId }),
+          agents.send(input.agentId, input.text, { taskId, attemptId }),
         );
         return { ...taskMutationView(result, 'compact'), dispatch: result.dispatch };
       }),

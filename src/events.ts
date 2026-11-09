@@ -170,7 +170,17 @@ export class EventQueue {
     const event = await this.run(() =>
       this.storage.transaction(true, (s) => {
         const prior = parsed.data.deliveryKey && s.events.find((e) => e.deliveryKey === parsed.data.deliveryKey);
-        if (prior) return { result: prior };
+        if (prior) {
+          if (
+            prior.kind === 'input_required' &&
+            ['plan_approval', 'tool_permission', 'question'].includes(parsed.data.kind)
+          ) {
+            prior.kind = parsed.data.kind;
+            prior.summary = parsed.data.summary;
+            return { state: s, result: prior };
+          }
+          return { result: prior };
+        }
         // Expiring here also relieves capacity pressure before the full-queue check rejects a producer.
         const now = this.now(),
           stamp = new Date(now).toISOString(),

@@ -377,9 +377,11 @@ which keeps working until the next restart and then needs a relaunch.
 A hook connects to a per-server Unix socket in the state directory
 (`push.<pid>.sock`, mode 0600, one per server process so servers under different
 MCP clients never contend) and sends one bounded JSON line,
-`{"token":…,"kind":…}`. Only `input_required`, `ready` and `session_ended` are
-accepted (`attention_required` is derived from pane samples only, never pushed), and only the token and kind are trusted: summaries are authored by the
-server, so a worker cannot inject event text. An unknown or revoked token is
+`{"token":…,"kind":…}`. Lifecycle kinds include input, plan, permission, question,
+turn and session signals (see the lifecycle hook reference). `worker_report` also
+accepts bounded turn-bound report data, stored separately from event metadata.
+Event summaries are always authored by the server; worker text cannot become
+an event summary. Readiness pushes are sampled before readiness publication. An unknown or revoked token is
 rejected with `PUSH_UNAUTHORIZED`. Tokens are per worker, minted at spawn or at a
 re-key, held in memory and in that worker's owner-only credential file, and
 released when the worker is stopped or forgotten. Sockets left by crashed servers
@@ -604,11 +606,11 @@ version. Failed or blocked reports leave task lifecycle status unchanged.
 Attempts are capped at 20 per task, with 20 reports and 20 verification decisions
 per attempt and 50 artifacts/checks per report. The existing 4 MB global bound
 still applies; capacity errors never purge evidence. Archived history counts.
-Old version-1 and version-2 task journals are validated and migrated in memory on reads, and
-written as version 3 on the next successful mutation. Version 3 permits supervisor
+Old version-1, version-2 and version-3 task journals are validated and migrated in memory on reads, and
+written as version 4 on the next successful mutation. Version 4 permits supervisor
 attempts with `agentId:null`; their reports and checks must use `supervisor_recorded`. Existing done tasks remain
 `legacy_unverified` and continue satisfying dependencies; reopening requires the
-new verification workflow. Old server versions cannot read version-3 journals;
+new verification workflow. Old server versions cannot read version-4 journals;
 restart all clients on the new build before making writes.
 
 For supervisor work (merges, coordination, or other directly performed actions),

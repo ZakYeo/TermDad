@@ -30,6 +30,7 @@ const summaries: Record<PushKind, string> = {
 };
 export interface PushEvent {
   report?: WorkerReport;
+  inputHash?: string;
   kind: PushKind;
   paneId: number;
   agentId: string;
@@ -48,7 +49,15 @@ export interface PushResult {
 }
 // Only the token and the kind are trusted from a hook; any other field is ignored.
 const messageSchema = z
-  .object({ token: z.string().min(1).max(200), kind: z.enum(pushKinds), report: workerReportSchema.optional() })
+  .object({
+    token: z.string().min(1).max(200),
+    kind: z.enum(pushKinds),
+    report: workerReportSchema.optional(),
+    inputHash: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .optional(),
+  })
   .passthrough();
 type Registration = {
   agentId: string;
@@ -150,6 +159,7 @@ export class PushIngress {
     if (!registration) return { error: 'PUSH_UNAUTHORIZED: unknown or revoked push token' };
     if (!registration.enabled) return { ok: true, delivered: false };
     const event: PushEvent = {
+      ...(message.kind === 'input_activity' && message.inputHash ? { inputHash: message.inputHash } : {}),
       ...(message.kind === 'worker_report' ? { report: message.report } : {}),
       kind: message.kind,
       paneId: registration.paneId,
