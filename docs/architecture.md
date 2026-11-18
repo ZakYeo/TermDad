@@ -205,7 +205,7 @@ this section records the decisions behind it.
 availability and private credential creation before launching Claude/Codex. It
 binds and enables hooks before submitting the first prompt; enabling failure
 retains the live pane and durable mapping. Explicit `pushMode:"polling"` skips
-wiring, and shells always poll. `args` and bounded `env` values extend the managed
+wiring, and shells always poll. `cliArgs` and bounded `env` values extend the managed
 launcher as literal argv, never shell source; they conflict with explicit command
 overrides. Hook preparation failures never silently downgrade the launch; a push against a disabled registration is
 acknowledged and dropped. Enabling fails explicitly when the channel cannot
@@ -614,3 +614,16 @@ Blocking claims retire when sampled foreground work resumes after a settled
 report. A parked claim expires after two minutes; fallback classification still
 requires current screen evidence and never derives completion from silence.
 Background footer evidence continues to suppress readiness independently.
+
+## Durable supervision groups
+
+A separate version-1 supervision journal stores bounded group membership with
+revision checks and exclusivity across active groups. Setup effects (push enable
+and process-local watches) occur after membership commits and expose partial
+failure. A concurrent revision change fences the setup result and removes newly
+obsolete owned watches. Reconnect recovery is explicit: update the group with its
+current membership; status never creates watches. Owned watches recheck durable
+membership before sampling, so another server can close or remove membership
+without retaining an active observer. Borrowed watches remain independently
+owned. Group operations drain before watch/event shutdown. No group operation
+sends worker input, acknowledges events, or establishes task success.

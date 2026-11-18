@@ -1,3 +1,6 @@
+import { Supervision } from './supervision.js';
+import { FileSupervisionStorage } from './supervision-storage.js';
+import { registerSupervisionTools } from './supervision-tools.js';
 import { workerLaunchSchema } from './worker-launch.js';
 import { reconcileEvents } from './event-reconcile.js';
 import { closePanes } from './terminal-close.js';
@@ -592,6 +595,19 @@ export function createServer(
   const closeAttention = registerAttentionTools(server, attention, () => usageView(usage));
   registerUsageTools(server, usage, (id) => agents.resolve(id));
   usage.start();
+  const supervision = new Supervision(new FileSupervisionStorage(stateDir), {
+    resolve: (id) => agents.resolve(id),
+    enable: async (id) => {
+      await pushRestored;
+      return push.setEnabled(id, true);
+    },
+    pushStatus: (id) => push.status(id),
+    watches: () => watches.list(),
+    createWatch: (agentId) => watches.create({ agentId }),
+    removeWatch: (id) => watches.remove(id),
+    guardWatch: (id, valid) => watches.guard(id, valid),
+  });
+  registerSupervisionTools(server, supervision);
   const closeEvents = registerEventTools(server, events, (ids, key) => reconcileEvents(events, agents, ids, key));
   registerPushTools(server, push);
   const closeWatches = registerWatchTools(server, watches);
@@ -601,6 +617,7 @@ export function createServer(
   // Nothing here closes a worker pane. The SDK fires onclose without awaiting it, so the same
   // memoised promise serves both the SDK and an explicit `dispose()`.
   const shutdown = [
+    () => supervision.dispose(),
     closeWatches,
     () => usage.close(),
     closeEvents,
@@ -622,6 +639,7 @@ export function createServer(
   server.server.onclose = dispose;
   return {
     server,
+    supervision,
     agents,
     watches,
     events,

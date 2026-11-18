@@ -303,7 +303,7 @@ prompt** (`pushMode:"required"`, the default). Set `pushMode:"polling"` explicit
 workers always use polling. Spawn returns `supervision` facts including `enabled`,
 `deliverable`, `proven`, and `reason`; enabling does not prove delivery.
 
-Use `args` (up to 64 literal arguments) and `env` (up to 64 names, 8192 characters
+Use `cliArgs` (up to 64 literal arguments) and `env` (up to 64 names, 8192 characters
 per value, 32768 characters serialized total) with the configured managed launcher.
 The complete composed command remains capped at 100 argv entries.
 Environment names must be portable identifiers; NUL is rejected. Environment
@@ -1030,3 +1030,25 @@ retain events. For forgotten workers, inspect history before explicitly
 acknowledging individual event IDs. Unresolved prompts never expire silently.
 Quota status reads retry only storage-busy errors with five bounded delays;
 collectors and writes are not replayed.
+
+### Durable supervision groups
+
+`supervision.create({name,members})` records a group and prepares hooks and watches.
+Each member is `{agentId,allowPolling?:false}`; a polling-only worker needs the
+explicit exception. `supervision.update({groupId,expectedRevision,members})`
+replaces membership and retries setup, including after reconnect. Use worker
+UUIDs. A worker belongs to at most one active group. The journal holds at most
+64 groups (including closed groups), each with at most 64 members.
+
+`supervision.status({groupId})` returns durable `group` membership/revision,
+per-member monitoring facts, `monitoringReady`, and storage warnings. Setup
+responses additionally include `setupErrors`; partial failures preserve membership
+and successful setup for an explicit retry. Status describes this server's
+watches and never proves a background waiter was launched or a client will resume.
+
+`supervision.close({groupId,expectedRevision})` closes the group and removes only
+watches that it created. Borrowed watches, worker panes, push registrations and
+pending events remain. Other servers' group-owned watches notice removal or
+closure before their next sample. An unreadable membership journal suspends those
+samples rather than assuming the group is still active. Closed groups cannot be
+reopened; a new group may reuse their worker membership.

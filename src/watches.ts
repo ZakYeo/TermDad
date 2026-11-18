@@ -76,6 +76,11 @@ export interface WatchOptions {
 }
 export class WatchManager {
   private records = new Map<string, Watch>();
+  private guards = new Map<string, () => Promise<boolean>>();
+  guard(watchId: string, valid: () => Promise<boolean>) {
+    if (!this.records.has(watchId)) throw new Error('WATCH_NOT_FOUND');
+    this.guards.set(watchId, valid);
+  }
   private timer?: ReturnType<typeof setTimeout>;
   private running?: Promise<void>;
   private disposed = false;
@@ -178,6 +183,7 @@ export class WatchManager {
     const w = this.records.get(watchId);
     if (w) this.recordWatchEnd(w);
     const removed = this.records.delete(watchId);
+    this.guards.delete(watchId);
     if (!this.records.size && this.timer) {
       clearTimeout(this.timer);
       this.timer = undefined;
@@ -190,6 +196,7 @@ export class WatchManager {
     this.timer = undefined;
     for (const w of this.records.values()) this.recordWatchEnd(w);
     this.records.clear();
+    this.guards.clear();
     await Promise.allSettled([...this.creations, ...(this.running ? [this.running] : [])]);
   }
   private recordWatchEnd(w: Watch) {
@@ -224,6 +231,19 @@ export class WatchManager {
   }
   /** One sample-then-deliver pass over a watch, shared by the poll timer and pushed confirmations. */
   private async visit(w: Watch, read: TerminalRead, source: 'poll' | 'push' = 'poll') {
+    const guard = this.guards.get(w.watchId);
+    if (guard) {
+      try {
+        if (!(await guard())) {
+          this.remove(w.watchId);
+          return;
+        }
+      } catch {
+        w.backendError = 'Supervision membership unavailable; retrying without sampling.';
+        w.lastPoll = this.now();
+        return;
+      }
+    }
     if (!w.disappeared) {
       try {
         await this.sample(w, false, read, source);

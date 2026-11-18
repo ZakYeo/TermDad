@@ -1,6 +1,15 @@
 import type { Fixture } from './benchmark-fixture.js';
 
-type Context = { worker?: any; adopted?: any; task?: any; turn?: any; watch?: any; event?: any; spare?: number };
+type Context = {
+  group?: any;
+  worker?: any;
+  adopted?: any;
+  task?: any;
+  turn?: any;
+  watch?: any;
+  event?: any;
+  spare?: number;
+};
 export interface Scenario {
   tool: string;
   args: (c: Context) => Record<string, unknown>;
@@ -155,6 +164,22 @@ export const scenarios: Scenario[] = [
     args: (c) => ({ watchId: c.watch.watchId, requestKey: c.watch.requestKey, disposition: 'awaiting_human' }),
   },
   { tool: 'watch.remove', args: (c) => ({ watchId: c.watch.watchId }) },
+  {
+    tool: 'supervision.create',
+    args: (c) => ({ name: 'benchmark', members: [{ agentId: c.worker.agentId, allowPolling: true }] }),
+    save: (c, r) => {
+      c.group = r.group;
+    },
+  },
+  { tool: 'supervision.status', args: (c) => ({ groupId: c.group.groupId }) },
+  {
+    tool: 'supervision.update',
+    args: (c) => ({ groupId: c.group.groupId, expectedRevision: c.group.revision, members: [] }),
+    save: (c, r) => {
+      c.group = r.group;
+    },
+  },
+  { tool: 'supervision.close', args: (c) => ({ groupId: c.group.groupId, expectedRevision: c.group.revision }) },
   { tool: 'push.status', args: empty },
   { tool: 'push.set', args: (c) => ({ ...worker(c), enabled: false }) },
   {
