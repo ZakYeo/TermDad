@@ -1,4 +1,4 @@
-import { validateSupervisionState } from './supervision-storage.js';
+import { validateSupervisionState, type SupervisionGroup } from './supervision-storage.js';
 import { validateGroupFilter } from './supervision-filter.js';
 import { open } from 'node:fs/promises';
 import { constants } from 'node:fs';
@@ -18,6 +18,7 @@ export interface WaitArgs {
 export interface WaitDeps {
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
+  readGroup?: (groupId: string, stateDir: string) => Promise<SupervisionGroup>;
 }
 const invalid = (detail: string) => new Error(`WAIT_ARGS_INVALID: ${detail}`);
 const flags = [
@@ -153,6 +154,14 @@ export async function waitForEvent(args: WaitArgs, deps: WaitDeps = {}): Promise
         new Promise<void>((resolve) => {
           setTimeout(resolve, ms);
         }));
+  const readGroup =
+    deps.readGroup ??
+    (async (groupId: string, stateDir: string) => {
+      const state = await read(join(stateDir, 'supervision.json'), validateSupervisionState);
+      const group = state.groups.find((g) => g.groupId === groupId);
+      if (!group) throw new Error('Unknown group');
+      return group;
+    });
   const path = join(args.stateDir, 'events.json'),
     started = now(),
     deadline = started + args.timeoutSeconds * 1000;
@@ -164,17 +173,15 @@ export async function waitForEvent(args: WaitArgs, deps: WaitDeps = {}): Promise
     provisional = false,
     corrupt: string | undefined;
   for (;;) {
-    let groupAgents: string[] | undefined;
+    let groupRevision: number | undefined;
     if (args.groupId) {
       try {
         validateGroupFilter(args.groupId, args.filter);
-        const groups = await read(join(args.stateDir, 'supervision.json'), validateSupervisionState);
-        const group = groups.groups.find((g) => g.groupId === args.groupId);
-        if (!group) throw new Error('Unknown group');
+        const group = await readGroup(args.groupId, args.stateDir);
+        groupRevision = group.revision;
         if (group.state === 'closed')
           return { code: 0, output: JSON.stringify({ status: 'group_closed', groupId: args.groupId }) };
-        groupAgents = group.members.map((m) => m.agentId);
-        filter = { ...args.filter, agentIds: groupAgents };
+        filter = { ...args.filter, agentIds: group.members.map((m) => m.agentId) };
       } catch {
         return { code: 4, output: JSON.stringify({ status: 'error', error: 'SUPERVISION_STATE_UNREADABLE' }) };
       }
@@ -211,7 +218,23 @@ export async function waitForEvent(args: WaitArgs, deps: WaitDeps = {}): Promise
         armed = true;
       }
       const found = state.events.find((e: QueueEvent) => e.acknowledgedAt === null && matches(e, filter, now()));
-      if (found) return { code: 0, output: JSON.stringify({ status: 'event', event: found }) };
+      if (found) {
+        if (args.groupId) {
+          try {
+            const current = await readGroup(args.groupId, args.stateDir);
+            if (current.state === 'closed')
+              return { code: 0, output: JSON.stringify({ status: 'group_closed', groupId: args.groupId }) };
+            if (current.revision !== groupRevision) {
+              if (now() >= deadline) break;
+              await sleep(args.pollMs);
+              continue;
+            }
+          } catch {
+            return { code: 4, output: JSON.stringify({ status: 'error', error: 'SUPERVISION_STATE_UNREADABLE' }) };
+          }
+        }
+        return { code: 0, output: JSON.stringify({ status: 'event', event: found }) };
+      }
     }
     if (now() >= deadline) break;
     await sleep(args.pollMs);

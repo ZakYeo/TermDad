@@ -92,22 +92,27 @@ export function registerEventTools(
         validateGroupFilter(groupId, filter);
         if (includeAcknowledged) throw new Error('SUPERVISION_FILTER_INVALID: group mode lists pending events only');
         if (!groups) throw new Error('SUPERVISION_UNAVAILABLE');
-        const group = await groups.get(groupId);
-        const listed = await queue.list({}, false, 1000);
-        const found =
-          group.state === 'closed'
-            ? []
-            : listed.events.filter((e) => matches(e, { ...filter, agentIds: group.members.map((m) => m.agentId) }));
-        const { resumeAfterSequence: _cursor, ...metadata } = listed;
-        return {
-          ...metadata,
-          groupId,
-          groupRevision: group.revision,
-          state: group.state,
-          events: found.slice(0, limit),
-          hasMore: found.length > limit,
-          pendingCount: found.length,
-        };
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const group = await groups.get(groupId);
+          const listed = await queue.list({}, false, 1000);
+          const current = await groups.get(groupId);
+          if (current.revision !== group.revision) continue;
+          const found =
+            group.state === 'closed'
+              ? []
+              : listed.events.filter((e) => matches(e, { ...filter, agentIds: group.members.map((m) => m.agentId) }));
+          const { resumeAfterSequence: _cursor, ...metadata } = listed;
+          return {
+            ...metadata,
+            groupId,
+            groupRevision: group.revision,
+            state: group.state,
+            events: found.slice(0, limit),
+            hasMore: found.length > limit,
+            pendingCount: found.length,
+          };
+        }
+        throw new Error('SUPERVISION_CHANGED: membership changed while listing events; retry without a cursor');
       }),
   );
   server.registerTool(

@@ -99,3 +99,64 @@ test('group mode rejects fixed scope and sequence filters and emits canonical dy
     /SUPERVISION_FILTER_INVALID/,
   );
 });
+
+test('candidate events are fenced against concurrent membership removal or closure', async (t) => {
+  for (const closed of [false, true]) {
+    const f = await fixture(t),
+      agentId = randomUUID();
+    f.group.members = [{ agentId, allowPolling: false }];
+    await f.save();
+    const event = await f.publish(agentId);
+    let reads = 0,
+      now = 0;
+    const result = await waitForEvent(
+      { ...f.args, timeoutSeconds: 1 },
+      {
+        now: () => now,
+        sleep: async () => {
+          now += 1000;
+        },
+        readGroup: async () => {
+          reads++;
+          return reads === 1
+            ? structuredClone(f.group)
+            : { ...f.group, revision: 2, state: closed ? 'closed' : 'active', members: [] };
+        },
+      },
+    );
+    assert.equal(JSON.parse(result.output).status, closed ? 'group_closed' : 'timeout');
+    assert.equal((await f.queue.list({}, false)).events[0].id, event.id);
+  }
+});
+test('MCP group list retries membership changes and never leaks removed candidates', async (t) => {
+  const f = await fixture(t),
+    agentId = randomUUID();
+  f.group.members = [{ agentId, allowPolling: false }];
+  await f.save();
+  await f.publish(agentId);
+  const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
+  const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+  const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js');
+  const { registerEventTools } = await import('../src/event-tools.js');
+  const server = new McpServer({ name: 'group-fence', version: '1' });
+  let reads = 0;
+  const close = registerEventTools(server, f.queue, undefined, {
+    get: async () => (++reads === 1 ? structuredClone(f.group) : { ...f.group, revision: 2, members: [] }),
+  });
+  const client = new Client({ name: 'group-fence', version: '1' });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  await server.connect(a);
+  await client.connect(b);
+  try {
+    const result = await client.callTool({ name: 'event.list', arguments: { groupId: f.group.groupId } });
+    assert.notEqual(result.isError, true);
+    const listed = JSON.parse((result.content as any)[0].text);
+    assert.deepEqual(listed.events, []);
+    assert.equal(listed.groupRevision, 2);
+    assert.ok(reads >= 4);
+  } finally {
+    await client.close();
+    await server.close();
+    await close();
+  }
+});
