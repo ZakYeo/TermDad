@@ -1,3 +1,4 @@
+import { workerLaunchSchema } from './worker-launch.js';
 import { reconcileEvents } from './event-reconcile.js';
 import { closePanes } from './terminal-close.js';
 import { workspaceContexts } from './workspace-context.js';
@@ -350,16 +351,20 @@ export function createServer(
   });
   register(
     'agent.spawn',
-    'Start a visible interactive worker. Codex receives the Term Dad worker skill with its first task. Readiness timeout leaves pane available for diagnosis; never auto-approves permissions.',
+    'Start a visible interactive worker. Claude/Codex require hooks by default; supervision:polling explicitly opts out. args and env configure the managed command and cannot accompany command. Codex receives the Term Dad worker skill with its first task. Readiness timeout leaves pane available for diagnosis; never auto-approves permissions.',
     {
       ...spawnSchema.shape,
+      ...workerLaunchSchema.shape,
       name: z.string().min(1).max(100),
       cli: z.enum(['claude', 'codex', 'shell']),
       prompt: z.string().max(100000).optional(),
       accountRef: z.string().min(1).max(100).optional().describe('Explicit usage account binding for the new worker.'),
       ...wait,
     },
-    (a) => agents.spawn({ ...a, timeoutMs: waitTimeout(a) }),
+    async (a) => {
+      await pushRestored;
+      return agents.spawn({ ...a, timeoutMs: waitTimeout(a) });
+    },
   );
   register(
     'agent.list',

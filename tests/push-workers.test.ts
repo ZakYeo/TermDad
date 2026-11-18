@@ -34,9 +34,11 @@ function fixture() {
     stateDir,
   );
   push.attach({ listening: true });
-  return { agents: new Agents(backend, undefined, push), ingress, push, spawns };
+  const agents = new Agents(backend, undefined, push);
+  push.attachWorkers((id) => agents.resolveOptional(id));
+  return { agents, ingress, push, spawns };
 }
-test('a spawned worker carries inert push plumbing and stays disabled until it is turned on', async () => {
+test('a spawned worker enables required hooks without claiming proven delivery', async () => {
   const f = fixture();
   const { agentId } = await f.agents.spawn({ name: 'w', cli: 'claude' } as any);
   const argv = f.spawns[0].join(' ');
@@ -44,7 +46,8 @@ test('a spawned worker carries inert push plumbing and stays disabled until it i
   // The argv carries a credential path, so a restart can re-key this worker without relaunching it.
   assert.ok(argv.includes(join(stateDir, 'push-credentials', `${agentId}.json`)));
   assert.ok(!argv.includes('/run/term-dad/push.sock'), 'no socket path or token is baked into argv');
-  assert.equal(f.ingress.status(agentId).enabled, false, 'push is off by default');
+  assert.equal(f.ingress.status(agentId).enabled, true);
+  assert.equal(f.ingress.status(agentId).proven, false);
   assert.equal(f.ingress.status(agentId).paneId, 7, 'the registration is bound to the spawned pane');
   assert.equal((await f.push.setEnabled(agentId, true)).enabled, true);
 });
@@ -72,7 +75,7 @@ test('a shell worker is launched unmodified and cannot be enabled for push', asy
 test('a channel is only deliverable once the socket this server owns has actually bound', async () => {
   const f = fixture();
   const { agentId } = await f.agents.spawn({ name: 'w', cli: 'claude' } as any);
-  assert.equal(f.push.deliverable(agentId), false, 'delivery needs an explicit enable');
+  assert.equal(f.push.deliverable(agentId), true, 'managed launch enables delivery');
   await f.push.setEnabled(agentId, true);
   assert.equal(f.push.deliverable(agentId), true);
   assert.deepEqual(f.push.socket(), { path: '/run/term-dad/push.sock', listening: true, bindError: undefined });
@@ -155,7 +158,7 @@ test('a spawn that fails after launch leaks no token and no credential file', as
   assert.equal(f.push.list().length, 1, 'retried failures never accumulate registrations');
   assert.equal(credentials(), baseline);
 });
-test('an unwritable credential store degrades the worker to polling and still saves its mapping', async () => {
+test('an unwritable credential store rejects before pane creation', async () => {
   const broken = mkdtempSync(join(tmpdir(), 'term-dad-push-broken-'));
   // A regular file where the credential directory belongs makes every credential write fail.
   writeFileSync(join(broken, 'push-credentials'), 'not a directory');
@@ -165,7 +168,7 @@ test('an unwritable credential store degrades the worker to polling and still sa
         return JSON.stringify([
           { pane_id: 7, tab_id: 1, window_id: 1, title: 't', cwd: '/', size: { rows: 24, cols: 80 } },
         ]);
-      if (args[0] === 'spawn') return '7';
+      if (args[0] === 'spawn') assert.fail('must not create a pane');
       return 'OpenAI Codex\n› ';
     },
     async () => null,
@@ -179,16 +182,9 @@ test('an unwritable credential store degrades the worker to polling and still sa
   push.attach({ listening: true });
   const agents = new Agents(backend, undefined, push);
   try {
-    const spawned = await agents.spawn({ name: 'w', cli: 'claude' } as any);
-    assert.equal(spawned.paneId, 7, 'the spawn the user asked for succeeds');
-    const [saved] = await agents.list();
-    assert.equal(saved.paneId, 7);
-    assert.equal(saved.attachment, 'attached');
-    await assert.rejects(
-      push.setEnabled(spawned.agentId, true),
-      /PUSH_CREDENTIAL_UNWRITABLE/,
-      'push cannot be enabled for a channel nothing can reach',
-    );
+    await assert.rejects(agents.spawn({ name: 'w', cli: 'claude' }), /WORKER_HOOK_CREDENTIAL/);
+    assert.deepEqual(await agents.list(), []);
+    assert.deepEqual(push.list(), []);
   } finally {
     rmSync(broken, { recursive: true, force: true });
   }
@@ -197,14 +193,63 @@ test('an unwritable credential store degrades the worker to polling and still sa
 test('non-forwarding shell overrides launch unchanged and explicitly remain polling-only', async () => {
   const f = fixture();
   const command = ['zsh', '-lic', 'claude'];
-  const worker = await f.agents.spawn({ name: 'wrapped', cli: 'claude', command });
+  await assert.rejects(f.agents.spawn({ name: 'wrapped', cli: 'claude', command }), /WORKER_HOOK_CONFIGURATION/);
+  assert.equal(f.spawns.length, 0);
+  const worker = await f.agents.spawn({ name: 'wrapped', cli: 'claude', command, supervision: 'polling' });
   assert.deepEqual(f.spawns[0].slice(-3), command);
   const status = await f.push.status(worker.agentId);
   assert.equal(status.deliverable, false);
   assert.equal(status.registered, false);
   assert.equal(status.hookSurface, null);
-  assert.match(status.reason!, /does not forward hook flags/);
+  assert.match(status.reason!, /without hooks/);
   await assert.rejects(f.push.setEnabled(worker.agentId, true), /PUSH_NOT_WIRED/);
   assert.equal((await f.agents.list())[0].push, undefined);
   await f.agents.close();
+});
+
+test('socket failure rejects before spawn, while explicit polling remains available', async () => {
+  const f = fixture();
+  f.push.attach({ listening: false, bindError: 'test startup failure' });
+  await assert.rejects(f.agents.spawn({ name: 'w', cli: 'codex' }), /PUSH_SOCKET_UNAVAILABLE.*server/);
+  assert.equal(f.spawns.length, 0);
+  assert.equal(f.push.list().length, 0);
+  const result = await f.agents.spawn({ name: 'w', cli: 'codex', supervision: 'polling' });
+  assert.equal((result.supervision as any).deliverable, false);
+  assert.deepEqual(f.spawns[0].slice(-1), ['codex']);
+});
+test('post-launch enable failure retains mapping and sends no initial prompt', async () => {
+  const f = fixture();
+  f.push.setEnabled = async () => {
+    throw new Error('enable failed');
+  };
+  await assert.rejects(
+    f.agents.spawn({ name: 'w', cli: 'codex', prompt: 'do work' }),
+    /WORKER_HOOK_ENABLE_FAILED.*pane 7 retained; prompt NOT sent/,
+  );
+  assert.equal(f.spawns.length, 1);
+  assert.equal((await f.agents.list())[0].paneId, 7);
+  assert.equal(f.push.list().length, 1);
+});
+test('hooks are enabled before the first task is submitted', async () => {
+  const f = fixture();
+  f.agents.send = async (id: string) => {
+    assert.equal(f.push.deliverable(id), true);
+    assert.equal(f.ingress.status(id).proven, false);
+    return {} as any;
+  };
+  await f.agents.spawn({ name: 'w', cli: 'codex', prompt: 'do work' });
+});
+
+test('managed arguments and environment reach the backend literally alongside hooks', async () => {
+  const f = fixture();
+  await f.agents.spawn({
+    name: 'literal',
+    cli: 'codex',
+    args: ['--model', 'x $(pwd); y', ''],
+    env: { EXAMPLE: 'a b\n$(pwd)', EMPTY: '' },
+  });
+  const argv = f.spawns[0].slice(f.spawns[0].indexOf('--') + 1);
+  assert.deepEqual(argv.slice(0, 7), ['env', 'EXAMPLE=a b\n$(pwd)', 'EMPTY=', 'codex', '--model', 'x $(pwd); y', '']);
+  assert.equal(argv[7], '-c');
+  assert.match(argv[8], /^notify=/);
 });

@@ -201,8 +201,13 @@ never sees the transport. `src/worker-hooks.ts` builds the launch arguments and
 contract (fields, error codes, limits) lives in the [tool reference](tools.md#worker-pushed-events);
 this section records the decisions behind it.
 
-**Off until enabled, wired from launch.** `agent.spawn` injects hooks so that
-`push.set` never needs a relaunch; a push against a disabled registration is
+**Required for new managed launches.** `agent.spawn` validates forwarding, socket
+availability and private credential creation before launching Claude/Codex. It
+binds and enables hooks before submitting the first prompt; enabling failure
+retains the live pane and durable mapping. Explicit `supervision:"polling"` skips
+wiring, and shells always poll. `args` and bounded `env` values extend the managed
+launcher as literal argv, never shell source; they conflict with explicit command
+overrides. Hook preparation failures never silently downgrade the launch; a push against a disabled registration is
 acknowledged and dropped. Enabling fails explicitly when the channel cannot
 deliver, while disabling always succeeds: the safe direction must never be
 blocked by the reasons a channel is broken.
@@ -220,8 +225,7 @@ never touches a peer with a live client.
 rewritten, so interpolating a socket path and token into it orphaned every
 surviving worker across a supervisor restart. The hook argv carries only the path
 of an owner-only credential file that `launch` writes before the record is
-inserted; a write failure degrades to unmodified argv and no binding rather than
-failing the spawn, which is safe only because `push.set` then refuses the pane.
+inserted; a write failure rejects the launch before pane creation.
 The store is write-only by construction so a credential is never loaded into
 server or event state. It is not a security boundary: workers share the server's
 uid.

@@ -1,5 +1,31 @@
 # Verification evidence
 
+## Required managed-worker hooks — TD-HOOKS-1 (2026-11-18)
+
+`npm run check` passed with Node 24.20.0: exit 0, 25.564 seconds, all 471 tests
+passed (test-runner duration 21.597 seconds). This includes the TypeScript build,
+demo typecheck, formatting check, and unit/stdio protocol tests. Local evidence:
+`/tmp/td-hooks-verified-check.log` and `/tmp/td-hooks-verified-check.json`.
+Tests required host access for temporary Unix sockets; the first sandbox runs
+failed. An intermediate host run exposed the startup race and outdated test
+expectations, which were corrected before the passing run.
+
+| Criterion | Regression evidence |
+| --- | --- |
+| Managed hooks required and enabled before initial prompt | `tests/push-workers.test.ts`: default launch, enabled-before-send, missing socket and non-forwarding command cases; `tests/worker-launch.test.ts`: missing hook service |
+| Explicit polling escape hatch and shell polling | `tests/push-workers.test.ts`: unchanged shell/custom commands, explicit polling despite socket failure |
+| Credentials validated before pane creation | `tests/push-workers.test.ts`: broken credential directory rejects without spawn or mapping; repeated failed reservations leak no registrations/files |
+| Honest enabled/deliverable/proven/reason | `tests/push-workers.test.ts`: default unproven state, socket loss; `tests/push-e2e.test.ts`: authenticated synthetic delivery proves the channel |
+| Post-launch failures preserve live workers | `tests/push-workers.test.ts`: failed enable retains pane/mapping/registration and sends no initial prompt; existing storage/transport recovery tests remain passing |
+| Literal args, bounded env, custom-command conflicts | `tests/worker-launch.test.ts` and backend argv assertions in `tests/push-workers.test.ts`, including empty values and shell metacharacters |
+| Existing-worker recovery and startup ordering | `tests/push-restore.test.ts`, `tests/worker-protocol.test.ts`, `tests/task-protocol.test.ts`, `tests/watch-events.test.ts`; MCP spawn awaits socket startup and recovery before creating new workers |
+
+No live WezTerm, Claude, or Codex sessions were started for this slice. Synthetic
+hook delivery and deterministic terminal runners do not prove real CLI delivery.
+Existing clients must restart to load the newly built server. Recovery still
+requires explicit push enable; durable supervision groups and dynamic waiters
+remain outside this slice.
+
 ## Local agent shell startup (2026-10-13)
 
 `npm run check` passed the build, formatting check and all 353 tests after the

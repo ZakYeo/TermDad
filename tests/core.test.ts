@@ -94,7 +94,10 @@ test('silent output does not count as idle; waits time out; failed spawn retains
   const f = fake();
   f.setText('long command with no output');
   const a = new Agents(f.backend);
-  await assert.rejects(a.spawn({ name: 'worker', cli: 'claude', prompt: 'hello', timeoutMs: 10 }), /prompt NOT sent/);
+  await assert.rejects(
+    a.spawn({ supervision: 'polling', name: 'worker', cli: 'claude', prompt: 'hello', timeoutMs: 10 }),
+    /prompt NOT sent/,
+  );
   assert.equal(a.records.size, 1);
   assert.equal((await a.observe('worker')).status, 'UNKNOWN');
   assert.equal(f.calls.filter((c) => c.args[0] === 'send-text').length, 0);
@@ -103,7 +106,7 @@ test('permission detection prevents automatic initial prompt submission', async 
   const f = fake();
   f.setText('Do you trust this folder?\n❯ Yes');
   const a = new Agents(f.backend);
-  await assert.rejects(a.spawn({ name: 'p', cli: 'claude', prompt: 'do work', timeoutMs: 5 }));
+  await assert.rejects(a.spawn({ supervision: 'polling', name: 'p', cli: 'claude', prompt: 'do work', timeoutMs: 5 }));
   assert.equal((await a.observe('p')).status, 'WAITING_FOR_PERMISSION');
 });
 test('state classifier examples', () => {
@@ -155,7 +158,13 @@ test('Codex gets the bundled worker skill with its initial task only, even with 
   const f = fake(),
     a = new Agents(f.backend);
   f.setText('OpenAI Codex\n› Explain this codebase');
-  await a.spawn({ name: 'worker', cli: 'codex', command: ['custom-codex'], prompt: 'Implement the feature.' });
+  await a.spawn({
+    supervision: 'polling',
+    name: 'worker',
+    cli: 'codex',
+    command: ['custom-codex'],
+    prompt: 'Implement the feature.',
+  });
   await a.send('worker', 'Report your results.', undefined, false);
   const inputs = f.calls.filter((c) => c.args[0] === 'send-text' && !c.args.includes('--no-paste')).map((c) => c.input);
   assert.match(inputs[0], /^\$term-dad-worker\n/);
@@ -169,7 +178,12 @@ test('Codex initialization is deferred without a task, and survives an onboardin
     const f = fake(),
       a = new Agents(f.backend);
     f.setText('Do you trust this folder?\n❯ Yes');
-    const spawn = a.spawn({ name: 'worker', cli: 'codex', ...(withPrompt ? { prompt: 'task', timeoutMs: 1 } : {}) });
+    const spawn = a.spawn({
+      supervision: 'polling',
+      name: 'worker',
+      cli: 'codex',
+      ...(withPrompt ? { prompt: 'task', timeoutMs: 1 } : {}),
+    });
     if (withPrompt) await assert.rejects(spawn, /prompt NOT sent/);
     else await spawn;
     assert.equal(f.calls.filter((c) => c.args[0] === 'send-text').length, 0);
@@ -185,7 +199,7 @@ test('failed Codex input keeps initialization pending; concurrent input cannot d
   const f = fake(),
     a = new Agents(f.backend);
   f.setText('› Ready');
-  await a.spawn({ name: 'worker', cli: 'codex' });
+  await a.spawn({ supervision: 'polling', name: 'worker', cli: 'codex' });
   const send = f.backend.sendText.bind(f.backend);
   let fail = true;
   f.backend.sendText = async (...args) => {
@@ -218,7 +232,7 @@ test('Claude receives worker instructions while shell task text stays literal', 
     const f = fake(),
       a = new Agents(f.backend);
     f.setText(cli === 'claude' ? '❯ Ready' : '$ ');
-    await a.spawn({ name: 'worker', cli });
+    await a.spawn({ supervision: 'polling', name: 'worker', cli });
     await a.send('worker', 'literal task');
     const sent = f.calls.find((c) => c.args[0] === 'send-text').input;
     if (cli === 'claude') {

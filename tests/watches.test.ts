@@ -140,7 +140,7 @@ test('sink failures retry independently of successful notifications, bounded coo
 });
 test('managed pane targets automatically preserve stale-prompt guard and registry cleanup', async () => {
   const f = fixture();
-  await f.agents.spawn({ name: 'worker', cli: 'codex' });
+  await f.agents.spawn({ supervision: 'polling', name: 'worker', cli: 'codex' });
   await f.watches.create({ paneId: 7, pollMs: 500, cooldownMs: 0 });
   await f.agents.send('worker', 'test');
   await f.agents.storage.transaction(true, (s) => {

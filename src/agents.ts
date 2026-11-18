@@ -1,3 +1,4 @@
+import { workerLaunch, launchEnvironment, type WorkerLaunchOptions } from './worker-launch.js';
 import { workerReportSchema, reportInstructions, type WorkerReport } from './worker-report.js';
 import { observationView, type ObservationView } from './observation-view.js';
 import { boundedMap } from './bounded-map.js';
@@ -258,34 +259,43 @@ export class Agents {
     }
   }
   spawn(
-    o: SpawnOptions & {
-      name: string;
-      cli: WorkerRecord['cli'];
-      prompt?: string;
-      timeoutMs?: number;
-      accountRef?: string;
-    },
+    o: SpawnOptions &
+      WorkerLaunchOptions & {
+        name: string;
+        cli: WorkerRecord['cli'];
+        prompt?: string;
+        timeoutMs?: number;
+        accountRef?: string;
+      },
   ) {
     return this.run(async () => {
-      // Explicit argv, else the configured JSON argv, else the bare CLI name (shells launch with
-      // no command). Whichever wins is validated exactly once, with the rest of the options.
-      const configured = process.env[`TERM_DAD_${o.cli.toUpperCase()}_COMMAND`];
-      const validated = spawnArguments({
-        ...o,
-        command: o.command ?? (configured ? JSON.parse(configured) : o.cli === 'shell' ? undefined : [o.cli]),
-      });
+      const { launch: validated, extra } = workerLaunch(o);
       const command = validated.command;
+      const required = o.cli !== 'shell' && extra.supervision !== 'polling';
+      if (required && !this.push)
+        throw new CodedError(
+          'WORKER_HOOKS_UNAVAILABLE',
+          'server has no hook service; use supervision:polling explicitly',
+        );
       const w = newWorker(o.name, o.cli, null, await this.identity(), this.sessionId);
       w.accountRef = workerSchema.shape.accountRef.parse(o.accountRef);
       if (w.accountRef) await this.validateAccount?.(w.accountRef);
       // Hooks are injected at launch but stay inert: pushes are dropped until the pane is enabled.
       // The binding is set before the record is inserted, so it is durable from the first write.
-      const launched = await this.push?.launch(w.agentId, o.cli, command);
+      const launched = required ? await this.push!.launch(w.agentId, o.cli, command) : undefined;
       if (launched?.push) w.push = launched.push;
       let paneId: number | undefined,
         launchedPane = false;
       try {
-        const options = { ...validated, command: launched ? launched.command : command };
+        let options;
+        try {
+          options = spawnArguments({
+            ...validated,
+            command: launchEnvironment(launched ? launched.command : command, extra.env),
+          });
+        } catch (e) {
+          throw new CodedError('WORKER_CONFIGURATION', e instanceof Error ? e.message : String(e));
+        }
         await this.storage.exclusive(w.agentId, async () => {
           await this.insert(w);
           try {
@@ -305,15 +315,15 @@ export class Agents {
               `WORKER_STORAGE_FAILED: pane ${paneId} is alive but mapping was not saved; inspect it, forget reservation ${w.agentId}, and agent.adopt it. No prompt sent.`,
             );
           }
-          // Only a worker that was actually launched with hooks has a registration to bind; a
-          // degraded launch (unwritable credential, registration limit) polls instead.
-          // A bind failure never fails a spawn whose mapping is saved: the worker degrades to polling.
           if (launched?.push) {
             try {
-              this.push?.bind(w.agentId, paneId);
+              this.push!.bind(w.agentId, paneId);
+              await this.push!.setEnabled(w.agentId, true);
             } catch (e) {
-              console.error(`[term-dad] push bind ${w.agentId}: ${e instanceof Error ? e.message : e}`);
-              await this.push?.release(w.agentId);
+              throw new CodedError(
+                'WORKER_HOOK_ENABLE_FAILED',
+                `Agent ${w.agentId}, pane ${paneId} retained; prompt NOT sent. ${e instanceof Error ? e.message : e}`,
+              );
             }
           }
         });
@@ -343,6 +353,14 @@ export class Agents {
         paneId,
         status: this.get(w.agentId).status,
         turnId: this.get(w.agentId).turn?.id ?? null,
+        supervision: required
+          ? await this.push!.status(w.agentId)
+          : {
+              enabled: false,
+              deliverable: false,
+              proven: false,
+              reason: o.cli === 'shell' ? 'shell worker uses polling' : 'explicit polling requested',
+            },
       };
     });
   }

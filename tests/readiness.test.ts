@@ -34,7 +34,7 @@ async function fixture(t: { after: (fn: () => unknown) => void }, initial = '›
   );
   const agents = new Agents(backend);
   t.after(() => agents.close());
-  await agents.spawn({ name: 'worker', cli: 'codex' });
+  await agents.spawn({ supervision: 'polling', name: 'worker', cli: 'codex' });
   return { agents, input, setText: (value: string) => (text = value), remove: () => (alive = false) };
 }
 

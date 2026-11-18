@@ -1,3 +1,4 @@
+import { CodedError } from './errors.js';
 import { PushIngress } from './ingress.js';
 import { pushHookArgv, forwardsHookArguments, type PushHookOptions } from './worker-hooks.js';
 import { PushCredentialStore, credentialPath } from './push-credentials.js';
@@ -15,6 +16,8 @@ export interface WorkerPush {
     cli: WorkerCli,
     command: string[] | undefined,
   ): Promise<{ command: string[] | undefined; push?: WorkerPushBinding }>;
+  setEnabled(agentId: string, enabled: boolean): Promise<unknown>;
+  status(agentId: string): Promise<unknown>;
   bind(agentId: string, paneId: number): void;
   release(agentId: string): Promise<void>;
   rekey(worker: { agentId: string; paneId: number | null; push?: WorkerPushBinding }): Promise<void>;
@@ -33,12 +36,11 @@ export interface ResolvedWorker {
   rekey?: () => Promise<void>;
 }
 export type WorkerResolver = (agentIdOrName: string) => Promise<ResolvedWorker | undefined>;
-/** Mints one token per worker, injects its hooks at launch, and keeps delivery off until asked. */
+/** Mints one token per worker and prepares hook wiring before pane creation. */
 export class WorkerPushRegistry implements WorkerPush {
   private clis = new Map<string, WorkerCli>();
   private socketState: { listening: boolean; bindError?: string } = { listening: false };
   private resolve?: WorkerResolver;
-  private hookErrors = new Map<string, string>();
   private credentialErrors = new Map<string, string>();
   private store: PushCredentialStore;
   private stateDir: string;
@@ -66,35 +68,32 @@ export class WorkerPushRegistry implements WorkerPush {
   socket() {
     return { path: this.socketPath, listening: this.socketState.listening, bindError: this.socketState.bindError };
   }
-  /**
-   * A credential that cannot be written must not fail the spawn: launching the worker is the
-   * user's goal and push only accelerates it. The worker is launched with unmodified argv and
-   * no durable binding, so `push.set` then refuses it with PUSH_NOT_WIRED rather than
-   * reporting an enabled channel nothing can reach.
-   */
+  /** Validate the required channel before any terminal pane is created. */
   async launch(agentId: string, cli: WorkerCli, command: string[] | undefined) {
-    this.clis.set(agentId, cli);
-    if (cli === 'shell' || !command) return { command };
-    if (!forwardsHookArguments(command)) {
-      this.hookErrors.set(
-        agentId,
-        'Shell command does not forward hook flags (for example zsh -lic claude). Launch the server through scripts/launch-local and omit the worker command to retain login-shell PATH and hooks. Existing panes must keep polling; arbitrary shell source is never rewritten.',
+    if (cli === 'shell') return { command };
+    if (!command || !forwardsHookArguments(command))
+      throw new CodedError(
+        'WORKER_HOOK_CONFIGURATION',
+        'command does not forward hook arguments; omit the custom command or explicitly request supervision:polling',
       );
-      return { command };
-    }
+    if (!this.socketState.listening)
+      throw new CodedError(
+        'PUSH_SOCKET_UNAVAILABLE',
+        `server hook socket is unavailable (${this.socketState.bindError ?? 'not listening'}); repair server startup or explicitly request supervision:polling`,
+      );
+    this.clis.set(agentId, cli);
     const surface = this.surface(agentId)!;
     const path = credentialPath(this.stateDir, agentId);
-    // Registering inside the try as well: a registration limit must degrade this worker to
-    // polling, exactly like an unwritable credential, never fail the spawn the user asked for.
+    // Registration and credential failures reject before pane creation and release partial state.
     try {
       const { token } = this.ingress.register(agentId, -1);
       await this.store.write({ version: 1, agentId, socketPath: this.socketPath, token });
     } catch (e) {
-      this.ingress.revoke(agentId);
-      const message = e instanceof Error ? e.message : String(e);
-      this.credentialErrors.set(agentId, message);
-      console.error(`[term-dad] push credential for ${agentId}: ${message}`);
-      return { command };
+      await this.release(agentId);
+      throw new CodedError(
+        'WORKER_HOOK_CREDENTIAL',
+        `cannot prepare private hook credential: ${e instanceof Error ? e.message : String(e)}`,
+      );
     }
     this.credentialErrors.delete(agentId);
     const options: PushHookOptions = { credentialPath: path, notify: this.notify };
@@ -129,7 +128,6 @@ export class WorkerPushRegistry implements WorkerPush {
   async release(agentId: string) {
     this.clis.delete(agentId);
     this.credentialErrors.delete(agentId);
-    this.hookErrors.delete(agentId);
     this.ingress.revoke(agentId);
     await this.store.remove(agentId);
   }
@@ -179,7 +177,6 @@ export class WorkerPushRegistry implements WorkerPush {
         );
       await worker.rekey();
     }
-    if (this.hookErrors.has(agentId)) throw new Error(`PUSH_NOT_WIRED: ${this.hookErrors.get(agentId)}`);
     if (!this.surface(agentId))
       throw new Error(
         `PUSH_NOT_WIRED: worker ${agentId} has no hook surface in this server, so a hook can never reach it; an adopted pane must be respawned with agent.spawn to push, or watch its pane instead`,
@@ -198,7 +195,7 @@ export class WorkerPushRegistry implements WorkerPush {
     // A hook surface means this pane was actually launched with injected argv: the durable
     // binding, or a launch in this process. Never merely the CLI, or an adopted claude pane
     // would report as wired when nothing can ever reach it.
-    const surface = this.hookErrors.has(agentId) ? null : (worker?.push?.surface ?? this.surface(agentId));
+    const surface = worker?.push?.surface ?? this.surface(agentId);
     if (this.ingress.revoked(agentId)) {
       if (worker === undefined && !this.clis.has(agentId))
         throw new Error(
@@ -223,7 +220,7 @@ export class WorkerPushRegistry implements WorkerPush {
         proven: false,
         socket: this.socket(),
         deliverable: false,
-        reason: this.hookErrors.get(agentId) ?? reason,
+        reason,
       };
     }
     const view = this.ingress.status(agentId);
@@ -236,7 +233,13 @@ export class WorkerPushRegistry implements WorkerPush {
       ...this.credential(agentId, worker?.push),
       socket: this.socket(),
       deliverable: this.deliverable(agentId),
-      ...(view.enabled ? {} : { reason: 'push is registered for this pane but off; enable it explicitly' }),
+      reason: !this.socketState.listening
+        ? 'server hook socket is unavailable'
+        : !view.enabled
+          ? 'push is registered for this pane but off; enable it explicitly'
+          : view.proven
+            ? 'hook delivery observed'
+            : 'enabled; hook delivery not yet proven',
     };
   }
   list() {
@@ -245,6 +248,13 @@ export class WorkerPushRegistry implements WorkerPush {
       registered: true,
       hookSurface: this.surface(view.agentId),
       deliverable: this.deliverable(view.agentId),
+      reason: !this.socketState.listening
+        ? 'server hook socket is unavailable'
+        : !view.enabled
+          ? 'push is registered but off'
+          : view.proven
+            ? 'hook delivery observed'
+            : 'enabled; hook delivery not yet proven',
     }));
   }
   enabled(agentId?: string) {

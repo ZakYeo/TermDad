@@ -41,6 +41,7 @@ test('an enabled worker push becomes a durable event and releases a waiting supe
     await events.close();
     await rm(directory, { recursive: true, force: true });
   });
+  await term.pushRestored;
   const { agentId } = await term.agents.spawn({ name: 'w', cli: 'claude' } as any);
   const socketPath = await term.pushReady;
   const token = (term.ingress as any).byAgent.get(agentId).token;

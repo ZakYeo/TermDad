@@ -27,7 +27,7 @@ const claudeHooks: Record<string, PushKind> = {
 
 /**
  * Adds push plumbing to a worker's argv. The hooks are inert until the pane's
- * registration is enabled, so an injected worker still pushes nothing by default.
+ * registration is enabled after binding the pane and before its first task.
  */
 export function pushHookArgv(
   cli: 'claude' | 'codex' | 'shell',

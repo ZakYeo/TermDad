@@ -75,7 +75,7 @@ async function directory(t: any) {
 test('restart retains identity, deferred skill and stale guard, but resets observation history and stores no content', async (t) => {
   const dir = await directory(t),
     f = fixture(new FileWorkerStorage(dir)),
-    spawned = await f.agents.spawn({ name: 'worker', cli: 'codex' });
+    spawned = await f.agents.spawn({ supervision: 'polling', name: 'worker', cli: 'codex' });
   const first = await f.agents.observe(spawned.agentId);
   await f.agents.close();
   const next = new Agents(f.backend, new FileWorkerStorage(dir));
@@ -159,7 +159,7 @@ test('transport failure preserves mapping; confirmed disappearance removes it du
 });
 test('partial paste failure blocks replay across restart until explicit uncertain-delivery recovery', async () => {
   const f = fixture();
-  await f.agents.spawn({ name: 'worker', cli: 'codex' });
+  await f.agents.spawn({ supervision: 'polling', name: 'worker', cli: 'codex' });
   const send = f.backend.sendText.bind(f.backend);
   f.backend.sendText = async (pane, text, raw) => {
     if (raw) throw new Error('lost Enter response');

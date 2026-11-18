@@ -53,7 +53,16 @@ export function splitCommand(command: string | string[]): string[] {
 }
 // A string is split by the handlers, not the schema: the SDK reports a schema failure only as
 // "Invalid input at command", while splitCommand can say which quote is unterminated.
-const commandSchema = z.union([z.array(string).min(1).max(100), z.string().min(1).max(8192)]);
+const argument = z
+  .string()
+  .max(8192)
+  .refine((s) => !s.includes('\0'), 'NUL is not allowed');
+const argvSchema = z
+  .array(argument)
+  .min(1)
+  .max(100)
+  .refine((argv) => argv[0].length > 0, 'command must name a program');
+const commandSchema = z.union([argvSchema, z.string().min(1).max(8192)]);
 export const spawnSchema = z.object({
   cwd: string.optional(),
   command: commandSchema
@@ -66,7 +75,6 @@ export const spawnSchema = z.object({
 });
 export type SpawnOptions = z.infer<typeof spawnSchema>;
 export type SpawnArguments = Omit<SpawnOptions, 'command'> & { command?: string[] };
-const argvSchema = z.array(string).min(1).max(100);
 /**
  * The one place spawn options are validated: the schema, the window-target conflict, and the
  * command split into argv. Every launch path calls this once, so no caller re-validates.

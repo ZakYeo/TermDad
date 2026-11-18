@@ -20,7 +20,7 @@ Tool names use dots. All arguments are JSON objects. Omitted arguments below use
 | terminal.submit | `paneId, text?` → paste then Enter; with no text, Enter only |
 | terminal.screenshot | `paneId` → MCP PNG image via provider |
 | terminal.snapshot | `{}` → panes, 30-line tails and managed agents |
-| agent.spawn | `name, cli: claude\|codex\|shell, prompt?, timeoutMs?, accountRef?` plus terminal.spawn options → mapped worker; optional explicit usage account binding; prompt waits for readiness; first Codex task includes the worker skill |
+| agent.spawn | `name, cli: claude\|codex\|shell, prompt?, timeoutMs?, accountRef?, supervision?: hooks|polling, args?: string[], env?: object` plus terminal.spawn options → mapped worker; optional explicit usage account binding; prompt waits for readiness; first Codex task includes the worker skill |
 | agent.list | `{}` → saved metadata, attachment state, recovery reason and storage warning; no terminal text |
 | agent.adopt | `name, paneId, cli, workerSkillInitialized?` → register an existing pane; no input sent |
 | agent.reattach | `agentId, paneId, acknowledgeUncertainDelivery?, workerSkillInitialized?` → explicitly bind a saved worker; no input sent |
@@ -298,8 +298,27 @@ property of that client, not of Term Dad. Confirm it before relying on it.
 
 ## Worker-pushed events
 
-Push is **off for every pane until it is enabled**. Enable it for long-running
-assignments so a worker reports its own state instead of being scraped.
+New managed Claude/Codex launches **require hooks and enable them before the first
+prompt**. Set `supervision:"polling"` explicitly to launch without hooks. Shell
+workers always use polling. Spawn returns `supervision` facts including `enabled`,
+`deliverable`, `proven`, and `reason`; enabling does not prove delivery.
+
+Use `args` (up to 64 literal arguments) and `env` (up to 64 names, 8192 characters
+per value, 32768 characters serialized total) with the configured managed launcher.
+The complete composed command remains capped at 100 argv entries.
+Environment names must be portable identifiers; NUL is rejected. Environment
+assignments and arguments travel as literal argv through `env`, without shell
+interpolation. Neither option can accompany an explicit `command`, including an
+empty args/env value. Commands execute in the selected terminal domain; local
+hook paths still require that domain to share the server's filesystem/socket.
+
+Before creating a pane, required launches validate forwarding, the server socket,
+and private credential creation. `WORKER_CONFIGURATION` and
+`WORKER_HOOK_CONFIGURATION` identify worker options; `PUSH_SOCKET_UNAVAILABLE`
+identifies server socket startup. `WORKER_HOOK_CREDENTIAL` identifies credential
+preparation failure; `WORKER_HOOKS_UNAVAILABLE` identifies a missing server hook
+service. No automatic fallback occurs. Post-launch `WORKER_HOOK_ENABLE_FAILED`
+retains the pane and mapping and sends no initial prompt; inspect it before retrying.
 
 | Tool | Arguments | Result |
 | --- | --- | --- |
@@ -364,7 +383,7 @@ not a security boundary — every worker runs as the same user as the server, so
 
 On startup, and on `agent.reattach`, a server re-keys the workers it can verify
 it is attached to and revokes their previous tokens. Delivery comes back
-**disabled**: push is off for every pane until it is enabled, and a restart cannot
+**disabled**: recovery requires explicit enabling, and a restart cannot
 verify that the worker's hook configuration survived. `push.status` reports
 `hookSurface` and `registered` so a re-keyed pane is visibly ready to be
 re-enabled. Credentials of workers that are no longer in the durable journal are
@@ -387,9 +406,7 @@ re-key, held in memory and in that worker's owner-only credential file, and
 released when the worker is stopped or forgotten. Sockets left by crashed servers
 are swept on startup; sockets that still answer are never removed.
 
-A credential that cannot be written never fails a spawn: the worker launches with
-unmodified argv and no durable binding, so `push.set` then refuses it with
-`PUSH_NOT_WIRED` rather than reporting a channel nothing can reach. A failed
+A credential that cannot be written rejects a required launch before pane creation. A failed
 re-key leaves the worker unregistered and reports `credential:"unwritable"`.
 
 An accepted push publishes the event and then samples the pane, so the recorded
@@ -915,8 +932,9 @@ the worker and serialize operations before retrying; never bypass the lock.
 Omit `agent.spawn.command` for the configured launcher, which forwards hook flags
 to the CLI. A custom shell command such as `["zsh","-lic","claude"]` consumes
 appended arguments as shell positional parameters; it does not pass them to Claude.
-Recognized shell overrides without the supported argv-forwarding form launch
-unchanged but cannot enable push (`PUSH_NOT_WIRED`). `push.status` explains why.
+Recognized shell overrides without the supported argv-forwarding form are rejected
+before pane creation. Explicit `supervision:"polling"` launches them unchanged
+without hooks; `push.set` cannot enable those unwired panes.
 Other custom launchers must forward appended flags themselves; configured wiring
 is not proof that their hooks execute. Keep the normal watch polling interval until
 `proven:true`; only a successful delivery permits the slower liveness interval.
