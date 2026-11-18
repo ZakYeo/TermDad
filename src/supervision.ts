@@ -9,6 +9,7 @@ import {
 } from './supervision-storage.js';
 
 type Watch = {
+  bindingRevision?: string;
   watchId: string;
   agentId?: string;
   disappeared?: boolean;
@@ -17,7 +18,7 @@ type Watch = {
 };
 type Push = { enabled?: boolean; deliverable?: boolean; proven?: boolean; reason?: string };
 export interface SupervisionRuntime {
-  resolve(agentId: string): Promise<unknown>;
+  resolve(agentId: string): Promise<{ revision?: string }>;
   enable(agentId: string): Promise<unknown>;
   pushStatus(agentId: string): Promise<Push>;
   watches(): Watch[];
@@ -119,13 +120,26 @@ export class Supervision {
     if (!owned.size) this.owned.delete(group.groupId);
   }
   private async prepare(group: SupervisionGroup) {
+    // Retire old ownership before borrowing a watch for a newly assigned group.
+    for (const groupId of this.owned.keys()) this.prune(await this.get(groupId));
     const failures: Record<string, string> = {};
     for (const member of group.members) {
       try {
-        await this.runtime.resolve(member.agentId);
+        const worker = await this.runtime.resolve(member.agentId);
         if (!member.allowPolling) await this.runtime.enable(member.agentId);
         else await this.runtime.enable(member.agentId).catch(() => {});
-        const existing = this.runtime.watches().find((w) => w.agentId === member.agentId && !w.disappeared);
+        const owned = this.owned.get(group.groupId)?.get(member.agentId);
+        const usable = (w: Watch) =>
+          w.agentId === member.agentId &&
+          !w.disappeared &&
+          !w.backendError &&
+          !w.deliveryError &&
+          (!w.bindingRevision || w.bindingRevision === worker.revision);
+        if (owned && !this.runtime.watches().some((w) => w.watchId === owned && usable(w))) {
+          this.runtime.removeWatch(owned);
+          this.owned.get(group.groupId)?.delete(member.agentId);
+        }
+        const existing = this.runtime.watches().find(usable);
         if (!existing) {
           const watch = await this.runtime.createWatch(member.agentId);
           let owned = this.owned.get(group.groupId);
@@ -155,11 +169,20 @@ export class Supervision {
       watches = this.runtime.watches();
     const members = await Promise.all(
       group.members.map(async (member) => {
-        const watch = watches.find((w) => w.agentId === member.agentId && !w.disappeared);
+        let worker: { revision?: string } = {};
+        let watch: Watch | undefined;
         let push: Push = {},
           error: string | undefined;
         try {
-          await this.runtime.resolve(member.agentId);
+          worker = await this.runtime.resolve(member.agentId);
+          watch = watches.find(
+            (w) =>
+              w.agentId === member.agentId &&
+              !w.disappeared &&
+              !w.backendError &&
+              !w.deliveryError &&
+              (!w.bindingRevision || w.bindingRevision === worker.revision),
+          );
           push = await this.runtime.pushStatus(member.agentId);
         } catch {
           error = 'WORKER_UNAVAILABLE';

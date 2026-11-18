@@ -118,3 +118,37 @@ test('concurrent membership replacement during setup cannot report stale success
   await assert.rejects(pending, /REVISION_CONFLICT/);
   assert.equal(r1.watches.length, 0);
 });
+
+test('peer closure cannot lend a doomed owned watch to a replacement group before guard polling', async () => {
+  const store = new MemorySupervisionStorage(),
+    r = runtime(),
+    peer = runtime();
+  const local = new Supervision(store, r.port),
+    remote = new Supervision(store, peer.port),
+    a = member();
+  const old = await local.create('old', [a]);
+  const oldWatch = r.watches[0].watchId;
+  await remote.close(old.group.groupId, 1);
+  const next = await local.create('next', [a]);
+  assert.equal(next.monitoringReady, true);
+  assert.equal(next.members[0].watchOwned, true);
+  assert.notEqual(next.members[0].watchId, oldWatch);
+  assert.equal(await r.guards.get(next.members[0].watchId!)!(), true);
+});
+test('explicit setup replaces stale owned watches and preserves unusable borrowed watches', async () => {
+  const r = runtime(),
+    s = new Supervision(new MemorySupervisionStorage(), r.port),
+    a = member();
+  const borrowed = await r.port.createWatch(a.agentId);
+  (borrowed as any).backendError = 'stale binding';
+  const first = await s.create('repair', [a]);
+  assert.equal(first.members[0].watchOwned, true);
+  const owned = r.watches.find((w) => w.watchId === first.members[0].watchId)!;
+  (owned as any).bindingRevision = 'old';
+  r.port.resolve = async () => ({ revision: 'new' });
+  assert.equal((await s.status(first.group.groupId)).monitoringReady, false);
+  const repaired = await s.update(first.group.groupId, 1, [a]);
+  assert.equal(repaired.monitoringReady, true);
+  assert.notEqual(repaired.members[0].watchId, owned.watchId);
+  assert.ok(r.watches.includes(borrowed));
+});

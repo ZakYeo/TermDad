@@ -158,6 +158,7 @@ export class WatchManager {
       paneId: w.paneId,
       agentId: w.agentId,
       adapter: w.adapter,
+      bindingRevision: w.agentBinding?.revision,
       pollMs: w.pollMs,
       pushPollMs: w.pushPollMs,
       pushBacked: this.pushed(w),
