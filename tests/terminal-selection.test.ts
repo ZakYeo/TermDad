@@ -1,3 +1,4 @@
+import './isolated-state.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -97,9 +98,7 @@ test('MCP selection preserves workers and prevents crossing instances during sub
   t.after(async () => {
     release.resolve();
     await client.close();
-    await app.server.close();
-    await app.watches.dispose();
-    await app.events.close();
+    await app.dispose();
   });
   const raw = (name: string, args: Record<string, unknown> = {}) => client.callTool({ name, arguments: args });
   const call = async (name: string, args: Record<string, unknown> = {}) => {

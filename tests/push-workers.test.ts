@@ -195,7 +195,7 @@ test('non-forwarding shell overrides launch unchanged and explicitly remain poll
   const command = ['zsh', '-lic', 'claude'];
   await assert.rejects(f.agents.spawn({ name: 'wrapped', cli: 'claude', command }), /WORKER_HOOK_CONFIGURATION/);
   assert.equal(f.spawns.length, 0);
-  const worker = await f.agents.spawn({ name: 'wrapped', cli: 'claude', command, supervision: 'polling' });
+  const worker = await f.agents.spawn({ name: 'wrapped', cli: 'claude', command, pushMode: 'polling' });
   assert.deepEqual(f.spawns[0].slice(-3), command);
   const status = await f.push.status(worker.agentId);
   assert.equal(status.deliverable, false);
@@ -213,7 +213,7 @@ test('socket failure rejects before spawn, while explicit polling remains availa
   await assert.rejects(f.agents.spawn({ name: 'w', cli: 'codex' }), /PUSH_SOCKET_UNAVAILABLE.*server/);
   assert.equal(f.spawns.length, 0);
   assert.equal(f.push.list().length, 0);
-  const result = await f.agents.spawn({ name: 'w', cli: 'codex', supervision: 'polling' });
+  const result = await f.agents.spawn({ name: 'w', cli: 'codex', pushMode: 'polling' });
   assert.equal((result.supervision as any).deliverable, false);
   assert.deepEqual(f.spawns[0].slice(-1), ['codex']);
 });

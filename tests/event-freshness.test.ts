@@ -1,3 +1,4 @@
+import './isolated-state.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -40,8 +41,7 @@ async function connect(t: any) {
   await client.connect(b);
   t.after(async () => {
     await client.close();
-    await app.watches.dispose();
-    await queue.close();
+    await app.dispose();
     await rm(directory, { recursive: true, force: true });
   });
   return {

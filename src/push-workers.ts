@@ -74,12 +74,12 @@ export class WorkerPushRegistry implements WorkerPush {
     if (!command || !forwardsHookArguments(command))
       throw new CodedError(
         'WORKER_HOOK_CONFIGURATION',
-        'command does not forward hook arguments; omit the custom command or explicitly request supervision:polling',
+        'command does not forward hook arguments; omit the custom command or explicitly request pushMode:polling',
       );
     if (!this.socketState.listening)
       throw new CodedError(
         'PUSH_SOCKET_UNAVAILABLE',
-        `server hook socket is unavailable (${this.socketState.bindError ?? 'not listening'}); repair server startup or explicitly request supervision:polling`,
+        `server hook socket is unavailable (${this.socketState.bindError ?? 'not listening'}); repair server startup or explicitly request pushMode:polling`,
       );
     this.clis.set(agentId, cli);
     const surface = this.surface(agentId)!;

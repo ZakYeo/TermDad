@@ -271,12 +271,9 @@ export class Agents {
     return this.run(async () => {
       const { launch: validated, extra } = workerLaunch(o);
       const command = validated.command;
-      const required = o.cli !== 'shell' && extra.supervision !== 'polling';
+      const required = o.cli !== 'shell' && extra.pushMode !== 'polling';
       if (required && !this.push)
-        throw new CodedError(
-          'WORKER_HOOKS_UNAVAILABLE',
-          'server has no hook service; use supervision:polling explicitly',
-        );
+        throw new CodedError('WORKER_HOOKS_UNAVAILABLE', 'server has no hook service; use pushMode:polling explicitly');
       const w = newWorker(o.name, o.cli, null, await this.identity(), this.sessionId);
       w.accountRef = workerSchema.shape.accountRef.parse(o.accountRef);
       if (w.accountRef) await this.validateAccount?.(w.accountRef);

@@ -1,5 +1,39 @@
 # Verification evidence
 
+## Hook-first review: API and test isolation (2026-11-18)
+
+Task `e4a60f5e-7449-406f-87b7-d0f1d7ec1748`, attempt
+`6c1e142c-a74f-4d1e-b439-54145fd7aa8b`.
+
+The public input is now `pushMode?: "required" | "polling"`. Omission defaults
+Claude/Codex to required hooks; shells always poll. The returned `supervision`
+object still describes enabled/deliverable/proven/reason facts. The earlier
+`supervision` input and `"hooks"` enum value are not part of the public schema.
+
+Root cause reproduced safely: ergonomics, event-freshness, and terminal-selection
+tests constructed servers with in-memory worker storage but did not override the
+state directory. Socket, credential, telemetry and usage paths still used the
+inherited/default state directory. Startup `restorePush` swept credentials using
+an empty worker set. Running the pre-fix ergonomics test against a temporary
+synthetic credential deleted it (test exit 0, 1.212 seconds; evidence
+`/tmp/td-isolation-before.log`). This confirms the mechanism, but no deletion
+audit identifies which test removed the original live credential.
+
+All three files now import a temporary-state fixture, including when invoked
+individually. Server disposal completes before test state cleanup. The regression
+`tests/state-isolation.test.ts` runs all three in subprocesses with a synthetic
+inherited state directory and verifies the credential is byte-for-byte unchanged
+and that no sockets, telemetry, or journals appear in that directory.
+
+`npm run check` passed with Node 24.20.0: exit 0, 25.761 seconds, all 473 tests
+passed. Evidence: `/tmp/td-hooks-review-check.log` and
+`/tmp/td-hooks-review-check.json`. The supplied live reporting credential was
+already absent before this full check and absent afterward; no live credential
+preservation claim is made. Re-enabling an already registered worker does not
+rewrite its missing credential file, so that action alone need not repair it.
+The reporting command still returned `PUSH_CREDENTIAL_UNREADABLE`.
+No live worker sessions or global setting changes were made.
+
 ## Required managed-worker hooks — TD-HOOKS-1 (2026-11-18)
 
 `npm run check` passed with Node 24.20.0: exit 0, 25.564 seconds, all 471 tests

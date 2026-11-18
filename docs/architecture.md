@@ -204,7 +204,7 @@ this section records the decisions behind it.
 **Required for new managed launches.** `agent.spawn` validates forwarding, socket
 availability and private credential creation before launching Claude/Codex. It
 binds and enables hooks before submitting the first prompt; enabling failure
-retains the live pane and durable mapping. Explicit `supervision:"polling"` skips
+retains the live pane and durable mapping. Explicit `pushMode:"polling"` skips
 wiring, and shells always poll. `args` and bounded `env` values extend the managed
 launcher as literal argv, never shell source; they conflict with explicit command
 overrides. Hook preparation failures never silently downgrade the launch; a push against a disabled registration is

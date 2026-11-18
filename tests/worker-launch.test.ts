@@ -52,6 +52,13 @@ test('missing hook service requires an explicit polling escape hatch', async () 
   );
   await assert.rejects(agents.spawn({ name: 'required', cli: 'codex' }), /WORKER_HOOKS_UNAVAILABLE/);
   assert.equal(spawned, 0);
-  await agents.spawn({ name: 'polling', cli: 'codex', supervision: 'polling' });
+  await agents.spawn({ name: 'polling', cli: 'codex', pushMode: 'polling' });
   assert.equal(spawned, 1);
+});
+
+test('pushMode accepts exactly required or polling and defaults managed workers to required', () => {
+  for (const pushMode of ['required', 'polling'] as const)
+    assert.equal(workerLaunch({ cli: 'codex', pushMode }).extra.pushMode, pushMode);
+  assert.equal(workerLaunch({ cli: 'codex' }).extra.pushMode, undefined);
+  assert.throws(() => workerLaunch({ cli: 'codex', pushMode: 'hooks' as any }), /WORKER_CONFIGURATION/);
 });

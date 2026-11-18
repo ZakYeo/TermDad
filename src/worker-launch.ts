@@ -7,7 +7,7 @@ const literal = z
   .max(8192)
   .refine((s) => !s.includes('\0'), 'NUL is not allowed');
 export const workerLaunchSchema = z.object({
-  supervision: z.enum(['hooks', 'polling']).optional(),
+  pushMode: z.enum(['required', 'polling']).optional(),
   args: z.array(literal).max(64).optional(),
   env: z
     .record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/), literal)

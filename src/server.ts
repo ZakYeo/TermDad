@@ -351,7 +351,7 @@ export function createServer(
   });
   register(
     'agent.spawn',
-    'Start a visible interactive worker. Claude/Codex require hooks by default; supervision:polling explicitly opts out. args and env configure the managed command and cannot accompany command. Codex receives the Term Dad worker skill with its first task. Readiness timeout leaves pane available for diagnosis; never auto-approves permissions.',
+    'Start a visible interactive worker. Claude/Codex require hooks by default; pushMode:polling explicitly opts out. args and env configure the managed command and cannot accompany command. Codex receives the Term Dad worker skill with its first task. Readiness timeout leaves pane available for diagnosis; never auto-approves permissions.',
     {
       ...spawnSchema.shape,
       ...workerLaunchSchema.shape,

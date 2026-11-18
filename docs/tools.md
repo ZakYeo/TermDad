@@ -20,7 +20,7 @@ Tool names use dots. All arguments are JSON objects. Omitted arguments below use
 | terminal.submit | `paneId, text?` → paste then Enter; with no text, Enter only |
 | terminal.screenshot | `paneId` → MCP PNG image via provider |
 | terminal.snapshot | `{}` → panes, 30-line tails and managed agents |
-| agent.spawn | `name, cli: claude\|codex\|shell, prompt?, timeoutMs?, accountRef?, supervision?: hooks|polling, args?: string[], env?: object` plus terminal.spawn options → mapped worker; optional explicit usage account binding; prompt waits for readiness; first Codex task includes the worker skill |
+| agent.spawn | `name, cli: claude\|codex\|shell, prompt?, timeoutMs?, accountRef?, pushMode?: required\|polling, args?: string[], env?: object` plus terminal.spawn options → mapped worker; optional explicit usage account binding; prompt waits for readiness; first Codex task includes the worker skill |
 | agent.list | `{}` → saved metadata, attachment state, recovery reason and storage warning; no terminal text |
 | agent.adopt | `name, paneId, cli, workerSkillInitialized?` → register an existing pane; no input sent |
 | agent.reattach | `agentId, paneId, acknowledgeUncertainDelivery?, workerSkillInitialized?` → explicitly bind a saved worker; no input sent |
@@ -299,7 +299,7 @@ property of that client, not of Term Dad. Confirm it before relying on it.
 ## Worker-pushed events
 
 New managed Claude/Codex launches **require hooks and enable them before the first
-prompt**. Set `supervision:"polling"` explicitly to launch without hooks. Shell
+prompt** (`pushMode:"required"`, the default). Set `pushMode:"polling"` explicitly to launch without hooks. Shell
 workers always use polling. Spawn returns `supervision` facts including `enabled`,
 `deliverable`, `proven`, and `reason`; enabling does not prove delivery.
 
@@ -933,7 +933,7 @@ Omit `agent.spawn.command` for the configured launcher, which forwards hook flag
 to the CLI. A custom shell command such as `["zsh","-lic","claude"]` consumes
 appended arguments as shell positional parameters; it does not pass them to Claude.
 Recognized shell overrides without the supported argv-forwarding form are rejected
-before pane creation. Explicit `supervision:"polling"` launches them unchanged
+before pane creation. Explicit `pushMode:"polling"` launches them unchanged
 without hooks; `push.set` cannot enable those unwired panes.
 Other custom launchers must forward appended flags themselves; configured wiring
 is not proof that their hooks execute. Keep the normal watch polling interval until

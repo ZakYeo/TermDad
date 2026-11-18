@@ -86,7 +86,7 @@ test('delta recognises a scrolled screen and returns only the new lines', () => 
 test('wait_for_outcome reports the change since a pinned observation even after history eviction', async () => {
   const f = fake('› ');
   const a = new Agents(f.backend);
-  await a.spawn({ supervision: 'polling', name: 'w', cli: 'codex' });
+  await a.spawn({ pushMode: 'polling', name: 'w', cli: 'codex' });
   const base = await a.observe('w');
   const sent = await a.send('w', 'task');
   // Fill the history to its cap so the wait's first poll evicts the baseline.
@@ -110,7 +110,7 @@ test('wait_for_outcome reports the change since a pinned observation even after 
 test('polling the board does not push a worker observation out of its history', async () => {
   const f = fake('› ');
   const a = new Agents(f.backend);
-  await a.spawn({ supervision: 'polling', name: 'w', cli: 'codex' });
+  await a.spawn({ pushMode: 'polling', name: 'w', cli: 'codex' });
   const base = await a.observe('w');
   for (let i = 0; i < 20; i++) await a.summaries();
   f.setText('› \nmore');
@@ -122,7 +122,7 @@ test('polling the board does not push a worker observation out of its history', 
 test('compact observation deltas reset when switching views', async () => {
   const f = fake('⏺ Reply\n❯');
   const a = new Agents(f.backend);
-  await a.spawn({ supervision: 'polling', name: 'w', cli: 'claude' });
+  await a.spawn({ pushMode: 'polling', name: 'w', cli: 'claude' });
   const screen = await a.observe('w');
   const reply = await a.observe('w', screen.observationId, 20, 'last_reply');
   assert.equal(reply.deltaReset, true);
