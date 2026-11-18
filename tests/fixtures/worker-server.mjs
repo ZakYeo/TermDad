@@ -5,7 +5,7 @@ import { createServer } from '../../dist/server.js';
 import { WezTermBackend } from '../../dist/backend.js';
 const backend=new WezTermBackend(async(args,input)=>{
  if(args[0]==='list')return JSON.stringify([{pane_id:7,tab_id:1,window_id:1,title:'fixture',cwd:'/',size:{rows:24,cols:80}}]);
- if(args[0]==='spawn')return '7';
+ if(args[0]==='spawn'){if(process.env.WORKER_TEST_SPAWN_LOG)await appendFile(process.env.WORKER_TEST_SPAWN_LOG,JSON.stringify(args)+'\n');return '7';}
  if(args[0]==='get-text')return 'OpenAI Codex\n› Explain this codebase';
  if(args[0]==='send-text'){
   if(process.env.WORKER_TEST_LOG)await appendFile(process.env.WORKER_TEST_LOG,JSON.stringify({input})+'\n');

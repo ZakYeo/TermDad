@@ -245,11 +245,26 @@ test('managed arguments and environment reach the backend literally alongside ho
   await f.agents.spawn({
     name: 'literal',
     cli: 'codex',
-    args: ['--model', 'x $(pwd); y', ''],
+    cliArgs: ['--model', 'x $(pwd); y', ''],
     env: { EXAMPLE: 'a b\n$(pwd)', EMPTY: '' },
   });
   const argv = f.spawns[0].slice(f.spawns[0].indexOf('--') + 1);
   assert.deepEqual(argv.slice(0, 7), ['env', 'EXAMPLE=a b\n$(pwd)', 'EMPTY=', 'codex', '--model', 'x $(pwd); y', '']);
   assert.equal(argv[7], '-c');
   assert.match(argv[8], /^notify=/);
+});
+
+test('uncertain spawn preserves hooks for a possibly live pane until explicit recovery', async () => {
+  const f = fixture();
+  // The transport may have created a pane before losing its response.
+  (f.agents as any).backend.spawn = async () => {
+    throw new Error('response lost');
+  };
+  await assert.rejects(f.agents.spawn({ name: 'uncertain', cli: 'claude' }), /WORKER_SPAWN_UNCERTAIN/);
+  const saved = await f.agents.resolve('uncertain');
+  assert.equal(saved.paneId, null);
+  assert.ok(readdirSync(join(stateDir, 'push-credentials')).includes(`${saved.agentId}.json`));
+  assert.equal(f.ingress.status(saved.agentId).enabled, false);
+  await f.agents.forget(saved.agentId);
+  assert.ok(!readdirSync(join(stateDir, 'push-credentials')).includes(`${saved.agentId}.json`));
 });

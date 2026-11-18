@@ -8,7 +8,7 @@ const literal = z
   .refine((s) => !s.includes('\0'), 'NUL is not allowed');
 export const workerLaunchSchema = z.object({
   pushMode: z.enum(['required', 'polling']).optional(),
-  args: z.array(literal).max(64).optional(),
+  cliArgs: z.array(literal).max(64).optional(),
   env: z
     .record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/), literal)
     .refine(
@@ -21,15 +21,16 @@ export type WorkerLaunchOptions = z.infer<typeof workerLaunchSchema>;
 export function workerLaunch(o: SpawnOptions & WorkerLaunchOptions & { cli: 'claude' | 'codex' | 'shell' }) {
   try {
     const extra = workerLaunchSchema.parse(o);
-    if (o.command !== undefined && (extra.args !== undefined || extra.env !== undefined))
-      throw new Error('args and env cannot be combined with a custom command');
+    if (o.command !== undefined && (extra.cliArgs !== undefined || extra.env !== undefined))
+      throw new Error('cliArgs and env cannot be combined with a custom command');
     const configured = process.env[`TERM_DAD_${o.cli.toUpperCase()}_COMMAND`];
     const launch = spawnArguments({
       ...o,
       command: o.command ?? (configured ? JSON.parse(configured) : o.cli === 'shell' ? undefined : [o.cli]),
     });
-    if ((extra.args || extra.env) && !launch.command) throw new Error('args and env require a managed CLI command');
-    if (extra.args) launch.command = [...launch.command!, ...extra.args];
+    if ((extra.cliArgs || extra.env) && !launch.command)
+      throw new Error('cliArgs and env require a managed CLI command');
+    if (extra.cliArgs) launch.command = [...launch.command!, ...extra.cliArgs];
     return { launch, extra };
   } catch (e) {
     throw new CodedError('WORKER_CONFIGURATION', e instanceof Error ? e.message : String(e));

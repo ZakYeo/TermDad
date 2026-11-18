@@ -12,7 +12,7 @@ test('managed args and environment preserve literal values through the configure
     process.env[key] = JSON.stringify(base);
     const args = ['--model', 'literal $(touch /tmp/nope); `pwd`', ''];
     const env = { EXAMPLE: 'a b\n$(pwd)\'"', EMPTY: '' };
-    const { launch } = workerLaunch({ cli: 'codex', args, env });
+    const { launch } = workerLaunch({ cli: 'codex', cliArgs: args, env });
     assert.deepEqual(launch.command, [...base, ...args]);
     assert.deepEqual(launchEnvironment(launch.command, env), [
       'env',
@@ -26,7 +26,7 @@ test('managed args and environment preserve literal values through the configure
   }
 });
 test('custom commands reject args and env, and environment is bounded', () => {
-  for (const extra of [{ args: [] }, { env: {} }])
+  for (const extra of [{ cliArgs: [] }, { env: {} }])
     assert.throws(() => workerLaunch({ cli: 'codex', command: ['codex'], ...extra }), /WORKER_CONFIGURATION/);
   for (const env of [
     { 'BAD=KEY': 'x' },

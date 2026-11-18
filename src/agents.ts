@@ -282,7 +282,7 @@ export class Agents {
       const launched = required ? await this.push!.launch(w.agentId, o.cli, command) : undefined;
       if (launched?.push) w.push = launched.push;
       let paneId: number | undefined,
-        launchedPane = false;
+        spawnAttempted = false;
       try {
         let options;
         try {
@@ -296,8 +296,8 @@ export class Agents {
         await this.storage.exclusive(w.agentId, async () => {
           await this.insert(w);
           try {
+            spawnAttempted = true;
             paneId = await this.backend.spawn(options);
-            launchedPane = true;
           } catch {
             throw new Error(
               `WORKER_SPAWN_UNCERTAIN: launch response was lost or rejected; reservation ${w.agentId} retained. Inspect terminal.list before forgetting the reservation and adopting any surviving pane. Do not repeat spawn blindly.`,
@@ -326,11 +326,11 @@ export class Agents {
         });
       } catch (e) {
         // `launch` already minted a token and wrote a credential file. Release them unless a pane
-        // actually started: those two paths deliberately retain a reservation for explicit
+        // could have started: a transport error deliberately retains a reservation for explicit
         // recovery, and its credential belongs to it until it is forgotten. Without this, a
         // retried name collision or the worker cap leaks a live token per attempt and eventually
         // exhausts the registration limit, permanently breaking spawn for the whole process.
-        if (!launchedPane) await this.push?.release(w.agentId);
+        if (!spawnAttempted) await this.push?.release(w.agentId);
         throw e;
       }
       if (o.prompt !== undefined) {
