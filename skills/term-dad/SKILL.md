@@ -173,6 +173,11 @@ only handled events, and re-arm the same group command before reporting.
 acknowledge each page before listing again; group mode has no sequence cursor,
 so joining workers' earlier pending events cannot be skipped. Preserve unhandled
 requests, using the watch's awaiting-human disposition when appropriate.
+After surfacing a permission request to the user, acknowledge that event
+notification and retain the pending request with the awaiting-human disposition.
+Acknowledgment means the notification was delivered, never that permission was
+granted or the request resolved. Re-arming with that notification still pending
+would wake immediately and repeatedly.
 
 The waiter emits one JSON line. `event` means inspect; `timeout` means re-arm;
 `group_closed` means the group was explicitly closed; nonzero exit, `error`, or

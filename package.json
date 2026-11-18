@@ -37,7 +37,8 @@
     "demo": "node --import tsx scripts/demo.ts",
     "typecheck:demo": "tsc -p demo/tsconfig.json",
     "demo:view": "node --import tsx demo/view.ts",
-    "test:demo:ui": "playwright test -c demo/playwright.config.ts"
+    "test:demo:ui": "playwright test -c demo/playwright.config.ts",
+    "test:supervision": "node --import tsx scripts/live-supervision.ts"
   },
   "engines": {
     "node": ">=22"

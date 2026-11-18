@@ -20,7 +20,7 @@ Tool names use dots. All arguments are JSON objects. Omitted arguments below use
 | terminal.submit | `paneId, text?` → paste then Enter; with no text, Enter only |
 | terminal.screenshot | `paneId` → MCP PNG image via provider |
 | terminal.snapshot | `{}` → panes, 30-line tails and managed agents |
-| agent.spawn | `name, cli: claude\|codex\|shell, prompt?, timeoutMs?, accountRef?, pushMode?: required\|polling, args?: string[], env?: object` plus terminal.spawn options → mapped worker; optional explicit usage account binding; prompt waits for readiness; first Codex task includes the worker skill |
+| agent.spawn | `name, cli: claude\|codex\|shell, prompt?, timeoutMs?, accountRef?, pushMode?: required\|polling, cliArgs?: string[], env?: object` plus terminal.spawn options → mapped worker; optional explicit usage account binding; prompt waits for readiness; first Codex task includes the worker skill |
 | agent.list | `{}` → saved metadata, attachment state, recovery reason and storage warning; no terminal text |
 | agent.adopt | `name, paneId, cli, workerSkillInitialized?` → register an existing pane; no input sent |
 | agent.reattach | `agentId, paneId, acknowledgeUncertainDelivery?, workerSkillInitialized?` → explicitly bind a saved worker; no input sent |
@@ -1076,3 +1076,9 @@ events, then re-arm the same command. Events arriving between handling and
 re-arming remain pending. A `timeout` still means re-arm; `--until-event` retains
 its 24-hour orphan-process bound. Do not replace this with supervisor heartbeat
 sleep commands. Internal journal polling and terminal liveness polling remain.
+
+After escalating a permission request to the user, acknowledge the delivered
+event notification and mark its watch awaiting-human. This does not approve the
+request or resolve worker input; it prevents the same pending notification from
+immediately waking each newly armed waiter. Only actual authorized input resolves
+the worker request, and changed evidence clears the awaiting-human disposition.

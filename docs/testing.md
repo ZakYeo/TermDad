@@ -900,3 +900,82 @@ After implementing the review findings and its two follow-up findings,
 `npm run check` passed all 464 tests (build, demo typecheck, formatting, unit and
 stdio protocol checks). The reviewer rechecked the fixes and reported no further
 concrete findings. `git diff --check` also passed.
+
+### Hook-first supervision and dynamic groups (2026-11-18)
+
+Deterministic verification: `npm run check` passed **488 tests**, exit 0
+(test-runner duration 26.223 seconds; `/tmp/td-supervision-fence-check.log`).
+Coverage includes canonical `cliArgs` through MCP, uncertain-spawn credential
+preservation, isolated test credentials, exclusive/revisioned group membership,
+partial setup/recovery, borrowed versus owned watches, peer closure before watch
+reuse, stale binding repair, changing group membership under an armed waiter,
+pending-event replay, re-arm gaps, empty/closed/malformed groups, and membership
+revision fencing around candidate delivery. No mocked test establishes live
+client wake-up or CLI hook delivery.
+
+`npm run test:supervision -- codex` and `-- claude` exercise two replacement
+workers through one group; `-- claude --plan` additionally requires an actual
+ExitPlanMode approval event. Set `TERM_DAD_TEST_ENDPOINT`,
+`TERM_DAD_TEST_INSTANCE_KEY`, and `TERM_DAD_TEST_PANE` to the explicit verified
+GUI/parent pane. The harness uses private temporary server state. Claude always
+runs in a newly created temporary directory, never this checkout. Startup input
+gets a bounded readiness wait, without approval. Test cleanup targets only
+recorded test-owned panes; transport failure preserves state and scratch
+for explicit recovery.
+
+Initial live attempts did **not** establish a pass:
+
+- Codex reached launch/readiness/group setup, but `agent.send` failed with
+  `WORKER_BUSY` during terminal observation. Exit 1; test-owned cleanup completed.
+  Log: `/tmp/td-live-supervision-codex.log`. The harness now retries only known
+  lock contention through bounded readiness waits, never uncertain delivery.
+- Claude plan test used `/tmp/term-dad-claude-supervision-CDs4Ki` and stopped at
+  startup `input_required`, without approval. Exit 1. This classification alone
+  does not prove a trust/authentication prompt: later inspection showed a ready
+  composer with plan mode enabled. Cleanup of test pane 6 initially hit a
+  15-second WezTerm timeout, retaining `/tmp/term-dad-live-mrD5Yy` for recovery.
+  Log: `/tmp/td-live-supervision-claude.log`. Later recovery is recorded below.
+
+A prior docs-only check encountered transient `TASK_STORAGE_BUSY` in the existing
+cross-instance task-storage test; the subsequent full 488-test run passed. The
+first sandboxed check could not bind local sockets; required checks were rerun
+with local socket access. Personal hook configuration and permissions were not
+changed.
+
+Follow-up verification:
+
+- Per-worker watch/input coordination resolved the observed local sampling
+  contention. The next Codex run submitted the task and received a ready event,
+  but immediate `push.proven` remained false; this was not counted as a hook
+  pass (`/tmp/td-live-supervision-codex-priority.log`, exit 1). The final harness
+  gives asynchronous CLI notification a bounded event wait before checking proof.
+- Claude recovery reused the verified temporary worker in
+  `/tmp/term-dad-claude-supervision-CDs4Ki` and its retained private state. A scoped
+  event wait received an actual `plan_approval` at 10:58:55.085Z, with
+  `push.proven:true` and three accepted hook deliveries. No approval was sent.
+  The recovery exited 0 and stopped its owned pane 6 successfully
+  (`/tmp/td-live-claude-recovery.log`). This proves the Claude plan hook and event
+  wait, not a two-round group run or client auto-resume.
+- Final code verification passed **493/493 tests**, exit 0, in 22.558 seconds
+  (`/tmp/td-supervision-final2-check.log`). Added coverage verifies bounded local
+  watch draining, no input replay, a worker binding change during draining,
+  and a corresponding `not_submitted` dispatch result without automatic retry.
+  The live harness also passed standalone TypeScript checking.
+
+The harness starts its round-two waiter process before replacing membership;
+it does not claim that the process has read the empty journal before the update.
+The exact empty-read/update ordering is covered by deterministic waiter tests.
+Installed Codex was 0.166.0. Read-only inspection of its local SQLite diagnostic
+log found no notifier/hook-target error in the bounded completed-turn window;
+that absence does not establish whether a callback was invoked. No global CLI
+configuration, permission settings, or installed CLI version was changed.
+
+After recovery, a separate GUI listing confirmed pane 6 absent. Its test-owned
+scratch directory and retained state were removed; standalone evidence logs remain.
+
+The final bounded Codex rerun submitted successfully but its group waiter timed
+out after 120 seconds, before the hook-proof grace check could run (exit 1,
+`/tmp/td-live-supervision-codex-proofwait.log`). Test-owned cleanup completed and
+its isolated `/tmp/term-dad-live-OYVONy` state was removed. A two-round live
+Codex/group hook pass remains unproven. Available local diagnostics did not
+distinguish an uninvoked CLI callback from a notification wiring failure.
