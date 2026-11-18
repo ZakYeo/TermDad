@@ -9,7 +9,8 @@ function deferred() {
   const promise = new Promise<void>((r) => (resolve = r));
   return { promise, resolve };
 }
-async function fixture() {
+async function fixture(sink?: () => Promise<void>) {
+  let screen = 'test@host:~$ ';
   let now = 0,
     hold: ReturnType<typeof deferred> | undefined,
     entered = deferred();
@@ -38,7 +39,7 @@ async function fixture() {
           entered.resolve();
           await gate.promise;
         }
-        return 'test@host:~$ ';
+        return screen;
       }
       if (args[0] === 'send-text' && input) inputs.push(input);
       return '';
@@ -47,7 +48,7 @@ async function fixture() {
   );
   const agents = new Agents(backend, new MemoryWorkerStorage());
   const worker = await agents.spawn({ name: 'priority', cli: 'shell' });
-  const watches = new WatchManager(backend, agents, { automatic: false, now: () => now });
+  const watches = new WatchManager(backend, agents, { automatic: false, now: () => now, sink });
   agents.setInputCoordinator(async (id, operation) =>
     watches.withInputPriority((await agents.resolve(id)).agentId, operation),
   );
@@ -59,6 +60,9 @@ async function fixture() {
     worker,
     reads,
     inputs,
+    setText: (value: string) => {
+      screen = value;
+    },
     hold: () => {
       hold = deferred();
       entered = deferred();
@@ -138,6 +142,34 @@ test('a bounded watch drain timeout sends nothing and releases input priority', 
     await f.watches.confirm(7);
     assert.equal(f.reads.length, before + 1);
   } finally {
+    await f.watches.dispose();
+    await f.agents.close();
+  }
+});
+
+test('dispatch pins worker metadata before draining watch delivery and rejects a concurrent reattach', async () => {
+  const entered = deferred(),
+    gate = deferred();
+  const f = await fixture(async () => {
+    entered.resolve();
+    await gate.promise;
+  });
+  try {
+    f.setText('foreground work');
+    await f.poll();
+    f.setText('test@host:~$ ');
+    const poll = f.poll();
+    await entered.promise;
+    const sent = f.agents.send(f.worker.agentId, 'must not reach another pane');
+    void sent.catch(() => {});
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await f.agents.reattach({ agentId: f.worker.agentId, paneId: 8, workerSkillInitialized: true });
+    gate.resolve();
+    await poll;
+    await assert.rejects(sent, /WORKER_CHANGED/);
+    assert.equal(f.inputs.length, 0);
+  } finally {
+    gate.resolve();
     await f.watches.dispose();
     await f.agents.close();
   }

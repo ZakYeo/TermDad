@@ -49,3 +49,18 @@ test('readiness refusal retains a prepared task and records no submission', asyn
   assert.equal(result.dispatch!.status, 'not_submitted');
   assert.ok(result.currentAttemptId);
 });
+
+test('worker changed before input records no submission and never automatically retries', async () => {
+  const board = new TaskBoard(new MemoryTaskStorage()),
+    args = input();
+  let calls = 0;
+  const submit = async () => {
+    calls++;
+    throw new Error('WORKER_CHANGED');
+  };
+  const result = await board.dispatch(args, submit);
+  assert.equal(result.dispatch!.status, 'not_submitted');
+  assert.equal(result.dispatch!.errorCode, 'WORKER_CHANGED');
+  await board.dispatch(args, submit);
+  assert.equal(calls, 1);
+});

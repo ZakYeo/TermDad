@@ -93,6 +93,7 @@ export async function dispatchTask(board: TaskBoard, raw: unknown, submit: Submi
             'WORKER_NOT_READY',
             'WORKER_INPUT_REQUIRED',
             'WORKER_BUSY',
+            'WORKER_CHANGED',
             'TASK_START_BLOCKED',
             'TASK_ATTEMPT_STALE',
             'TASK_ASSIGNMENT_MISMATCH',

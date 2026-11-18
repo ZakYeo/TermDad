@@ -777,9 +777,15 @@ export class Agents {
     requireReady = true,
     mode: 'task' | 'queue' = 'task',
   ) {
-    return this.run(() =>
-      this.coordinateInput(agentId, () =>
-        this.sendLocked(agentId, mode === 'queue' ? false : requireReady, async (w) => {
+    return this.run(async () => {
+      const pinned = structuredClone(await this.lookup(agentId));
+      return this.coordinateInput(pinned.agentId, () =>
+        this.sendLocked(pinned.agentId, mode === 'queue' ? false : requireReady, async (w) => {
+          if (JSON.stringify(w) !== JSON.stringify(pinned))
+            throw new CodedError(
+              'WORKER_CHANGED',
+              'Worker changed while waiting for local observation; no input was sent. Inspect before submitting another task.',
+            );
           z.string().max(100000).parse(text);
           if (attempt) attemptReferenceSchema.parse(attempt);
           const { a } = await this.checked(w);
@@ -856,8 +862,8 @@ export class Agents {
             turnId: a.turn!.id,
           };
         }),
-      ),
-    );
+      );
+    });
   }
   recordReport(agentId: string, input: WorkerReport) {
     const report = workerReportSchema.parse(input);
