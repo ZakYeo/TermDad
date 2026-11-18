@@ -129,3 +129,14 @@ text; request `raw:true` for the earlier behavior. Session type is included;
 activity and Git workspace inspection are opt-in. See the
 [v1.0 release and migration notes](docs/release-v1.0.0.md) and
 [tool reference](docs/tools.md) for batch closing and recovery details.
+
+## Event-driven worker supervision
+
+Managed Claude/Codex workers require hook wiring by default. Pass `cliArgs` and
+`env` for launch options instead of overriding the shell command. Before task
+dispatch, prepare a `supervision` group, check its monitoring result, and run its
+returned waiter as a client-managed background process. Update group membership
+for later rounds; its armed waiter follows the change automatically. Inspect and
+handle each wake, acknowledge handled events, then re-arm. Supervisor heartbeat
+sleeps are unnecessary; bounded internal polling remains a fallback. See
+[durable supervision groups](docs/tools.md#durable-supervision-groups).

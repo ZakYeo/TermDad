@@ -100,7 +100,9 @@ hooks.
 The local launcher already preserves login/interactive shell startup and forwards
 hook arguments literally. Start the server through `scripts/launch-local` and omit
 worker command overrides. A custom `zsh -lic claude` does not forward appended
-arguments and cannot acquire hooks after launch; keep polling that existing pane.
+arguments and is rejected in required mode before opening a pane. Use `cliArgs`
+and `env` with the launcher instead. Existing unwired panes cannot acquire hooks
+after launch; keep polling them through an explicit group polling exception.
 Use a newly launched worker to adopt the supported hook surface. Hook delivery,
 not configured argv alone, establishes `proven:true`.
 
@@ -111,3 +113,13 @@ prompts. Stop reports `turn_ended` internally and triggers sampled readiness;
 it never establishes task completion. Input activity has unknown origin: CLI
 hooks do not prove a person typed. No prompt/tool input is copied to events.
 Existing workers need relaunching to receive new hook configuration.
+
+## Supervisor wake workflow
+
+Hooks produce worker events; a client-managed background event waiter delivers
+the wake. Create/update a durable supervision group, verify monitoring setup,
+start its returned waiter command and retain the client process ID, then dispatch.
+The waiter follows membership changes across rounds. On each wake inspect, handle
+or escalate, acknowledge handled events, and re-arm the same command. Do not use
+supervisor heartbeat sleeps. Status reports configuration, not proof that a client
+launched the waiter or resumed. Account usage uses a separate usage-only waiter.

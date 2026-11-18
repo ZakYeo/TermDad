@@ -152,52 +152,73 @@ Use a targeted read to resolve a menu, batching its keys with `terminal.send_key
 
 ## Waiting and waking
 
-Create or reuse a watch before dispatch: an unwatched worker can never wake
-you. Wait with `agent.wait_for_outcome` for one turn or `event.wait_for_event`
-for several, in bounded waits of at most 60 seconds, and continue after a
-timeout. Waits are fresh by default; acknowledge events because you handled
-them, and pass `freshOnly:false` only to read history.
+Use hook-first managed launches and a durable supervision group. Before sending
+any task: launch the worker without a custom shell command, wait for readiness,
+create/update its group, check `monitoringReady` and every `setupErrors` entry,
+then start the returned `waiter.example` as a client-managed background process.
+Retain its client-issued process/task ID. Command generation is not proof that
+it started, and server status cannot prove client wake support. Only then dispatch.
 
-Never end a turn with a busy worker and no pending waiter, and never promise a
-later update any other way; a wait you are inside counts only until it returns.
-To be woken while idle, call `event.wake_command` with your live `agentIds` and last handled
-`afterSequence`, then run its `example` as a detached background command.
-Without a cursor it drains pending events from sequence zero. Drain each list
-page completely before advancing to `resumeAfterSequence`; never jump to a
-newly sampled latest sequence. Use a separate unscoped usage-only waiter because
-agent filters exclude account events.
-It prints one JSON line: `{"status":"event",…}` is your wake and
-`{"status":"timeout"}` means re-arm. Read `status`, never the exit code; a
-waiter with no JSON line or a non-zero exit is broken. On every wake: inspect
-the worker, handle it, `event.acknowledge`, arm the next waiter, then report.
-Claude Code resumes on that exit; if a client does not, ask how the user wants
-updates.
+`supervision.create({name,members:[{agentId}]})` prepares hooks and watches.
+Use worker UUIDs. For later rounds replace membership with
+`supervision.update({groupId,expectedRevision,members})` before dispatch. The
+already armed group waiter follows membership changes; do not bake new UUIDs into
+a replacement command. A polling-only worker needs explicit `allowPolling:true`.
+One worker belongs to at most one active group. Partial setup is retryable; read
+the current revision and update with the intended members. Never ignore failures.
 
-Keep `ready` in the filter while waiting for a turn; drop it only for long
-unattended runs. `inactive` belongs in no wake filter. `attention_required`
-means a person is needed: a permission, login or menu prompt, or a worker
-sitting at a ready prompt with unchanged output for `attentionMs` (default two
-minutes), which is how a prose question or a plan awaiting approval reaches you.
-It is never auto-acknowledged, so remove the watch of a worker whose result you
-accepted. Inspect prompts and follow the user's authorization. Ask in the supervising session by default; only auto-approve when the user explicitly authorized that scope.
+On every wake inspect the worker, handle or escalate its request, acknowledge
+only handled events, and re-arm the same group command before reporting.
+`event.list({groupId})` drains current members' pending events. Handle and
+acknowledge each page before listing again; group mode has no sequence cursor,
+so joining workers' earlier pending events cannot be skipped. Preserve unhandled
+requests, using the watch's awaiting-human disposition when appropriate.
+
+The waiter emits one JSON line. `event` means inspect; `timeout` means re-arm;
+`group_closed` means the group was explicitly closed; nonzero exit, `error`, or
+no JSON means the waiter is broken and must be diagnosed. Never end a turn with
+busy workers and no pending waiter. Do not use `sleep; echo heartbeat`, repeated
+model-driven timer checks, or promises to check later as supervision. Internal
+bounded journal polling and terminal liveness sampling are expected backstops.
+
+If a client cannot resume on a background process exit, stay in bounded
+`event.wait_for_event` or `agent.wait_for_outcome` calls (at most 60 seconds each)
+and continue after timeout. That foreground wait counts only while it is active;
+do not promise an unattended wake the client cannot deliver. Legacy non-group
+waiters retain `afterSequence` support; group mode rejects fixed scope/cursors.
+Use a separate usage-only waiter because worker groups exclude account events.
+
+Keep `ready` in the wake filter for active turns; it means a recognized prompt,
+never task success. `inactive` is not a wake event. `attention_required` includes
+unanswered prompts and prose questions left at a ready prompt. Follow existing
+user authorization for every permission decision; events never grant approval.
+After accepting all work close the group; it removes its owned watches, not
+borrowed watches or worker panes.
 
 ## Push
 
-Push is off per pane until `push.set` enables it. Enable it for assignments
-measured in minutes so the worker reports its own turn ends. After a hook has
-delivered, the watch drops to a slow liveness poll; shell workers always poll. `enabled` is intent and
-`proven` is the only evidence a hook has fired, so report "enabled, unproven"
-until then. Omit custom shell commands when spawning through the configured
-launcher: `zsh -lic claude` does not forward injected hook flags. A wiring failure
-means keep polling and inspect `push.status`, not repeatedly enable the same channel.
-An adopted pane fails with `PUSH_NOT_WIRED`; a worker that survived
-a supervisor restart shows `hookSurface` with `enabled:false` and one `push.set`
-restores it. Never kill a survivor to restore push.
+Claude/Codex launches default to `pushMode:"required"`: known wiring failures
+reject before pane creation and hooks are enabled before initial task submission.
+Use `cliArgs` and bounded `env` values with the configured launcher for options;
+do not replace it with `zsh -lic claude`, which loses appended hook arguments.
+Only request `pushMode:"polling"` deliberately when hooks are unavailable.
+Shell workers always poll. A pane possibly created before a lost spawn response
+is retained for explicit recovery; inspect rather than launching a duplicate.
+
+`enabled` is intent, `deliverable` is visible wiring, and `proven` requires a real
+accepted hook. Report enabled-but-unproven honestly. A watch retains its normal
+poll rate until delivery is proven, then uses its slower liveness interval.
+Existing workers without hook wiring need polling or an intentional relaunch;
+workers with surviving hook credentials can recover through reattachment and
+push enable. Never kill a survivor merely to restore push. A group setup/update
+performs enable and watch preparation; status does not.
 
 ## Recovery
 
-After reconnecting, `agent.list` before spawning replacements: live workers keep
-their IDs, but observations, watches and your context do not. `agent.adopt`
+After reconnecting, `agent.list` before spawning replacements. Live workers and
+durable group membership survive; process-local observations and watches do not.
+Read `supervision.status`, then update the group with its current membership to
+restore monitoring and arm its waiter before resuming dispatch. `agent.adopt`
 (new mapping) and `agent.reattach` (saved ID) send no input; pass
 `workerSkillInitialized:true` for an existing Codex role session. `agent.forget`
 drops the mapping and leaves the pane. For `deliveryPending` or
