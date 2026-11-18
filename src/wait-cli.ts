@@ -1,3 +1,5 @@
+import { validateSupervisionState } from './supervision-storage.js';
+import { validateGroupFilter } from './supervision-filter.js';
 import { open } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { join } from 'node:path';
@@ -6,6 +8,7 @@ import { eventFilterSchema, validateEventState, matches, type EventFilter, type 
 
 export interface WaitArgs {
   filter: EventFilter;
+  groupId?: string;
   fresh: boolean;
   untilEvent: boolean;
   timeoutSeconds: number;
@@ -18,6 +21,7 @@ export interface WaitDeps {
 }
 const invalid = (detail: string) => new Error(`WAIT_ARGS_INVALID: ${detail}`);
 const flags = [
+  '--group',
   '--kinds',
   '--agents',
   '--accounts',
@@ -86,10 +90,19 @@ export function parseWaitArgs(argv: string[]): WaitArgs {
   };
   const parsed = eventFilterSchema.safeParse(candidate);
   if (!parsed.success) throw invalid('filters must be bounded journal metadata values');
+  const groupId = raw.get('--group');
+  if (groupId !== undefined) {
+    try {
+      validateGroupFilter(groupId, parsed.data);
+    } catch (e) {
+      throw invalid(e instanceof Error ? e.message : String(e));
+    }
+  }
   return {
     filter: parsed.data,
+    ...(groupId ? { groupId } : {}),
     // An explicit sequence is the deliberate history drain; otherwise never fire on a backlog.
-    fresh: after === undefined,
+    fresh: !groupId && after === undefined,
     untilEvent,
     // The cap is not a timeout the supervisor is meant to see: it only stops an orphaned waiter outliving a day.
     timeoutSeconds: untilEvent
@@ -108,7 +121,7 @@ export function parseWaitArgs(argv: string[]): WaitArgs {
  * whole new one. Deliberate: this process is detached and killable, and `FileJournal` has no
  * stale-lock recovery, so holding `events.lock` here could wedge the server's publish path.
  */
-async function read(path: string) {
+async function read<T>(path: string, validate: (value: unknown) => T) {
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
     const stat = await file.stat();
@@ -118,7 +131,7 @@ async function read(path: string) {
     const text = await file.readFile('utf8');
     // A parse failure is unambiguous corruption, not a mid-rename read, so mark it terminal.
     try {
-      return validateEventState(JSON.parse(text));
+      return validate(JSON.parse(text));
     } catch (e) {
       throw Object.assign(
         new Error(`journal is not valid event state: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`),
@@ -151,9 +164,24 @@ export async function waitForEvent(args: WaitArgs, deps: WaitDeps = {}): Promise
     provisional = false,
     corrupt: string | undefined;
   for (;;) {
+    let groupAgents: string[] | undefined;
+    if (args.groupId) {
+      try {
+        validateGroupFilter(args.groupId, args.filter);
+        const groups = await read(join(args.stateDir, 'supervision.json'), validateSupervisionState);
+        const group = groups.groups.find((g) => g.groupId === args.groupId);
+        if (!group) throw new Error('Unknown group');
+        if (group.state === 'closed')
+          return { code: 0, output: JSON.stringify({ status: 'group_closed', groupId: args.groupId }) };
+        groupAgents = group.members.map((m) => m.agentId);
+        filter = { ...args.filter, agentIds: groupAgents };
+      } catch {
+        return { code: 4, output: JSON.stringify({ status: 'error', error: 'SUPERVISION_STATE_UNREADABLE' }) };
+      }
+    }
     let state;
     try {
-      state = await read(path);
+      state = await read(path, validateEventState);
     } catch (e) {
       if ((e as { terminal?: boolean }).terminal) corrupt = e instanceof Error ? e.message : String(e);
       // Anything else is a missing journal or a mid-rename read: nothing yet, so retry.
@@ -201,6 +229,7 @@ export async function runWaitForEvent(argv: string[]): Promise<number> {
       'Usage: term-dad wait-for-event [options]\n' +
         'Resume safely: --agents <ids> --after-sequence <last handled sequence>\n' +
         'Without --after-sequence only new events are returned. Waiting never acknowledges.\n' +
+        '--group <UUID> follows membership and drains pending events; do not combine with scope filters or a sequence cursor.\n' +
         'Options: ' +
         [...flags, ...switches, '--help'].join(', ') +
         '\n',

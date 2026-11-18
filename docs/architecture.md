@@ -627,3 +627,12 @@ membership before sampling, so another server can close or remove membership
 without retaining an active observer. Borrowed watches remain independently
 owned. Group operations drain before watch/event shutdown. No group operation
 sends worker input, acknowledges events, or establishes task success.
+
+Group-mode external waiters read the private supervision journal without taking
+its lock, using atomic-rename snapshots just like the event journal. Membership
+is refreshed on every bounded poll and pending events are matched without a
+sequence baseline. The MCP group event list also omits its global sequence cursor;
+handled acknowledgments advance the drain instead. Missing or corrupt group
+state fails closed; an empty or closed group never expands into an unscoped
+subscription. Command generation reports no client-process liveness or client
+resume guarantee.

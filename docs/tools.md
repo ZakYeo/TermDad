@@ -1052,3 +1052,27 @@ pending events remain. Other servers' group-owned watches notice removal or
 closure before their next sample. An unreadable membership journal suspends those
 samples rather than assuming the group is still active. Closed groups cannot be
 reopened; a new group may reuse their worker membership.
+
+Group setup and status return `waiter.command`, `waiter.example`, and the exact
+state directory. Run the example as a client-managed background process **before
+dispatching work**, retaining the client-issued process/task ID. Generating the
+command does not start it. `event.wake_command({groupId})` returns the same form.
+The standalone `wait-for-event --group <UUID>` rereads group membership each
+bounded journal poll, so replacing members does not require replacing an armed
+waiter. It matches unacknowledged events even if they were published before a
+worker joined. Empty groups match nothing. Closing returns
+`{"status":"group_closed","groupId":"…"}`; missing/corrupt group state returns
+an explicit error and nonzero exit, never an unscoped wait.
+
+`event.list({groupId})` lists pending events for current members; process and
+acknowledge each returned page, then list again. Group mode has no sequence
+cursor: advancing a global cursor could skip a new member's older pending event.
+Only `kinds` may further filter group events; fixed worker/account/pane/watch,
+sequence, age and timestamp filters are rejected. Account usage needs its separate
+usage waiter. Non-group event APIs retain their existing cursor behavior.
+
+On a wake, inspect the worker, handle or escalate the request, acknowledge handled
+events, then re-arm the same command. Events arriving between handling and
+re-arming remain pending. A `timeout` still means re-arm; `--until-event` retains
+its 24-hour orphan-process bound. Do not replace this with supervisor heartbeat
+sleep commands. Internal journal polling and terminal liveness polling remain.

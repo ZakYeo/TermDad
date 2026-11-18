@@ -1,3 +1,6 @@
+import { validateGroupFilter } from './supervision-filter.js';
+import type { Supervision } from './supervision.js';
+import { matches } from './events.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { oneOf, waitShape, waitTimeout } from './arguments.js';
 import { existsSync } from 'node:fs';
@@ -32,19 +35,16 @@ const shellWord = (value: string) =>
 export function wakeCommand(
   stateDir = stateDirectory(),
   execPath = process.execPath,
-  filter: { agentIds?: string[]; afterSequence?: number } = {},
+  filter: { agentIds?: string[]; afterSequence?: number; groupId?: string } = {},
 ) {
   const entry = fileURLToPath(new URL('./index.js', import.meta.url)),
     command = [execPath, entry, 'wait-for-event'];
-  const args = [
-    '--until-event',
-    '--state-dir',
-    stateDir,
-    '--kinds',
-    wakeKinds.join(','),
-    '--after-sequence',
-    String(filter.afterSequence ?? 0),
-  ];
+  const args = ['--until-event', '--state-dir', stateDir, '--kinds', wakeKinds.join(',')];
+  if (filter.groupId) {
+    const { groupId, ...rest } = filter;
+    validateGroupFilter(groupId, rest);
+    args.push('--group', groupId);
+  } else args.push('--after-sequence', String(filter.afterSequence ?? 0));
   if (filter.agentIds?.length) args.push('--agents', filter.agentIds.join(','));
   // A server run from source (tsx) has no index.js beside it; say so rather than hand out a path that cannot run.
   const warning = existsSync(entry)
@@ -63,6 +63,7 @@ export function registerEventTools(
   server: McpServer,
   queue: EventQueue,
   reconcile?: (agentIds: string[], expectedInstanceKey: string) => Promise<unknown>,
+  groups?: Pick<Supervision, 'get'>,
 ) {
   if (reconcile)
     server.registerTool(
@@ -80,12 +81,34 @@ export function registerEventTools(
       description: 'List durable pending metadata events in sequence order. Does not acknowledge them.',
       inputSchema: {
         ...eventFilterSchema.shape,
+        groupId: z.uuid().optional(),
         includeAcknowledged: z.boolean().default(false),
         limit: z.number().int().min(1).max(1000).default(100),
       },
     },
-    ({ includeAcknowledged, limit, ...filter }) =>
-      toolCall('event.list', () => queue.list(filter, includeAcknowledged, limit)),
+    ({ includeAcknowledged, limit, groupId, ...filter }) =>
+      toolCall('event.list', async () => {
+        if (!groupId) return queue.list(filter, includeAcknowledged, limit);
+        validateGroupFilter(groupId, filter);
+        if (includeAcknowledged) throw new Error('SUPERVISION_FILTER_INVALID: group mode lists pending events only');
+        if (!groups) throw new Error('SUPERVISION_UNAVAILABLE');
+        const group = await groups.get(groupId);
+        const listed = await queue.list({}, false, 1000);
+        const found =
+          group.state === 'closed'
+            ? []
+            : listed.events.filter((e) => matches(e, { ...filter, agentIds: group.members.map((m) => m.agentId) }));
+        const { resumeAfterSequence: _cursor, ...metadata } = listed;
+        return {
+          ...metadata,
+          groupId,
+          groupRevision: group.revision,
+          state: group.state,
+          events: found.slice(0, limit),
+          hasMore: found.length > limit,
+          pendingCount: found.length,
+        };
+      }),
   );
   server.registerTool(
     'event.acknowledge',
@@ -120,9 +143,20 @@ export function registerEventTools(
     {
       description:
         'The exact detached command that wakes an idle supervisor when an event lands. Run its example verbatim as a background process; never run dist/wait-cli.js directly and never assume term-dad is on PATH. Read-only.',
-      inputSchema: { agentIds: eventFilterSchema.shape.agentIds, afterSequence: eventFilterSchema.shape.afterSequence },
+      inputSchema: {
+        groupId: z.uuid().optional(),
+        agentIds: eventFilterSchema.shape.agentIds,
+        afterSequence: eventFilterSchema.shape.afterSequence,
+      },
     },
-    (filter) => toolCall('event.wake_command', async () => wakeCommand(undefined, undefined, filter)),
+    (filter) =>
+      toolCall('event.wake_command', async () => {
+        if (filter.groupId) {
+          if (!groups) throw new Error('SUPERVISION_UNAVAILABLE');
+          await groups.get(filter.groupId);
+        }
+        return wakeCommand(undefined, undefined, filter);
+      }),
   );
   const stopSweeper = queue.startSweeper();
   return async () => {

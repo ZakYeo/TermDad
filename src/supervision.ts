@@ -1,3 +1,4 @@
+import { wakeCommand } from './event-tools.js';
 import { randomUUID } from 'node:crypto';
 import { CodedError } from './errors.js';
 import {
@@ -207,7 +208,11 @@ export class Supervision {
       group,
       members,
       monitoringReady: group.state === 'active' && members.every((m) => m.monitored),
-      waiter: { launched: 'unknown' as const, clientResume: 'unknown' as const },
+      waiter: {
+        ...wakeCommand(undefined, undefined, { groupId }),
+        launched: 'unknown' as const,
+        clientResume: 'unknown' as const,
+      },
       storageWarning: this.storage.warning ?? null,
     };
   }

@@ -608,7 +608,12 @@ export function createServer(
     guardWatch: (id, valid) => watches.guard(id, valid),
   });
   registerSupervisionTools(server, supervision);
-  const closeEvents = registerEventTools(server, events, (ids, key) => reconcileEvents(events, agents, ids, key));
+  const closeEvents = registerEventTools(
+    server,
+    events,
+    (ids, key) => reconcileEvents(events, agents, ids, key),
+    supervision,
+  );
   registerPushTools(server, push);
   const closeWatches = registerWatchTools(server, watches);
   // Shutdown order, explicitly: watches stop sampling and drain their in-flight sink first, so
