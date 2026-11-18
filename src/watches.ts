@@ -1,3 +1,4 @@
+import { CodedError } from './errors.js';
 import type { Monitoring } from './monitoring.js';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
@@ -76,6 +77,38 @@ export interface WatchOptions {
 }
 export class WatchManager {
   private records = new Map<string, Watch>();
+  private inputPriority = new Map<string, number>();
+  private visits = new Set<{ agentId?: string; task: Promise<void> }>();
+  /** Drain only this server's already-running samples; do not extend worker-lock retries. */
+  async withInputPriority<T>(agentId: string, operation: () => Promise<T>, drainMs = 20000): Promise<T> {
+    this.inputPriority.set(agentId, (this.inputPriority.get(agentId) ?? 0) + 1);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const running = [...this.visits].filter((v) => v.agentId === agentId).map((v) => v.task);
+      if (running.length)
+        await Promise.race([
+          Promise.allSettled(running),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(
+              () =>
+                reject(
+                  new CodedError(
+                    'WORKER_BUSY',
+                    'A local watch is still sampling; no input was sent. Retry after observation finishes.',
+                  ),
+                ),
+              drainMs,
+            );
+          }),
+        ]);
+      return await operation();
+    } finally {
+      if (timer) clearTimeout(timer);
+      const remaining = this.inputPriority.get(agentId)! - 1;
+      if (remaining) this.inputPriority.set(agentId, remaining);
+      else this.inputPriority.delete(agentId);
+    }
+  }
   private guards = new Map<string, () => Promise<boolean>>();
   guard(watchId: string, valid: () => Promise<boolean>) {
     if (!this.records.has(watchId)) throw new Error('WATCH_NOT_FOUND');
@@ -231,7 +264,15 @@ export class WatchManager {
     });
   }
   /** One sample-then-deliver pass over a watch, shared by the poll timer and pushed confirmations. */
-  private async visit(w: Watch, read: TerminalRead, source: 'poll' | 'push' = 'poll') {
+  private visit(w: Watch, read: TerminalRead, source: 'poll' | 'push' = 'poll') {
+    if (w.agentId && this.inputPriority.has(w.agentId)) return Promise.resolve();
+    const task = this.visitInternal(w, read, source);
+    const visit = { agentId: w.agentId, task };
+    this.visits.add(visit);
+    void task.finally(() => this.visits.delete(visit)).catch(() => {});
+    return task;
+  }
+  private async visitInternal(w: Watch, read: TerminalRead, source: 'poll' | 'push') {
     const guard = this.guards.get(w.watchId);
     if (guard) {
       try {

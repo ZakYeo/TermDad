@@ -636,3 +636,11 @@ handled acknowledgments advance the drain instead. Missing or corrupt group
 state fails closed; an empty or closed group never expands into an unscoped
 subscription. Command generation reports no client-process liveness or client
 resume guarantee.
+
+Managed sends give input priority over this server's watches for the same worker.
+They pause new local watch visits and drain only that worker's already-running
+visits, with a 20-second bound, before entering the existing guarded send path.
+The bound sends no input on expiry; input errors always release priority. Other
+workers continue monitoring, and external processes still use ordinary durable
+worker locking. This prevents setup-before-dispatch from repeatedly losing to a
+slow fallback sample without expanding global retries or replaying input.

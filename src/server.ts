@@ -354,7 +354,7 @@ export function createServer(
   });
   register(
     'agent.spawn',
-    'Start a visible interactive worker. Claude/Codex require hooks by default; pushMode:polling explicitly opts out. args and env configure the managed command and cannot accompany command. Codex receives the Term Dad worker skill with its first task. Readiness timeout leaves pane available for diagnosis; never auto-approves permissions.',
+    'Start a visible interactive worker. Claude/Codex require hooks by default; pushMode:polling explicitly opts out. cliArgs and env configure the managed command and cannot accompany command. Codex receives the Term Dad worker skill with its first task. Readiness timeout leaves pane available for diagnosis; never auto-approves permissions.',
     {
       ...spawnSchema.shape,
       ...workerLaunchSchema.shape,
@@ -556,6 +556,10 @@ export function createServer(
     ...(monitoring ? { monitoring } : {}),
     ...options,
     sink: options.sink ?? ((input) => publishSignal(input)),
+  });
+  agents.setInputCoordinator(async (agentId, operation) => {
+    const worker = await agents.resolve(agentId);
+    return watches.withInputPriority(worker.agentId, operation);
   });
   // Listening is best effort: a server that cannot bind still polls, it just cannot be pushed to.
   const pushReady = pushSocket
